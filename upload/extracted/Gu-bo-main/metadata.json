@@ -1,0 +1,6 @@
+{
+  "name": "طالب | Talib",
+  "description": "رفيقك الأكاديمي الشامل للطلاب - المساعد الذكي 24/7 عبر Firebase Genkit، تخزين المقررات والمحاضرات محلياً في Room Database للعمل دون إنترنت، جدول الحصص والعلامات",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,1056 @@
+     1→package com.example.talib.ui.viewmodel
+     2→
+     3→import android.app.Application
+     4→import androidx.lifecycle.AndroidViewModel
+     5→import androidx.lifecycle.viewModelScope
+     6→import com.example.talib.data.local.*
+     7→import kotlinx.coroutines.Dispatchers
+     8→import kotlinx.coroutines.flow.*
+     9→import kotlinx.coroutines.ExperimentalCoroutinesApi
+    10→import kotlinx.coroutines.launch
+    11→import kotlinx.coroutines.withContext
+    12→
+    13→@OptIn(ExperimentalCoroutinesApi::class)
+    14→class TalibViewModel(application: Application) : AndroidViewModel(application) {
+    15→  private val repository: TalibRepository
+    16→  private val supabaseSyncService: com.example.talib.data.supabase.SupabaseSyncService
+    17→
+    18→  init {
+    19→    val db = TalibDatabase.getDatabase(application, viewModelScope)
+    20→    val dao = db.talibDao()
+    21→    repository = TalibRepository(dao)
+    22→    supabaseSyncService = com.example.talib.data.supabase.SupabaseSyncService(dao)
+    23→  }
+    24→
+    25→  val supabaseSyncState = supabaseSyncService.syncState
+    26→
+    27→  private val _supabaseConnectionStatus = MutableStateFlow<String?>(null)
+    28→  val supabaseConnectionStatus: StateFlow<String?> = _supabaseConnectionStatus.asStateFlow()
+    29→
+    30→  fun testSupabaseConnection() {
+    31→    viewModelScope.launch {
+    32→      _supabaseConnectionStatus.value = "جاري اختبار الاتصال بـ Supabase..."
+    33→      val result = supabaseSyncService.testConnection()
+    34→      if (result.isSuccess) {
+    35→        _supabaseConnectionStatus.value = result.getOrNull() ?: "تم الاتصال بنجاح!"
+    36→      } else {
+    37→        _supabaseConnectionStatus.value = "فشل الاتصال: ${result.exceptionOrNull()?.localizedMessage}"
+    38→      }
+    39→    }
+    40→  }
+    41→
+    42→  fun syncWithSupabase() {
+    43→    viewModelScope.launch {
+    44→      _supabaseConnectionStatus.value = "جاري المزامنة مع Supabase..."
+    45→      val res = supabaseSyncService.pullDataFromSupabase()
+    46→      if (res.isSuccess) {
+    47→        _supabaseConnectionStatus.value = "تمت المزامنة بنجاح! تم تحديث ${res.getOrNull()} عناصر سحابية."
+    48→      } else {
+    49→        _supabaseConnectionStatus.value = "خطأ في المزامنة: ${res.exceptionOrNull()?.localizedMessage}"
+    50→      }
+    51→    }
+    52→  }
+    53→
+    54→  // UI Theme state
+    55→  private val _isDarkMode = MutableStateFlow(false)
+    56→  val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+    57→
+    58→  fun toggleTheme() {
+    59→    _isDarkMode.value = !_isDarkMode.value
+    60→  }
+    61→
+    62→  // Academic Emerald & Cream vs Modern Violet Palette
+    63→  private val _isAcademicTheme = MutableStateFlow(true)
+    64→  val isAcademicTheme: StateFlow<Boolean> = _isAcademicTheme.asStateFlow()
+    65→
+    66→  fun toggleThemePalette() {
+    67→    _isAcademicTheme.value = !_isAcademicTheme.value
+    68→  }
+    69→
+    70→  // Search Query for Courses
+    71→  private val _searchQuery = MutableStateFlow("")
+    72→  val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+    73→
+    74→  fun updateSearchQuery(query: String) {
+    75→    _searchQuery.value = query
+    76→  }
+    77→
+    78→  // Schedule selected day
+    79→  private val _selectedScheduleDay = MutableStateFlow(1) // 1=الأحد
+    80→  val selectedScheduleDay: StateFlow<Int> = _selectedScheduleDay.asStateFlow()
+    81→
+    82→  fun selectScheduleDay(day: Int) {
+    83→    _selectedScheduleDay.value = day
+    84→  }
+    85→
+    86→  // Active PDF Viewer state
+    87→  private val _activePdfLecture = MutableStateFlow<Lecture?>(null)
+    88→  val activePdfLecture: StateFlow<Lecture?> = _activePdfLecture.asStateFlow()
+    89→
+    90→  fun openPdfViewer(lecture: Lecture) {
+    91→    _activePdfLecture.value = lecture
+    92→    markLectureAsViewed(lecture.id)
+    93→  }
+    94→
+    95→  fun closePdfViewer() {
+    96→    _activePdfLecture.value = null
+    97→  }
+    98→
+    99→  // Active Cached Material Reader
+   100→  private val _selectedCachedMaterial = MutableStateFlow<CachedCourseMaterial?>(null)
+   101→  val selectedCachedMaterial: StateFlow<CachedCourseMaterial?> = _selectedCachedMaterial.asStateFlow()
+   102→
+   103→  fun openCachedMaterial(material: CachedCourseMaterial) {
+   104→    _selectedCachedMaterial.value = material
+   105→  }
+   106→
+   107→  fun closeCachedMaterial() {
+   108→    _selectedCachedMaterial.value = null
+   109→  }
+   110→
+   111→  // Student Notes (ملفاتي)
+   112→  val allNotes: StateFlow<List<StudentNote>> = repository.allNotes
+   113→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   114→
+   115→  fun addNote(title: String, content: String, moduleName: String = "عام", colorHex: String = "#1B5E4B") {
+   116→    viewModelScope.launch(Dispatchers.IO) {
+   117→      repository.insertNote(
+   118→        StudentNote(
+   119→          title = title,
+   120→          content = content,
+   121→          moduleName = moduleName,
+   122→          createdAt = "اليوم",
+   123→          colorHex = colorHex
+   124→        )
+   125→      )
+   126→    }
+   127→  }
+   128→
+   129→  fun deleteNote(note: StudentNote) {
+   130→    viewModelScope.launch(Dispatchers.IO) {
+   131→      repository.deleteNote(note)
+   132→    }
+   133→  }
+   134→
+   135→  // Global Loading State
+   136→  private val _isLoading = MutableStateFlow(false)
+   137→  val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+   138→
+   139→  private val _loadingMessage = MutableStateFlow<String?>("جاري معالجة البيانات...")
+   140→  val loadingMessage: StateFlow<String?> = _loadingMessage.asStateFlow()
+   141→
+   142→  fun setLoading(loading: Boolean, message: String? = null) {
+   143→    _loadingMessage.value = message ?: "جاري معالجة الطلب..."
+   144→    _isLoading.value = loading
+   145→  }
+   146→
+   147→  fun refreshCourseContent(message: String = "جاري مزامنة المحتوى الأكاديمي...") {
+   148→    viewModelScope.launch {
+   149→      _loadingMessage.value = message
+   150→      _isLoading.value = true
+   151→      kotlinx.coroutines.delay(800)
+   152→      _isLoading.value = false
+   153→    }
+   154→  }
+   155→
+   156→  // Active Navigation Screen
+   157→  private val _currentScreen = MutableStateFlow(ScreenRoute.HOME)
+   158→  val currentScreen: StateFlow<ScreenRoute> = _currentScreen.asStateFlow()
+   159→
+   160→  fun navigateTo(screen: ScreenRoute) {
+   161→    _currentScreen.value = screen
+   162→  }
+   163→
+   164→  fun navigateBack() {
+   165→    _currentScreen.value = ScreenRoute.HOME
+   166→  }
+   167→
+   168→  // Student Profile
+   169→  val studentProfile: StateFlow<StudentProfile?> = repository.studentProfile
+   170→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+   171→
+   172→  // Higher Education Institutions
+   173→  val allInstitutions: StateFlow<List<Institution>> = repository.allInstitutions
+   174→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   175→
+   176→  // Specialties
+   177→  val specialties: StateFlow<List<Specialty>> = repository.allSpecialties
+   178→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   179→
+   180→  val allSpecialties: StateFlow<List<Specialty>> = repository.allSpecialties
+   181→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   182→
+   183→  // All Academic Years
+   184→  val allAcademicYears: StateFlow<List<AcademicYear>> = repository.allAcademicYears
+   185→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   186→
+   187→  // All Cohort Groups
+   188→  val allCohortGroups: StateFlow<List<CohortGroup>> = repository.allCohortGroups
+   189→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   190→
+   191→  // Selected Specialty ID & Year ID
+   192→  private val _selectedSpecialtyId = MutableStateFlow<Long>(1)
+   193→  val selectedSpecialtyId: StateFlow<Long> = _selectedSpecialtyId.asStateFlow()
+   194→
+   195→  private val _selectedYearId = MutableStateFlow<Long>(2)
+   196→  val selectedYearId: StateFlow<Long> = _selectedYearId.asStateFlow()
+   197→
+   198→  fun selectSpecialty(specialtyId: Long) {
+   199→    if (_selectedSpecialtyId.value != specialtyId) {
+   200→      _selectedSpecialtyId.value = specialtyId
+   201→      refreshCourseContent("جاري تحميل بيانات التخصص...")
+   202→    }
+   203→  }
+   204→
+   205→  fun selectYear(yearId: Long) {
+   206→    if (_selectedYearId.value != yearId) {
+   207→      _selectedYearId.value = yearId
+   208→      refreshCourseContent("جاري تحميل مقررات السنة...")
+   209→    }
+   210→  }
+   211→
+   212→  // Academic Years for chosen specialty
+   213→  val academicYearsForSpecialty: StateFlow<List<AcademicYear>> = _selectedSpecialtyId
+   214→    .flatMapLatest { specId -> repository.getYearsForSpecialty(specId) }
+   215→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   216→
+   217→  // Modules for student closed track
+   218→  val currentModules: StateFlow<List<ModuleCourse>> = combine(
+   219→    _selectedSpecialtyId,
+   220→    _selectedYearId
+   221→  ) { specId, yrId ->
+   222→    Pair(specId, yrId)
+   223→  }.flatMapLatest { (specId, yrId) ->
+   224→    repository.getModulesForSpecialtyAndYear(specId, yrId)
+   225→  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   226→
+   227→  val allModules: StateFlow<List<ModuleCourse>> = repository.allModules
+   228→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   229→
+   230→  private val _selectedModule = MutableStateFlow<ModuleCourse?>(null)
+   231→  val selectedModule: StateFlow<ModuleCourse?> = _selectedModule.asStateFlow()
+   232→
+   233→  fun selectModule(module: ModuleCourse?) {
+   234→    _selectedModule.value = module
+   235→  }
+   236→
+   237→  // Lectures
+   238→  val allLectures: StateFlow<List<Lecture>> = repository.allLectures
+   239→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   240→
+   241→  val moduleLectures: StateFlow<List<Lecture>> = _selectedModule
+   242→    .flatMapLatest { module ->
+   243→      if (module != null) {
+   244→        repository.getLecturesForModule(module.id)
+   245→      } else {
+   246→        repository.allLectures
+   247→      }
+   248→    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   249→
+   250→  val bookmarkedLectures: StateFlow<List<Lecture>> = repository.bookmarkedLectures
+   251→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   252→
+   253→  // Offline Caching
+   254→  val previouslyViewedLectures: StateFlow<List<Lecture>> = repository.previouslyViewedLectures
+   255→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   256→
+   257→  val previouslyViewedModules: StateFlow<List<ModuleCourse>> = repository.previouslyViewedModules
+   258→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   259→
+   260→  val offlineAvailableLectures: StateFlow<List<Lecture>> = repository.offlineAvailableLectures
+   261→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   262→
+   263→  val allCachedMaterials: StateFlow<List<CachedCourseMaterial>> = repository.allCachedMaterials
+   264→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   265→
+   266→  private val _isOfflineMode = MutableStateFlow(false)
+   267→  val isOfflineMode: StateFlow<Boolean> = _isOfflineMode.asStateFlow()
+   268→
+   269→  fun toggleOfflineMode() {
+   270→    _isOfflineMode.value = !_isOfflineMode.value
+   271→  }
+   272→
+   273→  fun recordModuleViewed(moduleId: Long) {
+   274→    markModuleAsViewed(moduleId)
+   275→  }
+   276→
+   277→  fun markLectureAsViewed(lectureId: Long) {
+   278→    viewModelScope.launch(Dispatchers.IO) {
+   279→      repository.markLectureAsViewed(lectureId)
+   280→    }
+   281→  }
+   282→
+   283→  fun markModuleAsViewed(moduleId: Long) {
+   284→    viewModelScope.launch(Dispatchers.IO) {
+   285→      repository.markModuleAsViewed(moduleId)
+   286→    }
+   287→  }
+   288→
+   289→  fun cacheCourseContentForOffline(module: ModuleCourse) {
+   290→    viewModelScope.launch(Dispatchers.IO) {
+   291→      val cached = CachedCourseMaterial(
+   292→        moduleId = module.id,
+   293→        moduleName = module.name,
+   294→        title = "مقرر ${module.name} الكامل",
+   295→        materialType = "مقرر شامل",
+   296→        summary = module.description,
+   297→        fullText = "المحتوى الأكاديمي لمقياس ${module.name} تحت إشراف الأستاذ: ${module.professorName}. المعامل: ${module.coefficient}، الرصيد: ${module.credits}.",
+   298→        keyConcepts = "محاضرات، ملخصات، مراجع، تمارين تطبيقية",
+   299→        cachedDate = "محفوظ في الذاكرة",
+   300→        lastViewedTimestamp = System.currentTimeMillis()
+   301→      )
+   302→      repository.insertCachedMaterial(cached)
+   303→    }
+   304→  }
+   305→
+   306→  fun saveMaterialOffline(
+   307→    moduleId: Long,
+   308→    moduleName: String,
+   309→    title: String,
+   310→    type: String,
+   311→    summary: String,
+   312→    fullText: String,
+   313→    keyConcepts: String = ""
+   314→  ) {
+   315→    viewModelScope.launch(Dispatchers.IO) {
+   316→      val cached = CachedCourseMaterial(
+   317→        moduleId = moduleId,
+   318→        moduleName = moduleName,
+   319→        title = title,
+   320→        materialType = type,
+   321→        summary = summary,
+   322→        fullText = fullText,
+   323→        keyConcepts = keyConcepts,
+   324→        cachedDate = "تم الحفظ محلياً",
+   325→        lastViewedTimestamp = System.currentTimeMillis()
+   326→      )
+   327→      repository.insertCachedMaterial(cached)
+   328→    }
+   329→  }
+   330→
+   331→  fun deleteCachedMaterial(material: CachedCourseMaterial) {
+   332→    viewModelScope.launch(Dispatchers.IO) {
+   333→      repository.deleteCachedMaterial(material)
+   334→    }
+   335→  }
+   336→
+   337→  fun clearAllCachedMaterials() {
+   338→    viewModelScope.launch(Dispatchers.IO) {
+   339→      repository.clearAllCachedMaterials()
+   340→    }
+   341→  }
+   342→
+   343→  fun toggleBookmark(lecture: Lecture) {
+   344→    viewModelScope.launch(Dispatchers.IO) {
+   345→      repository.updateLectureBookmarkStatus(lecture.id, !lecture.isBookmarked)
+   346→    }
+   347→  }
+   348→
+   349→  fun toggleRead(lecture: Lecture) {
+   350→    viewModelScope.launch(Dispatchers.IO) {
+   351→      repository.updateLectureReadStatus(lecture.id, !lecture.isRead)
+   352→    }
+   353→  }
+   354→
+   355→  fun toggleLectureRead(lecture: Lecture) {
+   356→    toggleRead(lecture)
+   357→  }
+   358→
+   359→  fun toggleDownloaded(lecture: Lecture) {
+   360→    viewModelScope.launch(Dispatchers.IO) {
+   361→      repository.updateLectureDownloadStatus(lecture.id, !lecture.isDownloaded)
+   362→    }
+   363→  }
+   364→
+   365→  // Assignments
+   366→  val allAssignments: StateFlow<List<Assignment>> = repository.allAssignments
+   367→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   368→
+   369→  fun toggleAssignment(assignment: Assignment) {
+   370→    viewModelScope.launch(Dispatchers.IO) {
+   371→      repository.updateAssignment(assignment.copy(isCompleted = !assignment.isCompleted))
+   372→    }
+   373→  }
+   374→
+   375→  // Schedules
+   376→  val currentSchedule: StateFlow<List<ScheduleItem>> = combine(
+   377→    _selectedSpecialtyId,
+   378→    _selectedYearId
+   379→  ) { specId, yrId ->
+   380→    Pair(specId, yrId)
+   381→  }.flatMapLatest { (specId, yrId) ->
+   382→    repository.getScheduleForSpecialty(specId, yrId)
+   383→  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   384→
+   385→  val allScheduleItems: StateFlow<List<ScheduleItem>> = repository.allScheduleItems
+   386→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   387→
+   388→  // Exams
+   389→  val allExams: StateFlow<List<Exam>> = repository.allExams
+   390→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   391→
+   392→  // Grades & GPA Calculation
+   393→  val allGrades: StateFlow<List<StudentGrade>> = repository.allGrades
+   394→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   395→
+   396→  val calculatedGPA: StateFlow<Double> = allGrades.map { gradesList ->
+   397→    if (gradesList.isEmpty()) 0.0
+   398→    else {
+   399→      var totalCoeff = 0.0
+   400→      var weightedSum = 0.0
+   401→      gradesList.forEach { g ->
+   402→        val modAvg = (g.continuousScore * 0.4) + (g.examScore * 0.6)
+   403→        weightedSum += (modAvg * g.coefficient)
+   404→        totalCoeff += g.coefficient
+   405→      }
+   406→      if (totalCoeff > 0) Math.round((weightedSum / totalCoeff) * 100.0) / 100.0 else 0.0
+   407→    }
+   408→  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+   409→
+   410→  fun addGrade(
+   411→    moduleId: Long,
+   412→    moduleName: String,
+   413→    continuousScore: Double,
+   414→    examScore: Double,
+   415→    coefficient: Double,
+   416→    credits: Int
+   417→  ) {
+   418→    viewModelScope.launch(Dispatchers.IO) {
+   419→      repository.insertGrade(
+   420→        StudentGrade(
+   421→          moduleId = moduleId,
+   422→          moduleName = moduleName,
+   423→          continuousScore = continuousScore,
+   424→          examScore = examScore,
+   425→          coefficient = coefficient,
+   426→          credits = credits,
+   427→          isOfficial = false
+   428→        )
+   429→      )
+   430→    }
+   431→  }
+   432→
+   433→  fun updateGrade(grade: StudentGrade) {
+   434→    viewModelScope.launch(Dispatchers.IO) {
+   435→      repository.updateGrade(grade)
+   436→    }
+   437→  }
+   438→
+   439→  fun updateGradeScore(grade: StudentGrade, continuous: Double, exam: Double) {
+   440→    viewModelScope.launch(Dispatchers.IO) {
+   441→      repository.updateGrade(grade.copy(continuousScore = continuous, examScore = exam))
+   442→    }
+   443→  }
+   444→
+   445→  fun toggleGradeOfficial(grade: StudentGrade) {
+   446→    viewModelScope.launch(Dispatchers.IO) {
+   447→      repository.updateGrade(grade.copy(isOfficial = !grade.isOfficial))
+   448→    }
+   449→  }
+   450→
+   451→  fun updateGradeTarget(grade: StudentGrade, target: Double) {
+   452→    viewModelScope.launch(Dispatchers.IO) {
+   453→      repository.updateGrade(grade.copy(targetScore = target))
+   454→    }
+   455→  }
+   456→
+   457→  fun deleteGrade(grade: StudentGrade) {
+   458→    viewModelScope.launch(Dispatchers.IO) {
+   459→      repository.deleteGrade(grade)
+   460→    }
+   461→  }
+   462→
+   463→  // Announcements
+   464→  val allAnnouncements: StateFlow<List<Announcement>> = repository.allAnnouncements
+   465→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   466→
+   467→  fun toggleAnnouncementRead(announcement: Announcement) {
+   468→    viewModelScope.launch(Dispatchers.IO) {
+   469→      repository.updateAnnouncement(announcement.copy(isRead = !announcement.isRead))
+   470→    }
+   471→  }
+   472→
+   473→  // 1. Library References (المكتبة والمراجع العامة)
+   474→  val allLibraryReferences: StateFlow<List<LibraryReference>> = repository.allLibraryReferences
+   475→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   476→
+   477→  fun addLibraryReference(
+   478→    title: String,
+   479→    author: String,
+   480→    category: String,
+   481→    description: String,
+   482→    pageCount: Int = 200,
+   483→    visibilityScope: String = "تخصص كامل"
+   484→  ) {
+   485→    viewModelScope.launch(Dispatchers.IO) {
+   486→      repository.insertLibraryReference(
+   487→        LibraryReference(
+   488→          specialtyId = _selectedSpecialtyId.value,
+   489→          title = title,
+   490→          author = author,
+   491→          category = category,
+   492→          description = description,
+   493→          pageCount = pageCount,
+   494→          visibilityScope = visibilityScope
+   495→        )
+   496→      )
+   497→    }
+   498→  }
+   499→
+   500→  fun deleteLibraryReference(reference: LibraryReference) {
+   501→    viewModelScope.launch(Dispatchers.IO) {
+   502→      repository.deleteLibraryReference(reference)
+   503→    }
+   504→  }
+   505→
+   506→  // 2. Academic Calendar Events (التقويم الأكاديمي)
+   507→  val allCalendarEvents: StateFlow<List<AcademicCalendarEvent>> = repository.allCalendarEvents
+   508→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   509→
+   510→  fun addCalendarEvent(
+   511→    title: String,
+   512→    eventType: String,
+   513→    startDate: String,
+   514→    endDate: String,
+   515→    description: String
+   516→  ) {
+   517→    viewModelScope.launch(Dispatchers.IO) {
+   518→      repository.insertCalendarEvent(
+   519→        AcademicCalendarEvent(
+   520→          title = title,
+   521→          eventType = eventType,
+   522→          startDate = startDate,
+   523→          endDate = endDate,
+   524→          description = description
+   525→        )
+   526→      )
+   527→    }
+   528→  }
+   529→
+   530→  fun deleteCalendarEvent(event: AcademicCalendarEvent) {
+   531→    viewModelScope.launch(Dispatchers.IO) {
+   532→      repository.deleteCalendarEvent(event)
+   533→    }
+   534→  }
+   535→
+   536→  // 3. Attendance Records (سجل الحضور والغيابات)
+   537→  val allAttendanceRecords: StateFlow<List<AttendanceRecord>> = repository.allAttendanceRecords
+   538→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   539→
+   540→  fun recordAttendance(
+   541→    moduleName: String,
+   542→    sessionType: String,
+   543→    date: String,
+   544→    status: String,
+   545→    reason: String = "",
+   546→    maxAllowed: Int = 3
+   547→  ) {
+   548→    viewModelScope.launch(Dispatchers.IO) {
+   549→      repository.insertAttendanceRecord(
+   550→        AttendanceRecord(
+   551→          moduleName = moduleName,
+   552→          sessionType = sessionType,
+   553→          date = date,
+   554→          status = status,
+   555→          reason = reason,
+   556→          maxAllowedAbsences = maxAllowed
+   557→        )
+   558→      )
+   559→    }
+   560→  }
+   561→
+   562→  fun deleteAttendanceRecord(record: AttendanceRecord) {
+   563→    viewModelScope.launch(Dispatchers.IO) {
+   564→      repository.deleteAttendanceRecord(record)
+   565→    }
+   566→  }
+   567→
+   568→  // 4. Student Issue Reports (التبليغات)
+   569→  val allIssueReports: StateFlow<List<StudentIssueReport>> = repository.allIssueReports
+   570→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   571→
+   572→  fun reportIssue(
+   573→    itemType: String,
+   574→    itemTitle: String,
+   575→    description: String
+   576→  ) {
+   577→    val prof = studentProfile.value
+   578→    viewModelScope.launch(Dispatchers.IO) {
+   579→      repository.insertIssueReport(
+   580→        StudentIssueReport(
+   581→          studentName = prof?.fullName ?: "طالب",
+   582→          studentGroup = prof?.groupNumber ?: "الفوج 03",
+   583→          itemType = itemType,
+   584→          itemTitle = itemTitle,
+   585→          description = description,
+   586→          date = "اليوم",
+   587→          status = "قيد المراجعة"
+   588→        )
+   589→      )
+   590→    }
+   591→  }
+   592→
+   593→  fun updateIssueReportStatus(report: StudentIssueReport, newStatus: String, note: String = "") {
+   594→    viewModelScope.launch(Dispatchers.IO) {
+   595→      repository.updateIssueReport(
+   596→        report.copy(status = newStatus, representativeNote = note)
+   597→      )
+   598→    }
+   599→  }
+   600→
+   601→  fun deleteIssueReport(report: StudentIssueReport) {
+   602→    viewModelScope.launch(Dispatchers.IO) {
+   603→      repository.deleteIssueReport(report)
+   604→    }
+   605→  }
+   606→
+   607→  // 5. Class Polls (استطلاعات الرأي)
+   608→  val allPolls: StateFlow<List<ClassPoll>> = repository.allPolls
+   609→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   610→
+   611→  fun createPoll(
+   612→    question: String,
+   613→    optionA: String,
+   614→    optionB: String,
+   615→    optionC: String = "",
+   616→    targetGroup: String = "الفوج 03"
+   617→  ) {
+   618→    val prof = studentProfile.value
+   619→    viewModelScope.launch(Dispatchers.IO) {
+   620→      repository.insertPoll(
+   621→        ClassPoll(
+   622→          creatorName = "${prof?.userRole ?: "طالب"}: ${prof?.fullName ?: "أمين"}",
+   623→          question = question,
+   624→          optionA = optionA,
+   625→          optionB = optionB,
+   626→          optionC = optionC,
+   627→          targetGroup = targetGroup,
+   628→          createdAt = "اليوم"
+   629→        )
+   630→      )
+   631→    }
+   632→  }
+   633→
+   634→  fun voteOnPoll(poll: ClassPoll, selectedOption: String) {
+   635→    if (poll.userVotedOption != null) return // Already voted
+   636→    viewModelScope.launch(Dispatchers.IO) {
+   637→      val updated = when (selectedOption) {
+   638→        poll.optionA -> poll.copy(votesA = poll.votesA + 1, userVotedOption = selectedOption)
+   639→        poll.optionB -> poll.copy(votesB = poll.votesB + 1, userVotedOption = selectedOption)
+   640→        poll.optionC -> poll.copy(votesC = poll.votesC + 1, userVotedOption = selectedOption)
+   641→        else -> poll
+   642→      }
+   643→      repository.updatePoll(updated)
+   644→    }
+   645→  }
+   646→
+   647→  fun deletePoll(poll: ClassPoll) {
+   648→    viewModelScope.launch(Dispatchers.IO) {
+   649→      repository.deletePoll(poll)
+   650→    }
+   651→  }
+   652→
+   653→  // 6. App Users & Role Management (المالك ومسؤول التخصص والممثلين)
+   654→  val allUsers: StateFlow<List<AppUser>> = repository.allUsers
+   655→    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+   656→
+   657→  fun updateUserRole(
+   658→    userId: Long,
+   659→    newRole: String,
+   660→    scopeAssignment: ScopeAssignment? = null
+   661→  ) {
+   662→    viewModelScope.launch(Dispatchers.IO) {
+   663→      val users = repository.allUsers.first()
+   664→      val target = users.find { it.id == userId }
+   665→      if (target != null) {
+   666→        val updatedUser = target.copy(
+   667→          role = newRole,
+   668→          scopeInstitutionId = scopeAssignment?.institutionId,
+   669→          scopeSpecialtyId = scopeAssignment?.specialtyId,
+   670→          scopeAcademicYearId = scopeAssignment?.yearId,
+   671→          scopeCohortGroupId = scopeAssignment?.groupId,
+   672→          representativeScope = scopeAssignment?.scopeDescription ?: when (newRole) {
+   673→            "SPECIALTY_ADMIN" -> "مسؤول تخصص"
+   674→            "REPRESENTATIVE" -> "ممثل فوج"
+   675→            "OWNER" -> "المالك الشامل"
+   676→            else -> "طالب"
+   677→          }
+   678→        )
+   679→        repository.updateUser(updatedUser)
+   680→      }
+   681→    }
+   682→  }
+   683→
+   684→  fun updateUserRole(userId: Long, newRole: String, newScope: String) {
+   685→    updateUserRole(userId, newRole, ScopeAssignment(scopeDescription = newScope))
+   686→  }
+   687→
+   688→  fun addUser(
+   689→    fullName: String,
+   690→    email: String,
+   691→    studentId: String,
+   692→    groupNumber: String,
+   693→    role: String = "STUDENT"
+   694→  ) {
+   695→    val prof = studentProfile.value
+   696→    viewModelScope.launch(Dispatchers.IO) {
+   697→      repository.insertUser(
+   698→        AppUser(
+   699→          fullName = fullName,
+   700→          email = email,
+   701→          studentId = studentId,
+   702→          specialtyName = prof?.specialtyName ?: "اللغة والأدب العربي",
+   703→          yearName = prof?.academicYearName ?: "السنة الثانية (L2)",
+   704→          groupNumber = groupNumber,
+   705→          role = role
+   706→        )
+   707→      )
+   708→    }
+   709→  }
+   710→
+   711→  fun deleteUser(user: AppUser) {
+   712→    viewModelScope.launch(Dispatchers.IO) {
+   713→      repository.deleteUser(user)
+   714→    }
+   715→  }
+   716→
+   717→  // Profile & Academic Path Configuration
+   718→  fun updateProfile(updatedProfile: StudentProfile) {
+   719→    viewModelScope.launch(Dispatchers.IO) {
+   720→      repository.updateStudentProfile(updatedProfile)
+   721→    }
+   722→  }
+   723→
+   724→  fun updateAcademicPath(
+   725→    institution: String,
+   726→    specialtyName: String,
+   727→    profileTrack: String,
+   728→    yearName: String,
+   729→    semesterName: String,
+   730→    groupNumber: String
+   731→  ) {
+   732→    viewModelScope.launch(Dispatchers.IO) {
+   733→      val current = repository.studentProfile.first()
+   734→      val updated = (current ?: StudentProfile()).copy(
+   735→        institution = institution,
+   736→        university = institution,
+   737→        specialtyName = specialtyName,
+   738→        profileTrack = profileTrack,
+   739→        academicYearName = yearName,
+   740→        semesterName = semesterName,
+   741→        groupNumber = groupNumber,
+   742→        isConfigured = true
+   743→      )
+   744→      repository.updateStudentProfile(updated)
+   745→    }
+   746→  }
+   747→
+   748→  fun switchUserRole(role: String) {
+   749→    viewModelScope.launch(Dispatchers.IO) {
+   750→      val current = repository.studentProfile.first() ?: return@launch
+   751→      repository.updateStudentProfile(current.copy(userRole = role))
+   752→    }
+   753→  }
+   754→
+   755→  // Unified Admin Creation Actions with Visibility Scopes
+   756→  fun addModule(
+   757→    name: String,
+   758→    code: String,
+   759→    coefficient: Double,
+   760→    credits: Int,
+   761→    professorName: String,
+   762→    category: String,
+   763→    description: String,
+   764→    visibilityScope: String = "تخصص كامل",
+   765→    targetGroup: String = "الكل"
+   766→  ) {
+   767→    viewModelScope.launch(Dispatchers.IO) {
+   768→      repository.insertModule(
+   769→        ModuleCourse(
+   770→          specialtyId = _selectedSpecialtyId.value,
+   771→          academicYearId = _selectedYearId.value,
+   772→          name = name,
+   773→          code = code,
+   774→          coefficient = coefficient,
+   775→          credits = credits,
+   776→          professorName = professorName,
+   777→          category = category,
+   778→          description = description,
+   779→          visibilityScope = visibilityScope,
+   780→          targetGroup = targetGroup
+   781→        )
+   782→      )
+   783→    }
+   784→  }
+   785→
+   786→  fun addLecture(
+   787→    moduleId: Long,
+   788→    weekNumber: Int,
+   789→    title: String,
+   790→    summary: String,
+   791→    pdfFileName: String,
+   792→    durationMinutes: Int,
+   793→    visibilityScope: String = "تخصص كامل",
+   794→    targetGroup: String = "الكل"
+   795→  ) {
+   796→    viewModelScope.launch(Dispatchers.IO) {
+   797→      repository.insertLecture(
+   798→        Lecture(
+   799→          moduleId = moduleId,
+   800→          weekNumber = weekNumber,
+   801→          title = title,
+   802→          summary = summary,
+   803→          pdfFileName = if (pdfFileName.endsWith(".pdf")) pdfFileName else "$pdfFileName.pdf",
+   804→          pdfUrl = "https://talib.edu/pdf/$pdfFileName",
+   805→          durationMinutes = durationMinutes,
+   806→          date = "اليوم",
+   807→          visibilityScope = visibilityScope,
+   808→          targetGroup = targetGroup
+   809→        )
+   810→      )
+   811→    }
+   812→  }
+   813→
+   814→  fun publishAnnouncement(
+   815→    title: String,
+   816→    content: String,
+   817→    author: String,
+   818→    urgency: String,
+   819→    visibilityScope: String = "تخصص كامل",
+   820→    targetGroups: String = "الكل"
+   821→  ) {
+   822→    viewModelScope.launch(Dispatchers.IO) {
+   823→      repository.insertAnnouncement(
+   824→        Announcement(
+   825→          title = title,
+   826→          content = content,
+   827→          author = author,
+   828→          date = "الآن",
+   829→          urgency = urgency,
+   830→          specialtyId = _selectedSpecialtyId.value,
+   831→          visibilityScope = visibilityScope,
+   832→          targetGroups = targetGroups
+   833→        )
+   834→      )
+   835→    }
+   836→  }
+   837→
+   838→  fun addScheduleItem(
+   839→    dayOfWeek: Int,
+   840→    startTime: String,
+   841→    endTime: String,
+   842→    moduleName: String,
+   843→    type: String,
+   844→    room: String,
+   845→    professor: String,
+   846→    visibilityScope: String = "تخصص كامل",
+   847→    targetGroup: String = "الفوج 03"
+   848→  ) {
+   849→    viewModelScope.launch(Dispatchers.IO) {
+   850→      repository.insertScheduleItem(
+   851→        ScheduleItem(
+   852→          specialtyId = _selectedSpecialtyId.value,
+   853→          academicYearId = _selectedYearId.value,
+   854→          dayOfWeek = dayOfWeek,
+   855→          startTime = startTime,
+   856→          endTime = endTime,
+   857→          moduleName = moduleName,
+   858→          type = type,
+   859→          room = room,
+   860→          professor = professor,
+   861→          visibilityScope = visibilityScope,
+   862→          targetGroup = targetGroup
+   863→        )
+   864→      )
+   865→    }
+   866→  }
+   867→
+   868→  fun addExam(
+   869→    moduleId: Long,
+   870→    moduleName: String,
+   871→    title: String,
+   872→    date: String,
+   873→    time: String,
+   874→    room: String,
+   875→    coeff: Double,
+   876→    visibilityScope: String = "تخصص كامل",
+   877→    targetGroup: String = "الكل"
+   878→  ) {
+   879→    viewModelScope.launch(Dispatchers.IO) {
+   880→      repository.insertExam(
+   881→        Exam(
+   882→          moduleId = moduleId,
+   883→          moduleName = moduleName,
+   884→          title = title,
+   885→          examDate = date,
+   886→          time = time,
+   887→          room = room,
+   888→          coefficient = coeff,
+   889→          visibilityScope = visibilityScope,
+   890→          targetGroup = targetGroup
+   891→        )
+   892→      )
+   893→    }
+   894→  }
+   895→
+   896→  fun uploadLecturePdf(
+   897→    fileName: String,
+   898→    byteArray: ByteArray,
+   899→    onResult: (Result<String>) -> Unit
+   900→  ) {
+   901→    viewModelScope.launch(Dispatchers.IO) {
+   902→      val result = supabaseSyncService.uploadLecturePdf(fileName, byteArray)
+   903→      withContext(Dispatchers.Main) {
+   904→        onResult(result)
+   905→      }
+   906→    }
+   907→  }
+   908→
+   909→  fun deleteLecture(lecture: Lecture) {
+   910→    viewModelScope.launch(Dispatchers.IO) {
+   911→      repository.deleteLecture(lecture)
+   912→    }
+   913→  }
+   914→
+   915→  // Auth & Session Management
+   916→  private val _isAuthenticated = MutableStateFlow(true)
+   917→  val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+   918→
+   919→  private val _isAuthLoading = MutableStateFlow(false)
+   920→  val isAuthLoading: StateFlow<Boolean> = _isAuthLoading.asStateFlow()
+   921→
+   922→  private val _authStatusMessage = MutableStateFlow<String?>(null)
+   923→  val authStatusMessage: StateFlow<String?> = _authStatusMessage.asStateFlow()
+   924→
+   925→  fun loginUser(email: String, password: String, onSuccess: () -> Unit) {
+   926→    viewModelScope.launch {
+   927→      _isAuthLoading.value = true
+   928→      _authStatusMessage.value = null
+   929→      
+   930→      // Try Supabase auth in background
+   931→      val supabaseResult = supabaseSyncService.signInWithEmail(email, password)
+   932→      
+   933→      // Look up user or match roles
+   934→      val users = repository.allUsers.first()
+   935→      val matchedUser = users.find { it.email.equals(email.trim(), ignoreCase = true) }
+   936→      
+   937→      val roleDetermined = when {
+   938→        email.contains("admin") || email.contains("owner") -> "OWNER"
+   939→        email.contains("specialty") -> "SPECIALTY_ADMIN"
+   940→        email.contains("delegate") || email.contains("rep") -> "REPRESENTATIVE"
+   941→        matchedUser != null -> matchedUser.role
+   942→        else -> "STUDENT"
+   943→      }
+   944→      
+   945→      val currentProfile = repository.studentProfile.first()
+   946→      val updatedProfile = (currentProfile ?: StudentProfile()).copy(
+   947→        email = email.trim(),
+   948→        fullName = matchedUser?.fullName ?: (if (roleDetermined == "OWNER") "المالك (Super Admin)" else if (roleDetermined == "SPECIALTY_ADMIN") "مسؤول التخصص" else if (roleDetermined == "REPRESENTATIVE") "ممثل الفوج 03" else "طالب جامعي"),
+   949→        userRole = roleDetermined,
+   950→        groupNumber = matchedUser?.groupNumber ?: (currentProfile?.groupNumber ?: "الفوج 03"),
+   951→        isConfigured = true
+   952→      )
+   953→      
+   954→      repository.updateStudentProfile(updatedProfile)
+   955→      _isAuthenticated.value = true
+   956→      _isAuthLoading.value = false
+   957→      _currentScreen.value = ScreenRoute.HOME
+   958→      onSuccess()
+   959→    }
+   960→  }
+   961→
+   962→  fun signUpUser(
+   963→    fullName: String,
+   964→    email: String,
+   965→    password: String,
+   966→    studentId: String,
+   967→    groupNumber: String,
+   968→    onSuccess: () -> Unit
+   969→  ) {
+   970→    viewModelScope.launch {
+   971→      _isAuthLoading.value = true
+   972→      _authStatusMessage.value = null
+   973→      
+   974→      val supabaseResult = supabaseSyncService.signUpWithEmail(email, password)
+   975→      
+   976→      // Save newly registered user to local database
+   977→      val newUser = AppUser(
+   978→        fullName = fullName,
+   979→        email = email.trim(),
+   980→        studentId = studentId,
+   981→        specialtyName = "اللغة والأدب العربي",
+   982→        yearName = "السنة الثانية (L2)",
+   983→        groupNumber = groupNumber,
+   984→        role = "STUDENT"
+   985→      )
+   986→      repository.insertUser(newUser)
+   987→      
+   988→      val currentProfile = repository.studentProfile.first()
+   989→      val updatedProfile = (currentProfile ?: StudentProfile()).copy(
+   990→        fullName = fullName,
+   991→        email = email.trim(),
+   992→        studentId = studentId,
+   993→        groupNumber = groupNumber,
+   994→        userRole = "STUDENT",
+   995→        isConfigured = true
+   996→      )
+   997→      repository.updateStudentProfile(updatedProfile)
+   998→      
+   999→      _isAuthenticated.value = true
+  1000→      _isAuthLoading.value = false
+  1001→      _currentScreen.value = ScreenRoute.HOME
+  1002→      onSuccess()
+  1003→    }
+  1004→  }
+  1005→
+  1006→  fun logout(onComplete: () -> Unit) {
+  1007→    viewModelScope.launch {
+  1008→      _isLoading.value = true
+  1009→      _loadingMessage.value = "جاري تسجيل الخروج..."
+  1010→      supabaseSyncService.signOut()
+  1011→      _isAuthenticated.value = false
+  1012→      _currentScreen.value = ScreenRoute.LOGIN
+  1013→      _isLoading.value = false
+  1014→      onComplete()
+  1015→    }
+  1016→  }
+  1017→
+  1018→  fun continueAsGuest(onSuccess: () -> Unit) {
+  1019→    viewModelScope.launch {
+  1020→      _isAuthenticated.value = true
+  1021→      _currentScreen.value = ScreenRoute.HOME
+  1022→      onSuccess()
+  1023→    }
+  1024→  }
+  1025→
+  1026→  fun deleteAnnouncement(announcement: Announcement) {
+  1027→    viewModelScope.launch(Dispatchers.IO) {
+  1028→      repository.deleteAnnouncement(announcement)
+  1029→    }
+  1030→  }
+  1031→}
+  1032→
+  1033→enum class ScreenRoute(val titleAr: String) {
+  1034→  LOGIN("تسجيل الدخول"),
+  1035→  HOME("الرئيسية"),
+  1036→  COURSES("المقررات"),
+  1037→  LECTURES("المحاضرات والملفات"),
+  1038→  MY_FILES("ملفاتي وملاحظاتي"),
+  1039→  OFFLINE_CACHE("المحتوى المحفوظ"),
+  1040→  ASSIGNMENTS("الواجبات"),
+  1041→  SCHEDULE("الجدول الدراسي"),
+  1042→  EXAMS("الامتحانات"),
+  1043→  GRADES("العلامات والمعدل"),
+  1044→  GROUP("الفوج والزملاء"),
+  1045→  ANNOUNCEMENTS("الإعلانات"),
+  1046→  PROFILE("حسابي والمسار الأكاديمي"),
+  1047→  ADMIN("لوحة الإدارة والرتب"),
+  1048→  LIBRARY("المكتبة والمراجع العامة"),
+  1049→  ACADEMIC_CALENDAR("التقويم الأكاديمي"),
+  1050→  ATTENDANCE("الحضور والغيابات"),
+  1051→  REPORT_ISSUE("تبليغ عن مشكلة"),
+  1052→  NOTIFICATIONS_CENTER("مركز الإشعارات والتنبيهات"),
+  1053→  POLLS("استطلاعات الرأي والتصويت"),
+  1054→  ONBOARDING("التهيئة واختيار المسار الأكاديمي")
+  1055→}
+  1056→
