@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { fetchAcademicYears } from "@/lib/data-layer";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -7,9 +7,11 @@ export async function GET(req: NextRequest) {
   if (!specialtyId) {
     return NextResponse.json({ years: [] });
   }
-  const years = await db.academicYear.findMany({
-    where: { specialtyId: parseInt(specialtyId) },
-    orderBy: { id: "asc" },
-  });
-  return NextResponse.json({ years });
+  try {
+    const years = await fetchAcademicYears(parseInt(specialtyId));
+    return NextResponse.json({ years });
+  } catch (e) {
+    console.error("GET /api/onboarding/years error:", e);
+    return NextResponse.json({ years: [] });
+  }
 }

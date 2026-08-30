@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/service";
+import { fetchAnnouncements } from "@/lib/data-layer";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -8,16 +8,11 @@ export async function GET() {
     return NextResponse.json({ announcements: [] });
   }
 
-  const announcements = await db.announcement.findMany({
-    where: {
-      OR: [
-        { specialtyId: null },
-        { specialtyId: user.assignedSpecialtyId },
-      ],
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
-
-  return NextResponse.json({ announcements });
+  try {
+    const announcements = await fetchAnnouncements(user.assignedSpecialtyId);
+    return NextResponse.json({ announcements });
+  } catch (e) {
+    console.error("GET /api/announcements error:", e);
+    return NextResponse.json({ announcements: [] });
+  }
 }

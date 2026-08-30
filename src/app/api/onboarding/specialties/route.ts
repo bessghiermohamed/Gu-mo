@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { fetchSpecialties } from "@/lib/data-layer";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -7,9 +7,11 @@ export async function GET(req: NextRequest) {
   if (!institutionId) {
     return NextResponse.json({ specialties: [] });
   }
-  const specialties = await db.specialty.findMany({
-    where: { institutionId: parseInt(institutionId) },
-    orderBy: { nameAr: "asc" },
-  });
-  return NextResponse.json({ specialties });
+  try {
+    const specialties = await fetchSpecialties(parseInt(institutionId));
+    return NextResponse.json({ specialties });
+  } catch (e) {
+    console.error("GET /api/onboarding/specialties error:", e);
+    return NextResponse.json({ specialties: [] });
+  }
 }

@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth/service";
+import { fetchInstitutions } from "@/lib/data-layer";
 
 export async function GET() {
-  const institutions = await db.institution.findMany({
-    orderBy: { nameAr: "asc" },
-  });
-  return NextResponse.json({ institutions });
+  try {
+    const institutions = await fetchInstitutions();
+    return NextResponse.json({ institutions });
+  } catch (e) {
+    console.error("GET /api/onboarding/institutions error:", e);
+    return NextResponse.json(
+      { institutions: [], error: "فشل تحميل المؤسسات" },
+      { status: 200 }
+    );
+  }
 }

@@ -1,19 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { fetchCohorts } from "@/lib/data-layer";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const specialtyId = url.searchParams.get("specialtyId");
   const academicYearId = url.searchParams.get("academicYearId");
-  if (!specialtyId || !academicYearId) {
+  if (!specialtyId) {
     return NextResponse.json({ cohorts: [] });
   }
-  const cohorts = await db.cohortGroup.findMany({
-    where: {
-      specialtyId: parseInt(specialtyId),
-      academicYearId: parseInt(academicYearId),
-    },
-    orderBy: { id: "asc" },
-  });
-  return NextResponse.json({ cohorts });
+  try {
+    const cohorts = await fetchCohorts(
+      parseInt(specialtyId),
+      academicYearId ? parseInt(academicYearId) : undefined
+    );
+    return NextResponse.json({ cohorts });
+  } catch (e) {
+    console.error("GET /api/onboarding/cohorts error:", e);
+    return NextResponse.json({ cohorts: [] });
+  }
 }

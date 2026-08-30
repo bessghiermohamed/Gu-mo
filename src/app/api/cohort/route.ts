@@ -1,12 +1,14 @@
 /**
  * Cohort management API (fix A.2)
- * - GET: list all cohorts for a given specialty + year
- * - POST: create a new cohort (dynamic, no hardcoded "فوج 3")
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
-import { canCreateCohorts, canManageRoles } from "@/lib/auth/permissions";
+import { canCreateCohorts } from "@/lib/auth/permissions";
+import { fetchCohorts } from "@/lib/data-layer";
+
+const isVercel = process.env.VERCEL === "1";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -20,20 +22,16 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // If academicYearId is provided, filter by it. Otherwise, return all cohorts for the specialty.
-  const where: { specialtyId: number; academicYearId?: number } = {
-    specialtyId: parseInt(specialtyId),
-  };
-  if (academicYearId) {
-    where.academicYearId = parseInt(academicYearId);
+  try {
+    const cohorts = await fetchCohorts(
+      parseInt(specialtyId),
+      academicYearId ? parseInt(academicYearId) : undefined
+    );
+    return NextResponse.json({ cohorts });
+  } catch (e) {
+    console.error("GET /api/cohort error:", e);
+    return NextResponse.json({ cohorts: [] });
   }
-
-  const cohorts = await db.cohortGroup.findMany({
-    where,
-    orderBy: { id: "asc" },
-  });
-
-  return NextResponse.json({ cohorts });
 }
 
 export async function POST(req: NextRequest) {
@@ -56,7 +54,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verify caller has scope over this specialty
     if (
       user.role === "SPECIALTY_ADMIN" &&
       specialtyId !== user.assignedSpecialtyId
@@ -67,7 +64,49 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check duplicate (same specialty + same year + same name, OR same specialty + same name if no year)
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+
+      // Check duplicate
+      let dupQuery = supabase
+        .from("cohort_groups")
+        .select("id")
+        .eq("specialty_id", specialtyId)
+        .eq("group_name", groupName.trim());
+      if (academicYearId) {
+        dupQuery = dupQuery.eq("academic_year_id", academicYearId);
+      }
+      const { data: existing } = await dupQuery.maybeSingle();
+
+      if (existing) {
+        return NextResponse.json(
+          { error: `يوجد فوج بنفس الاسم "${groupName.trim()}" مسبقاً` },
+          { status: 409 }
+        );
+      }
+
+      const { data: newCohort, error } = await supabase
+        .from("cohort_groups")
+        .insert({
+          specialty_id: specialtyId,
+          academic_year_id: academicYearId ?? 1,
+          group_name: groupName.trim(),
+          sub_group: subGroup?.trim() ?? "",
+        })
+        .select()
+        .single();
+
+      if (error || !newCohort) {
+        return NextResponse.json(
+          { error: `فشل الإنشاء: ${error?.message ?? "خطأ غير معروف"}` },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ cohort: newCohort });
+    }
+
+    // Local
     const existingWhere: { specialtyId: number; academicYearId?: number; groupName: string } = {
       specialtyId,
       groupName: groupName.trim(),
@@ -86,7 +125,7 @@ export async function POST(req: NextRequest) {
     const newCohort = await db.cohortGroup.create({
       data: {
         specialtyId,
-        academicYearId: academicYearId ?? 1, // default to first year if not specified
+        academicYearId: academicYearId ?? 1,
         groupName: groupName.trim(),
         subGroup: subGroup?.trim() ?? "",
       },
