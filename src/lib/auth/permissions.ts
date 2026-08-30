@@ -161,6 +161,27 @@ export function canManageSchedule(caller: AuthUser | null): boolean {
 }
 
 /**
+ * Returns true if the caller can create new study groups (fix A.2 grouping).
+ * Same hierarchy as cohort creation.
+ */
+export function canCreateGroups(caller: AuthUser | null): boolean {
+  if (!caller) return false;
+  return (
+    caller.role === "OWNER" ||
+    caller.role === "SPECIALTY_ADMIN" ||
+    caller.role === "REPRESENTATIVE"
+  );
+}
+
+/**
+ * Returns true if the caller can review (approve/reject) join requests.
+ * Any supervisory role (with scope set) qualifies.
+ */
+export function canReviewJoinRequests(caller: AuthUser | null): boolean {
+  return canManageRoles(caller);
+}
+
+/**
  * Helper: get the role rank for sorting.
  */
 export function getRoleRank(role: UserRole): number {

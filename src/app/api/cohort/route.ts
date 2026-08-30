@@ -148,3 +148,58 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canCreateCohorts(user)) {
+    return NextResponse.json(
+      { error: "غير مصرّح" },
+      { status: 403 }
+    );
+  }
+  const url = new URL(req.url);
+  const id = url.searchParams.get("id");
+  if (!id) {
+    return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+  }
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      // First check no users are assigned to this cohort
+      const { data: usersInCohort } = await supabase
+        .from("app_users")
+        .select("id")
+        .eq("scope_cohort_group_id", parseInt(id));
+      if (usersInCohort && usersInCohort.length > 0) {
+        return NextResponse.json(
+          { error: `لا يمكن حذف الفوج: ${usersInCohort.length} مستخدم مُلحق به. انقلهم أولاً.` },
+          { status: 400 }
+        );
+      }
+      const { error } = await supabase
+        .from("cohort_groups")
+        .delete()
+        .eq("id", parseInt(id));
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+    } else {
+      const userCount = await db.appUser.count({
+        where: { scopeCohortGroupId: parseInt(id) },
+      });
+      if (userCount > 0) {
+        return NextResponse.json(
+          { error: `لا يمكن حذف الفوج: ${userCount} مستخدم مُلحق به.` },
+          { status: 400 }
+        );
+      }
+      await db.cohortGroup.delete({ where: { id: parseInt(id) } });
+    }
+    return NextResponse.json({ ok: true, message: "تم حذف الفوج" });
+  } catch (e) {
+    return NextResponse.json(
+      { error: `خطأ داخلي: ${(e as Error).message}` },
+      { status: 500 }
+    );
+  }
+}
