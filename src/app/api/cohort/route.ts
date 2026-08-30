@@ -103,7 +103,16 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      return NextResponse.json({ cohort: newCohort });
+      // Map snake_case → camelCase for client
+      return NextResponse.json({
+        cohort: {
+          id: newCohort.id,
+          specialtyId: newCohort.specialty_id,
+          academicYearId: newCohort.academic_year_id,
+          groupName: newCohort.group_name,
+          subGroup: newCohort.sub_group ?? "",
+        },
+      });
     }
 
     // Local
