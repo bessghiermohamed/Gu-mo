@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth/service";
 import { canManageRoles } from "@/lib/auth/permissions";
 import { fetchPendingJoinRequests } from "@/lib/data-layer";
 
-const isVercel = process.env.VERCEL === "1";
+const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export async function GET() {
   const user = await getCurrentUser();

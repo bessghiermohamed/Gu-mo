@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth/service";
 import { canCreateGroups } from "@/lib/auth/permissions";
 import { fetchStudyGroups } from "@/lib/data-layer";
 
-const isVercel = process.env.VERCEL === "1";
+const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);

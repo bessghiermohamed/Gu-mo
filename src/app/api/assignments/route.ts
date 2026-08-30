@@ -9,7 +9,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canCreateModules } from "@/lib/auth/permissions";
 
-const isVercel = process.env.VERCEL === "1";
+const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
