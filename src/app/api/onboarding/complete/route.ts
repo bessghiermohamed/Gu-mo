@@ -1,12 +1,13 @@
 /**
  * Complete onboarding - save user profile & link to cohort
+ * Uses Supabase on Vercel, Prisma locally.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 
-const isVercel = process.env.VERCEL === "1";
+const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,9 +22,9 @@ export async function POST(req: NextRequest) {
       email,
       institutionId,
       specialtyId,
-      trackId,
       academicYearId,
       cohortId,
+      track,
     } = body;
 
     if (!fullName?.trim() || !email?.trim()) {
@@ -36,32 +37,28 @@ export async function POST(req: NextRequest) {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
 
-      // Fetch related records
+      // Fetch related records for denormalized fields
       const [
         { data: institution },
         { data: specialty },
         { data: year },
         { data: cohort },
-        { data: track },
       ] = await Promise.all([
         institutionId
-          ? supabase.from("institutions").select("*").eq("id", institutionId).maybeSingle()
+          ? supabase.from("institutions").select("name_ar").eq("id", institutionId).maybeSingle()
           : Promise.resolve({ data: null }),
         specialtyId
-          ? supabase.from("specialties").select("*").eq("id", specialtyId).maybeSingle()
+          ? supabase.from("specialties").select("name_ar, faculty").eq("id", specialtyId).maybeSingle()
           : Promise.resolve({ data: null }),
         academicYearId
-          ? supabase.from("academic_years").select("*").eq("id", academicYearId).maybeSingle()
+          ? supabase.from("academic_years").select("year_name").eq("id", academicYearId).maybeSingle()
           : Promise.resolve({ data: null }),
         cohortId
-          ? supabase.from("cohort_groups").select("*").eq("id", cohortId).maybeSingle()
-          : Promise.resolve({ data: null }),
-        trackId
-          ? supabase.from("academic_tracks").select("*").eq("id", trackId).maybeSingle()
+          ? supabase.from("cohort_groups").select("group_name").eq("id", cohortId).maybeSingle()
           : Promise.resolve({ data: null }),
       ]);
 
-      // Update app_user — NO cohort assigned at registration (matches new Android behavior)
+      // Update app_users
       const { error: userError } = await supabase
         .from("app_users")
         .update({
@@ -70,11 +67,10 @@ export async function POST(req: NextRequest) {
           assigned_specialty_id: specialtyId ?? user.assignedSpecialtyId,
           scope_specialty_id: specialtyId ?? null,
           scope_academic_year_id: academicYearId ?? null,
-          scope_track_id: trackId ?? null,
-          scope_cohort_group_id: null, // Student gets assigned later by representative
+          scope_cohort_group_id: cohortId ?? null,
           specialty_name: specialty?.name_ar ?? "",
           year_name: year?.year_name ?? "",
-          group_number: "", // Empty — "بلا فوج" until assigned
+          group_number: cohort?.group_name ?? "",
         })
         .eq("id", user.id);
 
@@ -85,7 +81,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Upsert student_profile
+      // Upsert student_profiles
       const { error: profileError } = await supabase
         .from("student_profiles")
         .upsert({
@@ -97,13 +93,12 @@ export async function POST(req: NextRequest) {
           university: institution?.name_ar ?? "",
           faculty: specialty?.faculty ?? "",
           specialty_name: specialty?.name_ar ?? "",
-          profile_track: track?.track_name_ar ?? "",
-          track_id: trackId ?? null,
+          profile_track: track ?? "",
           selected_specialty_id: specialtyId ?? 1,
           selected_year_id: academicYearId ?? 1,
-          selected_cohort_id: null,
+          selected_cohort_id: cohortId ?? null,
           academic_year_name: year?.year_name ?? "",
-          group_number: "", // بلا فوج
+          group_number: cohort?.group_name ?? "",
           is_configured: true,
         });
 
@@ -114,7 +109,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // Local (Prisma)
+    // Local Prisma fallback
     const institution = institutionId
       ? await db.institution.findUnique({ where: { id: institutionId } })
       : null;
@@ -124,8 +119,8 @@ export async function POST(req: NextRequest) {
     const year = academicYearId
       ? await db.academicYear.findUnique({ where: { id: academicYearId } })
       : null;
-    const track = trackId
-      ? await db.academicTrack.findUnique({ where: { id: trackId } })
+    const cohort = cohortId
+      ? await db.cohortGroup.findUnique({ where: { id: cohortId } })
       : null;
 
     await db.appUser.update({
@@ -136,11 +131,10 @@ export async function POST(req: NextRequest) {
         assignedSpecialtyId: specialtyId ?? user.assignedSpecialtyId,
         scopeSpecialtyId: specialtyId ?? null,
         scopeAcademicYearId: academicYearId ?? null,
-        scopeTrackId: trackId ?? null,
-        scopeCohortGroupId: null,
+        scopeCohortGroupId: cohortId ?? null,
         specialtyName: specialty?.nameAr ?? "",
         yearName: year?.yearName ?? "",
-        groupNumber: "",
+        groupNumber: cohort?.groupName ?? "",
       },
     });
 
@@ -155,13 +149,12 @@ export async function POST(req: NextRequest) {
         university: institution?.nameAr ?? "",
         faculty: specialty?.faculty ?? "",
         specialtyName: specialty?.nameAr ?? "",
-        profileTrack: track?.trackNameAr ?? "",
-        trackId: trackId ?? null,
+        profileTrack: track ?? "",
         selectedSpecialtyId: specialtyId ?? 1,
         selectedYearId: academicYearId ?? 1,
-        selectedCohortId: null,
+        selectedCohortId: cohortId ?? null,
         academicYearName: year?.yearName ?? "",
-        groupNumber: "",
+        groupNumber: cohort?.groupName ?? "",
         isConfigured: true,
       },
       update: {
@@ -172,13 +165,12 @@ export async function POST(req: NextRequest) {
         university: institution?.nameAr ?? "",
         faculty: specialty?.faculty ?? "",
         specialtyName: specialty?.nameAr ?? "",
-        profileTrack: track?.trackNameAr ?? "",
-        trackId: trackId ?? null,
+        profileTrack: track ?? "",
         selectedSpecialtyId: specialtyId ?? 1,
         selectedYearId: academicYearId ?? 1,
-        selectedCohortId: null,
+        selectedCohortId: cohortId ?? null,
         academicYearName: year?.yearName ?? "",
-        groupNumber: "",
+        groupNumber: cohort?.groupName ?? "",
         isConfigured: true,
       },
     });
