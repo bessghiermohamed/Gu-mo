@@ -6,10 +6,6 @@ export async function GET() {
     const institutions = await fetchInstitutions();
     return NextResponse.json({ institutions });
   } catch (e) {
-    console.error("GET /api/onboarding/institutions error:", e);
-    return NextResponse.json(
-      { institutions: [], error: "فشل تحميل المؤسسات" },
-      { status: 200 }
-    );
+    return NextResponse.json({ institutions: [] });
   }
 }

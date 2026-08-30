@@ -4,9 +4,7 @@ import { fetchAcademicYears } from "@/lib/data-layer";
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const specialtyId = url.searchParams.get("specialtyId");
-  if (!specialtyId) {
-    return NextResponse.json({ years: [] });
-  }
+  if (!specialtyId) return NextResponse.json({ years: [] });
   try {
     const years = await fetchAcademicYears(parseInt(specialtyId));
     return NextResponse.json({ years });

@@ -4,15 +4,11 @@ import { fetchAnnouncements } from "@/lib/data-layer";
 
 export async function GET() {
   const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ announcements: [] });
-  }
-
+  if (!user) return NextResponse.json({ announcements: [] });
   try {
     const announcements = await fetchAnnouncements(user.assignedSpecialtyId);
     return NextResponse.json({ announcements });
   } catch (e) {
-    console.error("GET /api/announcements error:", e);
     return NextResponse.json({ announcements: [] });
   }
 }
