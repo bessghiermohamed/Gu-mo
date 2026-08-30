@@ -175,8 +175,8 @@ model Assignment {
   visibilityScope String        @default("تخصص كامل")
   targetGroup     String        @default("الكل")
   module          ModuleCourse  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  // Local per-student completion status (stored by studentId)
-  studentCompletions Json?
+  // Local per-student completion status (stored as JSON string: {"studentId": true})
+  studentCompletions String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

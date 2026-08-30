@@ -54,3 +54,4 @@ Thumbs.db
 
 # z scripts internal
 .zscripts/
+.env*
