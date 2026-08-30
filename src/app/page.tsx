@@ -22,6 +22,9 @@ import { TalibFilesScreen } from "@/components/talib/screens/files-screen";
 import { TalibProfileScreen } from "@/components/talib/screens/profile-screen";
 import { TalibAnnouncementsScreen } from "@/components/talib/screens/announcements-screen";
 import { TalibAdminPanelScreen } from "@/components/talib/screens/admin-panel-screen";
+import { TalibGroupScreen } from "@/components/talib/screens/group-screen";
+import { TalibAssignmentsScreen } from "@/components/talib/screens/assignments-screen";
+import { TalibBrowseGroupsScreen } from "@/components/talib/screens/browse-groups-screen";
 import { TalibBottomNavBar } from "@/components/talib/bottom-nav-bar";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +36,8 @@ export type ScreenRoute =
   | "GRADES"
   | "ASSIGNMENTS"
   | "FILES"
+  | "GROUP"
+  | "BROWSE_GROUPS"
   | "PROFILE"
   | "ANNOUNCEMENTS"
   | "ADMIN"
@@ -343,7 +348,10 @@ function ShellInner() {
               {currentScreen === "SCHEDULE" && <TalibScheduleScreen />}
               {currentScreen === "EXAMS" && <TalibExamsScreen />}
               {currentScreen === "GRADES" && <TalibGradesScreen />}
+              {currentScreen === "ASSIGNMENTS" && <TalibAssignmentsScreen />}
               {currentScreen === "FILES" && <TalibFilesScreen />}
+              {currentScreen === "GROUP" && <TalibGroupScreen />}
+              {currentScreen === "BROWSE_GROUPS" && <TalibBrowseGroupsScreen />}
               {currentScreen === "ANNOUNCEMENTS" && <TalibAnnouncementsScreen />}
               {currentScreen === "PROFILE" && (
                 <TalibProfileScreen

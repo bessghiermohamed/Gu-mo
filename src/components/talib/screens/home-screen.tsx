@@ -14,6 +14,7 @@ import {
   TrendingUp,
   Clock,
   BookMarked,
+  CheckSquare,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -82,6 +83,20 @@ export function TalibHomeScreen() {
       icon: <Megaphone className="w-6 h-6" />,
       route: "ANNOUNCEMENTS",
       delay: 0.25,
+    },
+    {
+      title: t("nav.assignments"),
+      subtitle: "واجبات وتكليفات",
+      icon: <CheckSquare className="w-6 h-6" />,
+      route: "ASSIGNMENTS",
+      delay: 0.3,
+    },
+    {
+      title: t("nav.group"),
+      subtitle: "زملاء الفوج",
+      icon: <Users className="w-6 h-6" />,
+      route: "GROUP",
+      delay: 0.35,
     },
   ];
 
