@@ -45,6 +45,7 @@ model Specialty {
   modules        ModuleCourse[]
   appUsers       AppUser[]
   announcements Announcement[]
+  academicTracks AcademicTrack[] // NEW: relation back to AcademicTrack
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -65,21 +66,43 @@ model AcademicYear {
 
 // =====================================================
 // 0.1 الأفواج الدراسية (Cohort Groups) — منفصل ومستقل (fix A.2)
+// + trackId لربط الفوج بالملمح الأكاديمي (matching new Android source)
 // =====================================================
 model CohortGroup {
   id              Int           @id @default(autoincrement())
   specialtyId     Int
   academicYearId  Int
+  trackId         Int?          // NEW: link to academic track (PEP/PEM/PES/etc.)
   groupName       String // "الفوج 01", "الفوج 02"...
   subGroup        String        @default("")
   createdAt       DateTime      @default(now())
   specialty       Specialty     @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
   academicYear    AcademicYear  @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  track           AcademicTrack? @relation(fields: [trackId], references: [id], onDelete: SetNull)
   appUsers        AppUser[]
 
   updatedAt DateTime @updatedAt
 
   @@unique([specialtyId, academicYearId, groupName])
+}
+
+// =====================================================
+// 0.2 الملامح الأكاديمية (Academic Tracks) — NEW from updated Android source
+// Represents tracks like PEP (primary), PEM (middle), PES (secondary), etc.
+// =====================================================
+model AcademicTrack {
+  id          Int       @id @default(autoincrement())
+  specialtyId Int
+  trackNameAr String    // "أستاذ التعليم الابتدائي (PEP)" etc.
+  code        String    // "PEP", "PEM", "PES", "INF-GEN", "ISIL"
+  specialty   Specialty @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  cohorts     CohortGroup[]
+  appUsers    AppUser[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([specialtyId, code])
 }
 
 // =====================================================
@@ -281,6 +304,7 @@ model StudentProfile {
   faculty           String   @default("")
   specialtyName     String   @default("")
   profileTrack      String   @default("")
+  trackId           Int?     // NEW: link to AcademicTrack
   selectedSpecialtyId Int   @default(1)
   selectedYearId    Int      @default(1)
   selectedCohortId  Int?     // fix A.2: link to real cohort
@@ -431,8 +455,10 @@ model AppUser {
   scopeSpecialtyId      Int?
   scopeAcademicYearId   Int?
   scopeCohortGroupId    Int?
+  scopeTrackId          Int?     // NEW: track-level scope (PEP/PEM/PES)
   specialty             Specialty? @relation(fields: [assignedSpecialtyId], references: [id])
   cohortGroup           CohortGroup? @relation(fields: [scopeCohortGroupId], references: [id])
+  track                 AcademicTrack? @relation(fields: [scopeTrackId], references: [id], onDelete: SetNull)
   deviceSessions        DeviceSession[]
   contentUploads        ContentUploadLog[]
   notificationReads    NotificationReadState[]

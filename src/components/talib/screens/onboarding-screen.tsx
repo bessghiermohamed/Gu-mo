@@ -11,8 +11,8 @@ import {
   BookOpen,
   Layers,
   Calendar,
-  Users,
   PartyPopper,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,18 +42,11 @@ interface AcademicYear {
   id: number;
   yearName: string;
 }
-interface Cohort {
+interface AcademicTrack {
   id: number;
-  groupName: string;
-  subGroup: string;
+  trackNameAr: string;
+  code: string;
 }
-
-const TRACKS = [
-  "أستاذ التعليم الابتدائي",
-  "أستاذ التعليم المتوسط",
-  "أستاذ التعليم الثانوي",
-  "أستاذ مساعد",
-] as const;
 
 export function TalibOnboardingScreen({ onComplete }: Props) {
   const { t } = useI18n();
@@ -61,24 +54,24 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
   const { dir } = useI18n();
 
   const [step, setStep] = React.useState(0);
+  // 6 steps: identity, institution, specialty, track, year, summary
+  // (cohort selection removed — students get assigned later by representative)
   const totalSteps = 6;
 
   const [institutions, setInstitutions] = React.useState<Institution[]>([]);
   const [specialties, setSpecialties] = React.useState<Specialty[]>([]);
+  const [tracks, setTracks] = React.useState<AcademicTrack[]>([]);
   const [years, setYears] = React.useState<AcademicYear[]>([]);
-  const [cohorts, setCohorts] = React.useState<Cohort[]>([]);
 
   const [selectedInstitution, setSelectedInstitution] = React.useState<number | null>(null);
   const [selectedSpecialty, setSelectedSpecialty] = React.useState<number | null>(null);
+  const [selectedTrack, setSelectedTrack] = React.useState<number | null>(null);
   const [selectedYear, setSelectedYear] = React.useState<number | null>(null);
-  const [selectedCohort, setSelectedCohort] = React.useState<number | null>(null);
-  const [selectedTrack, setSelectedTrack] = React.useState<string>(TRACKS[0]);
   const [fullName, setFullName] = React.useState(user?.fullName ?? "");
   const [email, setEmail] = React.useState(user?.email ?? "");
 
   const [saving, setSaving] = React.useState(false);
 
-  // Fetch institutions
   React.useEffect(() => {
     fetch("/api/onboarding/institutions")
       .then((r) => r.json())
@@ -86,7 +79,6 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
       .catch(() => setInstitutions([]));
   }, []);
 
-  // Fetch specialties when institution changes
   React.useEffect(() => {
     if (!selectedInstitution) return;
     fetch(`/api/onboarding/specialties?institutionId=${selectedInstitution}`)
@@ -100,35 +92,23 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
       .catch(() => setSpecialties([]));
   }, [selectedInstitution]);
 
-  // Fetch years when specialty changes
   React.useEffect(() => {
     if (!selectedSpecialty) return;
-    fetch(`/api/onboarding/years?specialtyId=${selectedSpecialty}`)
-      .then((r) => r.json())
-      .then((data) => {
-        setYears(data.years ?? []);
-        if (data.years?.length > 0) {
-          setSelectedYear(data.years[0].id);
-        }
+    Promise.all([
+      fetch(`/api/onboarding/years?specialtyId=${selectedSpecialty}`).then((r) => r.json()),
+      fetch(`/api/onboarding/tracks?specialtyId=${selectedSpecialty}`).then((r) => r.json()),
+    ])
+      .then(([yearsData, tracksData]) => {
+        setYears(yearsData.years ?? []);
+        setTracks(tracksData.tracks ?? []);
+        if (yearsData.years?.length > 0) setSelectedYear(yearsData.years[0].id);
+        if (tracksData.tracks?.length > 0) setSelectedTrack(tracksData.tracks[0].id);
       })
-      .catch(() => setYears([]));
+      .catch(() => {
+        setYears([]);
+        setTracks([]);
+      });
   }, [selectedSpecialty]);
-
-  // Fetch cohorts when year changes
-  React.useEffect(() => {
-    if (!selectedSpecialty || !selectedYear) return;
-    fetch(
-      `/api/onboarding/cohorts?specialtyId=${selectedSpecialty}&academicYearId=${selectedYear}`
-    )
-      .then((r) => r.json())
-      .then((data) => {
-        setCohorts(data.cohorts ?? []);
-        if (data.cohorts?.length > 0) {
-          setSelectedCohort(data.cohorts[0].id);
-        }
-      })
-      .catch(() => setCohorts([]));
-  }, [selectedSpecialty, selectedYear]);
 
   function canProceed() {
     switch (step) {
@@ -139,9 +119,9 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
       case 2:
         return selectedSpecialty !== null;
       case 3:
-        return selectedTrack.length > 0;
+        return selectedTrack !== null;
       case 4:
-        return selectedYear !== null && selectedCohort !== null;
+        return selectedYear !== null;
       case 5:
         return true;
       default:
@@ -165,9 +145,9 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
           email: email.trim(),
           institutionId: selectedInstitution,
           specialtyId: selectedSpecialty,
+          trackId: selectedTrack,
           academicYearId: selectedYear,
-          cohortId: selectedCohort,
-          track: selectedTrack,
+          // No cohortId — student gets assigned later by representative (matches new Android behavior)
         }),
       });
 
@@ -178,7 +158,7 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
       }
 
       onComplete();
-    } catch (e) {
+    } catch {
       toast.error("خطأ في الشبكة");
     } finally {
       setSaving(false);
@@ -190,7 +170,6 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-background via-background to-muted/30 px-4 py-6">
-      {/* Progress indicator */}
       <div className="max-w-2xl mx-auto w-full mb-6">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-muted-foreground">
@@ -326,20 +305,29 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
                 subtitle={t("onboarding.selectTrack")}
               >
                 <div className="space-y-2">
-                  {TRACKS.map((track) => (
-                    <button
-                      key={track}
-                      type="button"
-                      onClick={() => setSelectedTrack(track)}
-                      className={`w-full text-right p-4 rounded-xl border-2 transition-all ${
-                        selectedTrack === track
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                    >
-                      <div className="font-bold text-sm">{track}</div>
-                    </button>
-                  ))}
+                  {tracks.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">
+                      لا توجد ملامح متاحة لهذا التخصص
+                    </p>
+                  ) : (
+                    tracks.map((track) => (
+                      <button
+                        key={track.id}
+                        type="button"
+                        onClick={() => setSelectedTrack(track.id)}
+                        className={`w-full text-right p-4 rounded-xl border-2 transition-all ${
+                          selectedTrack === track.id
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        <div className="font-bold text-sm">{track.trackNameAr}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {track.code}
+                        </div>
+                      </button>
+                    ))
+                  )}
                 </div>
               </StepCard>
             )}
@@ -348,51 +336,32 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
               <StepCard
                 icon={<Calendar className="w-8 h-8 text-primary" />}
                 title={t("onboarding.step5Title")}
-                subtitle={t("onboarding.selectYear") + " + " + t("onboarding.selectGroup")}
+                subtitle={t("onboarding.selectYear")}
               >
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>{t("onboarding.selectYear")}</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {years.map((y) => (
-                        <button
-                          key={y.id}
-                          type="button"
-                          onClick={() => setSelectedYear(y.id)}
-                          className={`p-3 rounded-xl border-2 transition-all text-sm font-bold ${
-                            selectedYear === y.id
-                              ? "border-primary bg-primary/5 text-primary"
-                              : "border-border hover:border-primary/50"
-                          }`}
-                        >
-                          {y.yearName}
-                        </button>
-                      ))}
-                    </div>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {years.map((y) => (
+                      <button
+                        key={y.id}
+                        type="button"
+                        onClick={() => setSelectedYear(y.id)}
+                        className={`p-3 rounded-xl border-2 transition-all text-sm font-bold ${
+                          selectedYear === y.id
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        {y.yearName}
+                      </button>
+                    ))}
                   </div>
-                  <div className="space-y-2">
-                    <Label>{t("onboarding.selectGroup")}</Label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {cohorts.map((c) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => setSelectedCohort(c.id)}
-                          className={`p-3 rounded-xl border-2 transition-all text-sm font-bold ${
-                            selectedCohort === c.id
-                              ? "border-primary bg-primary/5 text-primary"
-                              : "border-border hover:border-primary/50"
-                          }`}
-                        >
-                          {c.groupName}
-                        </button>
-                      ))}
-                    </div>
-                    {cohorts.length === 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        لا توجد أفواج متاحة لهذه السنة. تواصل مع الإدارة لإضافة فوج.
-                      </p>
-                    )}
+                  <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                    <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <p>
+                      ملاحظة: لا يُختار الفوج عند التسجيل. ستبقى بحالة "بلا فوج"
+                      وترى محتوى تخصصك الكامل، حتى يُضيفك ممثل الفوج أو المشرف
+                      لفوجه يدوياً.
+                    </p>
                   </div>
                 </div>
               </StepCard>
@@ -409,20 +378,38 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
                   <SummaryRow label={t("auth.email")} value={email} />
                   <SummaryRow
                     label={t("onboarding.selectInstitution")}
-                    value={institutions.find((i) => i.id === selectedInstitution)?.nameAr ?? "-"}
+                    value={
+                      institutions.find((i) => i.id === selectedInstitution)
+                        ?.nameAr ?? "—"
+                    }
                   />
                   <SummaryRow
                     label={t("onboarding.selectSpecialty")}
-                    value={specialties.find((s) => s.id === selectedSpecialty)?.nameAr ?? "-"}
+                    value={
+                      specialties.find((s) => s.id === selectedSpecialty)
+                        ?.nameAr ?? "—"
+                    }
                   />
-                  <SummaryRow label={t("onboarding.selectTrack")} value={selectedTrack} />
+                  <SummaryRow
+                    label={t("onboarding.selectTrack")}
+                    value={
+                      tracks.find((t) => t.id === selectedTrack)?.trackNameAr ??
+                      "—"
+                    }
+                  />
                   <SummaryRow
                     label={t("onboarding.selectYear")}
-                    value={years.find((y) => y.id === selectedYear)?.yearName ?? "-"}
+                    value={
+                      years.find((y) => y.id === selectedYear)?.yearName ?? "—"
+                    }
                   />
                   <SummaryRow
-                    label={t("onboarding.selectGroup")}
-                    value={cohorts.find((c) => c.id === selectedCohort)?.groupName ?? "-"}
+                    label="الفوج"
+                    value={
+                      <span className="text-amber-600 dark:text-amber-400 font-bold">
+                        بلا فوج (قيد الإلحاق من المشرف)
+                      </span>
+                    }
                   />
                 </div>
               </StepCard>
@@ -431,7 +418,6 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
         </AnimatePresence>
       </div>
 
-      {/* Navigation buttons */}
       <div className="max-w-2xl mx-auto w-full mt-6 flex items-center justify-between gap-3">
         <Button
           variant="outline"
@@ -498,7 +484,13 @@ function StepCard({
   );
 }
 
-function SummaryRow({ label, value }: { label: string; value: string }) {
+function SummaryRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
     <div className="flex items-center justify-between gap-3 py-2 border-b border-border last:border-0">
       <span className="text-sm text-muted-foreground">{label}</span>

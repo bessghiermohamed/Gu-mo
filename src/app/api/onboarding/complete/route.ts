@@ -21,9 +21,9 @@ export async function POST(req: NextRequest) {
       email,
       institutionId,
       specialtyId,
+      trackId,
       academicYearId,
       cohortId,
-      track,
     } = body;
 
     if (!fullName?.trim() || !email?.trim()) {
@@ -37,23 +37,31 @@ export async function POST(req: NextRequest) {
       const supabase = await createSupabaseServerClient();
 
       // Fetch related records
-      const [{ data: institution }, { data: specialty }, { data: year }, { data: cohort }] =
-        await Promise.all([
-          institutionId
-            ? supabase.from("institutions").select("*").eq("id", institutionId).maybeSingle()
-            : Promise.resolve({ data: null }),
-          specialtyId
-            ? supabase.from("specialties").select("*").eq("id", specialtyId).maybeSingle()
-            : Promise.resolve({ data: null }),
-          academicYearId
-            ? supabase.from("academic_years").select("*").eq("id", academicYearId).maybeSingle()
-            : Promise.resolve({ data: null }),
-          cohortId
-            ? supabase.from("cohort_groups").select("*").eq("id", cohortId).maybeSingle()
-            : Promise.resolve({ data: null }),
-        ]);
+      const [
+        { data: institution },
+        { data: specialty },
+        { data: year },
+        { data: cohort },
+        { data: track },
+      ] = await Promise.all([
+        institutionId
+          ? supabase.from("institutions").select("*").eq("id", institutionId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        specialtyId
+          ? supabase.from("specialties").select("*").eq("id", specialtyId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        academicYearId
+          ? supabase.from("academic_years").select("*").eq("id", academicYearId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        cohortId
+          ? supabase.from("cohort_groups").select("*").eq("id", cohortId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        trackId
+          ? supabase.from("academic_tracks").select("*").eq("id", trackId).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
 
-      // Update app_user
+      // Update app_user — NO cohort assigned at registration (matches new Android behavior)
       const { error: userError } = await supabase
         .from("app_users")
         .update({
@@ -62,10 +70,11 @@ export async function POST(req: NextRequest) {
           assigned_specialty_id: specialtyId ?? user.assignedSpecialtyId,
           scope_specialty_id: specialtyId ?? null,
           scope_academic_year_id: academicYearId ?? null,
-          scope_cohort_group_id: cohortId ?? null,
+          scope_track_id: trackId ?? null,
+          scope_cohort_group_id: null, // Student gets assigned later by representative
           specialty_name: specialty?.name_ar ?? "",
           year_name: year?.year_name ?? "",
-          group_number: cohort?.group_name ?? "",
+          group_number: "", // Empty — "بلا فوج" until assigned
         })
         .eq("id", user.id);
 
@@ -88,12 +97,13 @@ export async function POST(req: NextRequest) {
           university: institution?.name_ar ?? "",
           faculty: specialty?.faculty ?? "",
           specialty_name: specialty?.name_ar ?? "",
-          profile_track: track ?? "",
+          profile_track: track?.track_name_ar ?? "",
+          track_id: trackId ?? null,
           selected_specialty_id: specialtyId ?? 1,
           selected_year_id: academicYearId ?? 1,
-          selected_cohort_id: cohortId ?? null,
+          selected_cohort_id: null,
           academic_year_name: year?.year_name ?? "",
-          group_number: cohort?.group_name ?? "",
+          group_number: "", // بلا فوج
           is_configured: true,
         });
 
@@ -114,8 +124,8 @@ export async function POST(req: NextRequest) {
     const year = academicYearId
       ? await db.academicYear.findUnique({ where: { id: academicYearId } })
       : null;
-    const cohort = cohortId
-      ? await db.cohortGroup.findUnique({ where: { id: cohortId } })
+    const track = trackId
+      ? await db.academicTrack.findUnique({ where: { id: trackId } })
       : null;
 
     await db.appUser.update({
@@ -126,10 +136,11 @@ export async function POST(req: NextRequest) {
         assignedSpecialtyId: specialtyId ?? user.assignedSpecialtyId,
         scopeSpecialtyId: specialtyId ?? null,
         scopeAcademicYearId: academicYearId ?? null,
-        scopeCohortGroupId: cohortId ?? null,
+        scopeTrackId: trackId ?? null,
+        scopeCohortGroupId: null,
         specialtyName: specialty?.nameAr ?? "",
         yearName: year?.yearName ?? "",
-        groupNumber: cohort?.groupName ?? "",
+        groupNumber: "",
       },
     });
 
@@ -144,12 +155,13 @@ export async function POST(req: NextRequest) {
         university: institution?.nameAr ?? "",
         faculty: specialty?.faculty ?? "",
         specialtyName: specialty?.nameAr ?? "",
-        profileTrack: track ?? "",
+        profileTrack: track?.trackNameAr ?? "",
+        trackId: trackId ?? null,
         selectedSpecialtyId: specialtyId ?? 1,
         selectedYearId: academicYearId ?? 1,
-        selectedCohortId: cohortId ?? null,
+        selectedCohortId: null,
         academicYearName: year?.yearName ?? "",
-        groupNumber: cohort?.groupName ?? "",
+        groupNumber: "",
         isConfigured: true,
       },
       update: {
@@ -160,12 +172,13 @@ export async function POST(req: NextRequest) {
         university: institution?.nameAr ?? "",
         faculty: specialty?.faculty ?? "",
         specialtyName: specialty?.nameAr ?? "",
-        profileTrack: track ?? "",
+        profileTrack: track?.trackNameAr ?? "",
+        trackId: trackId ?? null,
         selectedSpecialtyId: specialtyId ?? 1,
         selectedYearId: academicYearId ?? 1,
-        selectedCohortId: cohortId ?? null,
+        selectedCohortId: null,
         academicYearName: year?.yearName ?? "",
-        groupNumber: cohort?.groupName ?? "",
+        groupNumber: "",
         isConfigured: true,
       },
     });

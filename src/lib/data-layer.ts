@@ -42,8 +42,16 @@ export interface Cohort {
   id: number;
   specialtyId: number;
   academicYearId: number;
+  trackId: number | null;
   groupName: string;
   subGroup: string;
+}
+
+export interface AcademicTrack {
+  id: number;
+  specialtyId: number;
+  trackNameAr: string;
+  code: string;
 }
 
 export interface Announcement {
@@ -147,11 +155,12 @@ export async function fetchAcademicYears(specialtyId: number): Promise<AcademicY
 }
 
 // =====================================================
-// Cohorts
+// Cohorts (with optional trackId filter — matches new Android source)
 // =====================================================
 export async function fetchCohorts(
   specialtyId: number,
-  academicYearId?: number
+  academicYearId?: number,
+  trackId?: number
 ): Promise<Cohort[]> {
   if (isVercel) {
     const supabase = await createSupabaseServerClient();
@@ -162,6 +171,9 @@ export async function fetchCohorts(
     if (academicYearId) {
       query = query.eq("academic_year_id", academicYearId);
     }
+    if (trackId) {
+      query = query.eq("track_id", trackId);
+    }
     const { data, error } = await query.order("id", { ascending: true });
     if (error) {
       console.error("[supabase] fetchCohorts error:", error);
@@ -169,15 +181,46 @@ export async function fetchCohorts(
     }
     return (data ?? []).map(mapCohort);
   }
-  const where: { specialtyId: number; academicYearId?: number } = { specialtyId };
+  const where: { specialtyId: number; academicYearId?: number; trackId?: number } = { specialtyId };
   if (academicYearId) where.academicYearId = academicYearId;
+  if (trackId) where.trackId = trackId;
   const items = await db.cohortGroup.findMany({ where, orderBy: { id: "asc" } });
   return items.map((c) => ({
     id: c.id,
     specialtyId: c.specialtyId,
     academicYearId: c.academicYearId,
+    trackId: c.trackId ?? null,
     groupName: c.groupName,
     subGroup: c.subGroup,
+  }));
+}
+
+// =====================================================
+// Academic Tracks (NEW from updated Android source)
+// =====================================================
+export async function fetchAcademicTracks(specialtyId: number): Promise<AcademicTrack[]> {
+  if (isVercel) {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase
+      .from("academic_tracks")
+      .select("*")
+      .eq("specialty_id", specialtyId)
+      .order("id", { ascending: true });
+    if (error) {
+      console.error("[supabase] fetchAcademicTracks error:", error);
+      return [];
+    }
+    return (data ?? []).map(mapAcademicTrack);
+  }
+  const items = await db.academicTrack.findMany({
+    where: { specialtyId },
+    orderBy: { id: "asc" },
+  });
+  return items.map((t) => ({
+    id: t.id,
+    specialtyId: t.specialtyId,
+    trackNameAr: t.trackNameAr,
+    code: t.code,
   }));
 }
 
@@ -259,8 +302,18 @@ function mapCohort(row: Record<string, unknown>): Cohort {
     id: Number(row.id),
     specialtyId: Number(row.specialty_id ?? 0),
     academicYearId: Number(row.academic_year_id ?? 0),
+    trackId: row.track_id ? Number(row.track_id) : null,
     groupName: String(row.group_name ?? ""),
     subGroup: String(row.sub_group ?? ""),
+  };
+}
+
+function mapAcademicTrack(row: Record<string, unknown>): AcademicTrack {
+  return {
+    id: Number(row.id),
+    specialtyId: Number(row.specialty_id ?? 0),
+    trackNameAr: String(row.track_name_ar ?? ""),
+    code: String(row.code ?? ""),
   };
 }
 
