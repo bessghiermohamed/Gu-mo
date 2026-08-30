@@ -1,73 +1,41 @@
-/**
- * Delete Own Account API
- * - POST: the current user deletes their own account.
- *   SAFETY: OWNER accounts cannot self-delete (must transfer ownership first).
- *   Cleans up: device_sessions, join_requests, notification_read_states,
- *   content_upload_logs, then app_users.
- */
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getCurrentUser, SESSION_COOKIE } from "@/lib/auth/service";
+import { getCurrentUser } from "@/lib/auth/service";
 
 const isVercel = process.env.VERCEL === "1";
 
-export async function POST(_req: NextRequest) {
+export async function POST() {
   const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "غير مسجّل الدخول" }, { status: 401 });
-  }
-
-  // OWNER safety check
-  if (user.role === "OWNER") {
-    return NextResponse.json(
-      {
-        error:
-          "لا يمكن لحساب المالك حذف نفسه. نقل الملكية لمستخدم آخر أولاً قبل الحذف.",
-      },
-      { status: 403 }
-    );
-  }
-
+  if (!user) return NextResponse.json({ error: "يجب تسجيل الدخول" }, { status: 401 });
   try {
-    const userId = user.id;
-
+    if (user.role === "OWNER") {
+      if (isVercel) {
+        const supabase = await createSupabaseServerClient();
+        const { count } = await supabase.from("app_users").select("id", { count: "exact", head: true }).eq("role", "OWNER");
+        if ((count ?? 0) <= 1) return NextResponse.json({ error: "لا يمكن حذف حساب المالك الوحيد" }, { status: 400 });
+      } else {
+        const c = await db.appUser.count({ where: { role: "OWNER" } });
+        if (c <= 1) return NextResponse.json({ error: "لا يمكن حذف حساب المالك الوحيد" }, { status: 400 });
+      }
+    }
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      await supabase.from("device_sessions").delete().eq("user_id", userId);
-      await supabase.from("join_requests").delete().eq("requester_id", userId);
-      await supabase
-        .from("notification_read_states")
-        .delete()
-        .eq("user_id", userId);
-      await supabase
-        .from("content_upload_logs")
-        .delete()
-        .eq("uploaded_by_id", userId);
-      const { error } = await supabase
-        .from("app_users")
-        .delete()
-        .eq("id", userId);
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
+      await supabase.from("device_sessions").delete().eq("user_id", user.id);
+      await supabase.from("join_requests").delete().eq("requester_id", user.id);
+      await supabase.from("notification_read_states").delete().eq("user_id", user.id);
+      await supabase.from("content_upload_logs").delete().eq("uploaded_by_id", user.id);
+      const { error } = await supabase.from("app_users").delete().eq("id", user.id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     } else {
-      await db.deviceSession.deleteMany({ where: { userId } });
-      await (db as never).joinRequest?.deleteMany?.({
-        where: { requesterId: userId } as never,
-      });
-      await db.notificationReadState.deleteMany({ where: { userId } });
-      await db.contentUploadLog.deleteMany({ where: { uploadedById: userId } });
-      await db.appUser.delete({ where: { id: userId } });
+      await db.deviceSession.deleteMany({ where: { userId: user.id } });
+      await db.appUser.delete({ where: { id: user.id } });
     }
-
-    const res = NextResponse.json({ ok: true, message: "تم حذف الحساب" });
-    res.cookies.delete(SESSION_COOKIE);
-    return res;
+    const { cookies } = await import("next/headers");
+    const cookieStore = await cookies();
+    cookieStore.delete("talib_session");
+    return NextResponse.json({ ok: true, message: "تم حذف حسابك بنجاح" });
   } catch (e) {
-    return NextResponse.json(
-      { error: `خطأ داخلي: ${(e as Error).message}` },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
   }
 }

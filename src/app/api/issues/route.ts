@@ -1,7 +1,3 @@
-/**
- * Issues (Student Issue Reports) API
- * - POST: create a new issue report (any logged-in user)
- */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -12,64 +8,36 @@ const isVercel = process.env.VERCEL === "1";
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "غير مسجّل الدخول" }, { status: 401 });
+    return NextResponse.json({ error: "يجب تسجيل الدخول لإرسال تبليغ" }, { status: 401 });
   }
-
   try {
     const body = await req.json();
-    const { studentName, studentGroup, itemType, itemTitle, description } =
-      body ?? {};
-
-    if (!itemType || !itemTitle || !description) {
-      return NextResponse.json(
-        { error: "الحقول المطلوبة: itemType, itemTitle, description" },
-        { status: 400 }
-      );
+    const { itemType, itemTitle, description } = body;
+    if (!itemType?.trim() || !itemTitle?.trim()) {
+      return NextResponse.json({ error: "نوع المشكلة وعنوانها مطلوبان" }, { status: 400 });
     }
-
-    const name = String(studentName ?? user.fullName).trim();
-    const group = String(studentGroup ?? "").trim();
-    const date = new Date().toISOString().slice(0, 10);
-
+    const now = new Date().toISOString().split("T")[0];
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      const { data, error } = await supabase
-        .from("student_issue_reports")
-        .insert({
-          student_name: name,
-          student_group: group,
-          item_type: String(itemType),
-          item_title: String(itemTitle).trim(),
-          description: String(description).trim(),
-          date,
-          status: "قيد المراجعة",
-          representative_note: "",
-        })
-        .select()
-        .single();
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
-      return NextResponse.json({ issue: data });
+      const { data, error } = await supabase.from("student_issue_reports").insert({
+        student_name: user.fullName,
+        student_group: user.scopeCohortGroupId ? String(user.scopeCohortGroupId) : "بلا فوج",
+        item_type: itemType.trim(), item_title: itemTitle.trim(),
+        description: description?.trim() ?? "", date: now, status: "قيد المراجعة",
+      }).select().single();
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ report: data });
     }
-
-    const issue = await db.studentIssueReport.create({
+    const report = await db.studentIssueReport.create({
       data: {
-        studentName: name,
-        studentGroup: group,
-        itemType: String(itemType),
-        itemTitle: String(itemTitle).trim(),
-        description: String(description).trim(),
-        date,
-        status: "قيد المراجعة",
-        representativeNote: "",
+        studentName: user.fullName,
+        studentGroup: user.scopeCohortGroupId ? String(user.scopeCohortGroupId) : "بلا فوج",
+        itemType: itemType.trim(), itemTitle: itemTitle.trim(),
+        description: description?.trim() ?? "", date: now,
       },
     });
-    return NextResponse.json({ issue });
+    return NextResponse.json({ report });
   } catch (e) {
-    return NextResponse.json(
-      { error: `خطأ داخلي: ${(e as Error).message}` },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
   }
 }
