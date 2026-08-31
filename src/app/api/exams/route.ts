@@ -111,14 +111,14 @@ export async function POST(req: NextRequest) {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ exam: data });
     }
-    const module = await db.moduleCourse.findUnique({ where: { id: moduleId } });
-    if (!module) return NextResponse.json({ error: "المقياس غير موجود" }, { status: 400 });
-    if (module.specialtyId !== user.assignedSpecialtyId) {
+    const courseModule = await db.moduleCourse.findUnique({ where: { id: moduleId } });
+    if (!courseModule) return NextResponse.json({ error: "المقياس غير موجود" }, { status: 400 });
+    if (courseModule.specialtyId !== user.assignedSpecialtyId) {
       return NextResponse.json({ error: "هذا المقياس خارج نطاق تخصصك" }, { status: 403 });
     }
     const exam = await db.exam.create({
       data: {
-        moduleId, moduleName: module.name, title: title.trim(),
+        moduleId, moduleName: courseModule.name, title: title.trim(),
         examDate: examDate.trim(), time: time?.trim() || "—",
         room: room?.trim() || "—", coefficient: coefficient ?? 2,
       },

@@ -204,7 +204,6 @@ function UsersManager() {
       specMap.get(spec)!.push(u);
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], "ar"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, institutions]);
 
   async function handleDelete(u: AppUserRow) {
