@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import {
-  CheckSquare, Square, Plus, Flag, Loader2, Calendar,
+  CheckSquare, Square, Plus, Flag, Loader2, Calendar, Pencil, Trash2, BookOpen,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,15 @@ interface Assignment {
   description: string;
   dueDate: string;
   moduleName: string;
+  moduleId?: number;
   isCompleted?: boolean;
+}
+
+// round 6: courses for the real course dropdown (was: decorative text field
+// whose value was ignored — every assignment was silently attached to
+// course #1 via a hardcoded moduleId: 1)
+interface CourseOption {
+  id: number; name: string; code: string;
 }
 
 export function TalibAssignmentsScreen() {
@@ -32,6 +40,10 @@ export function TalibAssignmentsScreen() {
   const canManage = canManageRoles(user ?? null);
   const [assignments, setAssignments] = React.useState<Assignment[]>([]);
   const [loading, setLoading] = React.useState(true);
+  // round 6: edit/delete state
+  const [editAssignment, setEditAssignment] = React.useState<Assignment | null>(null);
+  const [deleteAssignment, setDeleteAssignment] = React.useState<Assignment | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const fetchAssignments = React.useCallback(async () => {
     setLoading(true);
@@ -57,6 +69,22 @@ export function TalibAssignmentsScreen() {
     toast.success(updated[id] ? "تم الإنجاز ✅" : "أُلغي الإنجاز");
   }
 
+  // round 6: delete an assignment (a wrong due date / title could never be
+  // corrected or removed — the add button was the only operation)
+  async function handleDelete() {
+    if (!deleteAssignment) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/assignments?id=${deleteAssignment.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم حذف الواجب");
+      setDeleteAssignment(null);
+      fetchAssignments();
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeleting(false); }
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -65,6 +93,23 @@ export function TalibAssignmentsScreen() {
       </div>
 
       {canManage && <AddAssignmentDialog onCreated={fetchAssignments} />}
+
+      {/* round 6: edit dialog */}
+      {editAssignment && <EditAssignmentDialog assignment={editAssignment} onClose={() => setEditAssignment(null)} onSaved={() => { setEditAssignment(null); fetchAssignments(); }} />}
+
+      {/* round 6: delete confirm */}
+      {deleteAssignment && (
+        <Dialog open onOpenChange={() => setDeleteAssignment(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف واجب</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف <strong>{deleteAssignment.title}</strong>؟ لا يمكن التراجع.</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteAssignment(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {loading ? (
         <Card className="p-8 text-center">
@@ -92,7 +137,19 @@ export function TalibAssignmentsScreen() {
                     <Calendar className="w-3 h-3" /><span>التسليم: {a.dueDate}</span>
                   </div>
                 </div>
-                <ReportAssignmentDialog title={a.title} />
+                <div className="flex items-center gap-1 shrink-0">
+                  {canManage && (
+                    <>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setEditAssignment(a)} aria-label="تعديل الواجب">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7 shrink-0" onClick={() => setDeleteAssignment(a)} aria-label="حذف الواجب">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </>
+                  )}
+                  <ReportAssignmentDialog title={a.title} />
+                </div>
               </div>
             </Card>
           ))}
@@ -105,23 +162,41 @@ export function TalibAssignmentsScreen() {
 function AddAssignmentDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState("");
-  const [courseName, setCourseName] = React.useState("");
+  // round 6: real course selection — the old free-text "المقياس" field was
+  // decorative: its value was sent as `moduleName` which the API ignores,
+  // while a hardcoded `moduleId: 1` silently attached EVERY assignment to
+  // course #1 (and failed with an FK error if that course didn't exist).
+  const [courses, setCourses] = React.useState<CourseOption[]>([]);
+  const [moduleId, setModuleId] = React.useState("");
   const [dueDate, setDueDate] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [saving, setSaving] = React.useState(false);
 
+  React.useEffect(() => {
+    if (!open) return;
+    fetch("/api/courses", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        const list: CourseOption[] = data.courses ?? [];
+        setCourses(list);
+        if (list.length > 0) setModuleId(String(list[0].id));
+      })
+      .catch(() => setCourses([]));
+  }, [open]);
+
   async function handleSave() {
     if (!title.trim()) { toast.error("اكتب عنوان الواجب"); return; }
+    if (!moduleId) { toast.error("اختر المقياس — أضف مقاييس أولاً من شاشة المقررات"); return; }
     setSaving(true);
     try {
       const res = await fetch("/api/assignments", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), moduleName: courseName.trim(), dueDate: dueDate || new Date().toISOString().split("T")[0], description: description.trim(), moduleId: 1 }),
+        body: JSON.stringify({ title: title.trim(), moduleId: parseInt(moduleId), dueDate: dueDate || new Date().toISOString().split("T")[0], description: description.trim() }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
       toast.success("تمت إضافة الواجب بنجاح ✅");
-      setOpen(false); setTitle(""); setCourseName(""); setDueDate(""); setDescription("");
+      setOpen(false); setTitle(""); setDueDate(""); setDescription("");
       onCreated();
     } finally { setSaving(false); }
   }
@@ -134,14 +209,66 @@ function AddAssignmentDialog({ onCreated }: { onCreated: () => void }) {
       <DialogContent>
         <DialogHeader><DialogTitle>إضافة واجب / تكليف جديد 📝</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="course">المقياس</Label>
+            {courses.length === 0 ? (
+              <p className="text-xs text-amber-600 dark:text-amber-400">لا توجد مقاييس بعد — أضف مقاييس أولاً من شاشة المقررات</p>
+            ) : (
+              <select id="course" value={moduleId} onChange={(e) => setModuleId(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+                {courses.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
+              </select>
+            )}
+          </div>
           <div className="space-y-1.5"><Label htmlFor="title">عنوان الواجب</Label><Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: تحليل قصيدة امرئ القيس" /></div>
-          <div className="space-y-1.5"><Label htmlFor="course">المقياس</Label><Input id="course" value={courseName} onChange={(e) => setCourseName(e.target.value)} placeholder="مثال: الأدب الجاهلي" /></div>
           <div className="space-y-1.5"><Label htmlFor="due">تاريخ التسليم</Label><Input id="due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
           <div className="space-y-1.5"><Label htmlFor="desc">الوصف</Label><Textarea id="desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="تفاصيل الواجب..." rows={3} /></div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
           <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// round 6: edit an existing assignment (fix the title/due date/description
+// without deleting and re-adding — the add button was previously the only
+// operation, so any mistake was permanent for every student).
+function EditAssignmentDialog({ assignment, onClose, onSaved }: { assignment: Assignment; onClose: () => void; onSaved: () => void }) {
+  const [title, setTitle] = React.useState(assignment.title);
+  const [dueDate, setDueDate] = React.useState(assignment.dueDate);
+  const [description, setDescription] = React.useState(assignment.description);
+  const [saving, setSaving] = React.useState(false);
+
+  async function handleSave() {
+    if (!title.trim()) { toast.error("اكتب عنوان الواجب"); return; }
+    if (!dueDate) { toast.error("اختر تاريخ التسليم"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/assignments", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: assignment.id, title: title.trim(), dueDate, description: description.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+      toast.success("تم تعديل الواجب ✅");
+      onSaved();
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5 text-primary" />تعديل الواجب</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5"><Label htmlFor="editTitle">عنوان الواجب</Label><Input id="editTitle" value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+          <div className="space-y-1.5"><Label htmlFor="editDue">تاريخ التسليم</Label><Input id="editDue" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+          <div className="space-y-1.5"><Label htmlFor="editDesc">الوصف</Label><Textarea id="editDesc" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} /></div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

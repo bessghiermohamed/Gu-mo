@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import {
-  Users, Layers, BookOpen, Upload, Cloud, Plus, TestTube2,
+  Users, Layers, BookOpen, Cloud, Plus, TestTube2,
   CheckCircle2, XCircle, Loader2, FolderTree, UserPlus, Clock,
   Check, X, Building2, GraduationCap, Shield, Trash2, Route, CalendarDays, Pencil,
+  Flag, AlertTriangle, CheckCheck, RotateCcw,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -130,7 +131,7 @@ export function TalibAdminPanelScreen() {
           <TabsTrigger value="groups" className="text-xs flex-1 min-w-24"><FolderTree className="w-3.5 h-3.5 ml-1" />المجموعات</TabsTrigger>
           <TabsTrigger value="requests" className="text-xs flex-1 min-w-24"><UserPlus className="w-3.5 h-3.5 ml-1" />الطلبات</TabsTrigger>
           <TabsTrigger value="modules" className="text-xs flex-1 min-w-24"><BookOpen className="w-3.5 h-3.5 ml-1" />المقررات</TabsTrigger>
-          <TabsTrigger value="content" className="text-xs flex-1 min-w-24"><Upload className="w-3.5 h-3.5 ml-1" />المحتوى</TabsTrigger>
+          <TabsTrigger value="issues" className="text-xs flex-1 min-w-24"><Flag className="w-3.5 h-3.5 ml-1" />التبليغات</TabsTrigger>
           <TabsTrigger value="cloud" className="text-xs flex-1 min-w-24"><Cloud className="w-3.5 h-3.5 ml-1" />السحابة</TabsTrigger>
         </TabsList>
 
@@ -142,7 +143,7 @@ export function TalibAdminPanelScreen() {
         <TabsContent value="groups" className="mt-4"><GroupsManager /></TabsContent>
         <TabsContent value="requests" className="mt-4"><JoinRequestsManager /></TabsContent>
         <TabsContent value="modules" className="mt-4"><ModulesManager /></TabsContent>
-        <TabsContent value="content" className="mt-4"><ContentUploader /></TabsContent>
+        <TabsContent value="issues" className="mt-4"><IssuesManager /></TabsContent>
         <TabsContent value="cloud" className="mt-4"><CloudManager /></TabsContent>
       </Tabs>
     </div>
@@ -407,6 +408,16 @@ function InstitutionsPanel() {
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState(""); const [type, setType] = React.useState(""); const [city, setCity] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const { user } = useAuth();
+  const isOwner = user?.role === "OWNER";
+  // round 6: edit/delete state
+  const [editInst, setEditInst] = React.useState<Inst | null>(null);
+  const [editName, setEditName] = React.useState(""); const [editType, setEditType] = React.useState(""); const [editCity, setEditCity] = React.useState("");
+  const [editSaving, setEditSaving] = React.useState(false);
+  const [deleteInst, setDeleteInst] = React.useState<Inst | null>(null);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
   const fetchData = React.useCallback(async () => {
     setLoading(true);
     try { const res = await fetch("/api/institutions", { cache: "no-store" }); const data = await res.json(); setInstitutions(data.institutions ?? []); }
@@ -423,10 +434,40 @@ function InstitutionsPanel() {
       toast.success("تمت إضافة المؤسسة ✅"); setOpen(false); setName(""); setType(""); setCity(""); fetchData();
     } finally { setSaving(false); }
   }
+  async function handleEditSave() {
+    if (!editInst) return;
+    if (!editName.trim()) { toast.error("اسم المؤسسة مطلوب"); return; }
+    setEditSaving(true);
+    try {
+      const res = await fetch("/api/institutions", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editInst.id, nameAr: editName.trim(), type: editType.trim(), city: editCity.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم تعديل المؤسسة ✅");
+      setEditInst(null);
+      fetchData();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setEditSaving(false); }
+  }
+  async function handleDelete() {
+    if (!deleteInst) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/institutions?id=${deleteInst.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setDeleteError(data.error); toast.error(data.error); return; }
+      toast.success("تم حذف المؤسسة");
+      setDeleteInst(null); setDeleteError(null);
+      fetchData();
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeleting(false); }
+  }
   return (
     <Card className="p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div><h3 className="font-bold text-sm flex items-center gap-2"><Building2 className="w-4 h-4 text-primary" />المؤسسات الجامعية</h3><p className="text-xs text-muted-foreground">المدارس العليا والجامعات</p></div>
+        <div><h3 className="font-bold text-sm flex items-center gap-2"><Building2 className="w-4 h-4 text-primary" />المؤسسات الجامعية</h3><p className="text-xs text-muted-foreground">المدارس العليا والجامعات{isOwner ? " — تعديل وحذف متاحان للمالك" : ""}</p></div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm"><Plus className="w-4 h-4 ml-1" />مؤسسة</Button></DialogTrigger>
           <DialogContent>
@@ -440,9 +481,60 @@ function InstitutionsPanel() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* round 6: edit dialog (OWNER only) */}
+      {editInst && (
+        <Dialog open onOpenChange={() => setEditInst(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5 text-primary" />تعديل المؤسسة</DialogTitle></DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5"><Label>اسم المؤسسة</Label><Input value={editName} onChange={(e) => setEditName(e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>النوع</Label><Input value={editType} onChange={(e) => setEditType(e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>المدينة</Label><Input value={editCity} onChange={(e) => setEditCity(e.target.value)} /></div>
+            </div>
+            <DialogFooter><Button variant="outline" onClick={() => setEditInst(null)}>إلغاء</Button><Button onClick={handleEditSave} disabled={editSaving}>{editSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* round 6: delete confirm — blocked while specialties exist (server guard) */}
+      {deleteInst && (
+        <Dialog open onOpenChange={() => { setDeleteInst(null); setDeleteError(null); }}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف مؤسسة</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف <strong>{deleteInst.nameAr}</strong>؟</p>
+            <p className="text-xs text-muted-foreground">حذف مؤسسة يحذف كل تخصصاتها وكل ما تحتها (سنوات، مجموعات، مقاييس، نقاط). الحذف محظور ما دامت تحوي تخصصات.</p>
+            {deleteError && <div className="rounded-lg bg-destructive/10 text-destructive text-xs p-3 mt-1">{deleteError}</div>}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setDeleteInst(null); setDeleteError(null); }}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {loading ? <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div> : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {institutions.map((inst) => <Card key={inst.id} className="p-3"><div className="font-bold text-sm">{inst.nameAr}</div><div className="text-xs text-muted-foreground mt-1">{inst.type} • {inst.city}</div></Card>)}
+          {institutions.map((inst) => (
+            <Card key={inst.id} className="p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-bold text-sm">{inst.nameAr}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{inst.type} • {inst.city}</div>
+                </div>
+                {isOwner && (
+                  <div className="flex gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditName(inst.nameAr); setEditType(inst.type); setEditCity(inst.city); setEditInst(inst); }} aria-label="تعديل المؤسسة">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => { setDeleteInst(inst); setDeleteError(null); }} aria-label="حذف المؤسسة">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </Card>
+          ))}
         </div>
       )}
     </Card>
@@ -453,6 +545,7 @@ function SpecialtiesPanel() {
   // fix أ.1: institution is a proper DROPDOWN (was a raw ID number input),
   // the list shows which institution each specialty belongs to, and the "+"
   // button is always visible even when the list is empty.
+  // round 6: + edit/delete (OWNER only, delete guarded server-side).
   const cascade = useCascade();
   const [specialties, setSpecialties] = React.useState<Spec[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -460,6 +553,15 @@ function SpecialtiesPanel() {
   const [name, setName] = React.useState(""); const [code, setCode] = React.useState("");
   const [faculty, setFaculty] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const { user } = useAuth();
+  const isOwner = user?.role === "OWNER";
+  // round 6: edit/delete state
+  const [editSpec, setEditSpec] = React.useState<Spec | null>(null);
+  const [editName, setEditName] = React.useState(""); const [editCode, setEditCode] = React.useState(""); const [editFaculty, setEditFaculty] = React.useState("");
+  const [editSaving, setEditSaving] = React.useState(false);
+  const [deleteSpec, setDeleteSpec] = React.useState<Spec | null>(null);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const fetchData = React.useCallback(async (institutionId: string) => {
     setLoading(true);
@@ -483,6 +585,38 @@ function SpecialtiesPanel() {
       toast.success("تمت إضافة التخصص ✅ — أضف ملامحه من تبويب 'الملامح'");
       setOpen(false); setName(""); setCode(""); setFaculty(""); fetchData(cascade.instId);
     } finally { setSaving(false); }
+  }
+
+  async function handleEditSave() {
+    if (!editSpec) return;
+    if (!editName.trim() || !editCode.trim()) { toast.error("الاسم والكود مطلوبان"); return; }
+    setEditSaving(true);
+    try {
+      const res = await fetch("/api/specialties", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editSpec.id, nameAr: editName.trim(), code: editCode.trim(), faculty: editFaculty.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم تعديل التخصص ✅");
+      setEditSpec(null);
+      fetchData(cascade.instId);
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setEditSaving(false); }
+  }
+
+  async function handleDelete() {
+    if (!deleteSpec) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/specialties?id=${deleteSpec.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setDeleteError(data.error); toast.error(data.error); return; }
+      toast.success("تم حذف التخصص");
+      setDeleteSpec(null); setDeleteError(null);
+      fetchData(cascade.instId);
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeleting(false); }
   }
 
   const instName = (id: number) => cascade.institutions.find((i) => i.id === id)?.nameAr ?? "—";
@@ -524,12 +658,58 @@ function SpecialtiesPanel() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           {specialties.map((sp) => (
             <Card key={sp.id} className="p-3">
-              <div className="font-bold text-sm">{sp.nameAr}</div>
-              <div className="text-xs text-muted-foreground mt-1">{sp.code} {sp.faculty && `• ${sp.faculty}`}</div>
-              <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1"><Building2 className="w-3 h-3" />{instName(sp.institutionId)}</div>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-bold text-sm">{sp.nameAr}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{sp.code} {sp.faculty && `• ${sp.faculty}`}</div>
+                  <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1"><Building2 className="w-3 h-3" />{instName(sp.institutionId)}</div>
+                </div>
+                {isOwner && (
+                  <div className="flex gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditName(sp.nameAr); setEditCode(sp.code); setEditFaculty(sp.faculty); setEditSpec(sp); }} aria-label="تعديل التخصص">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => { setDeleteSpec(sp); setDeleteError(null); }} aria-label="حذف التخصص">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
             </Card>
           ))}
         </div>
+      )}
+
+      {/* round 6: edit dialog (OWNER only) */}
+      {editSpec && (
+        <Dialog open onOpenChange={() => setEditSpec(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5 text-primary" />تعديل التخصص</DialogTitle></DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5"><Label>اسم التخصص</Label><Input value={editName} onChange={(e) => setEditName(e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>الكود</Label><Input value={editCode} onChange={(e) => setEditCode(e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>القسم/الكلية</Label><Input value={editFaculty} onChange={(e) => setEditFaculty(e.target.value)} /></div>
+              <p className="text-[10px] text-muted-foreground">المؤسسة: {instName(editSpec.institutionId)} (لا يمكن تغييرها بعد الإنشاء)</p>
+            </div>
+            <DialogFooter><Button variant="outline" onClick={() => setEditSpec(null)}>إلغاء</Button><Button onClick={handleEditSave} disabled={editSaving}>{editSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* round 6: delete confirm — blocked while users/years/tracks/courses exist */}
+      {deleteSpec && (
+        <Dialog open onOpenChange={() => { setDeleteSpec(null); setDeleteError(null); }}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف تخصص</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف <strong>{deleteSpec.nameAr}</strong>؟</p>
+            <p className="text-xs text-muted-foreground">الحذف محظور ما دام للتخصص مستخدمون أو سنوات أو ملامح أو مقاييس — حمايةً لبياناتهم ونقاطهم.</p>
+            {deleteError && <div className="rounded-lg bg-destructive/10 text-destructive text-xs p-3 mt-1">{deleteError}</div>}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setDeleteSpec(null); setDeleteError(null); }}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </Card>
   );
@@ -554,6 +734,12 @@ function TracksManager() {
   const [open, setOpen] = React.useState(false);
   const [customName, setCustomName] = React.useState(""); const [customCode, setCustomCode] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  // round 6: edit/delete state
+  const [editTrack, setEditTrack] = React.useState<Track | null>(null);
+  const [editTrackName, setEditTrackName] = React.useState(""); const [editTrackCode, setEditTrackCode] = React.useState("");
+  const [editSaving, setEditSaving] = React.useState(false);
+  const [deleteTrack, setDeleteTrack] = React.useState<Track | null>(null);
+  const [deletingTrack, setDeletingTrack] = React.useState(false);
 
   const fetchTracks = React.useCallback(async (specialtyId: string) => {
     if (!specialtyId) { setTracks([]); setLoading(false); return; }
@@ -587,6 +773,38 @@ function TracksManager() {
     if (!customName.trim() || !customCode.trim()) { toast.error("اسم الملمح والكود مطلوبان"); return; }
     const ok = await addTrack(customName.trim(), customCode.trim().toUpperCase());
     if (ok) { toast.success("تمت إضافة الملمح ✅"); setCustomName(""); setCustomCode(""); setOpen(false); fetchTracks(cascade.specId); }
+  }
+
+  async function handleEditSave() {
+    if (!editTrack) return;
+    if (!editTrackName.trim() || !editTrackCode.trim()) { toast.error("اسم الملمح والكود مطلوبان"); return; }
+    setEditSaving(true);
+    try {
+      const res = await fetch("/api/tracks", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editTrack.id, trackNameAr: editTrackName.trim(), code: editTrackCode.trim().toUpperCase() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم تعديل الملمح ✅");
+      setEditTrack(null);
+      fetchTracks(cascade.specId);
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setEditSaving(false); }
+  }
+
+  async function handleDeleteTrack() {
+    if (!deleteTrack) return;
+    setDeletingTrack(true);
+    try {
+      const res = await fetch(`/api/tracks?id=${deleteTrack.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم حذف الملمح");
+      setDeleteTrack(null);
+      fetchTracks(cascade.specId);
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeletingTrack(false); }
   }
 
   return (
@@ -645,11 +863,52 @@ function TracksManager() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {tracks.map((tr) => (
                 <Card key={tr.id} className="p-3">
-                  <div className="font-bold text-sm">{tr.trackNameAr}</div>
-                  <div className="text-xs text-muted-foreground mt-1"><Badge variant="outline" className="text-[10px]">{tr.code}</Badge></div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-sm">{tr.trackNameAr}</div>
+                      <div className="text-xs text-muted-foreground mt-1"><Badge variant="outline" className="text-[10px]">{tr.code}</Badge></div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditTrackName(tr.trackNameAr); setEditTrackCode(tr.code); setEditTrack(tr); }} aria-label="تعديل الملمح">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteTrack(tr)} aria-label="حذف الملمح">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
                 </Card>
               ))}
             </div>
+          )}
+
+          {/* round 6: edit dialog */}
+          {editTrack && (
+            <Dialog open onOpenChange={() => setEditTrack(null)}>
+              <DialogContent>
+                <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5 text-primary" />تعديل الملمح</DialogTitle></DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div className="space-y-1.5"><Label>اسم الملمح</Label><Input value={editTrackName} onChange={(e) => setEditTrackName(e.target.value)} /></div>
+                  <div className="space-y-1.5"><Label>الكود</Label><Input value={editTrackCode} onChange={(e) => setEditTrackCode(e.target.value)} /></div>
+                </div>
+                <DialogFooter><Button variant="outline" onClick={() => setEditTrack(null)}>إلغاء</Button><Button onClick={handleEditSave} disabled={editSaving}>{editSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات</Button></DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+
+          {/* round 6: delete confirm — DB-safe (SET NULL), warns about cohorts losing the link */}
+          {deleteTrack && (
+            <Dialog open onOpenChange={() => setDeleteTrack(null)}>
+              <DialogContent>
+                <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف ملمح</DialogTitle></DialogHeader>
+                <p className="text-sm">هل تريد حذف <strong>{deleteTrack.trackNameAr}</strong>؟</p>
+                <p className="text-xs text-muted-foreground">الأفواج المرتبطة بهذا الملمح ستبقى لكنها ستفقد ارتباطها به. لا تُحذف أي بيانات أخرى.</p>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDeleteTrack(null)}>إلغاء</Button>
+                  <Button variant="destructive" onClick={handleDeleteTrack} disabled={deletingTrack}>{deletingTrack && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           )}
         </>
       )}
@@ -1393,12 +1652,23 @@ function JoinRequestsManager() {
 }
 
 // =====================================================
-// Modules Manager — fix: year + semester selectors
-// (was hardcoded to year 1 / semester 1 — the exact cause
-// of the "added to semester 1 but shows under All" bug)
+// Modules Manager — round 6: edit + delete (the flagship fix).
+// (Earlier fix: year + semester selectors — was hardcoded to year 1 /
+// semester 1, the exact cause of the "added to semester 1 but shows
+// under All" bug.)
+// Before: an "add course" button existed but NO way to correct or remove a
+// course — a typo in the name/code/professor was permanent for every
+// student. Now each course row has edit (pencil) and delete (trash).
+// Deletion is guarded server-side: blocked while exams/assignments/grades/
+// lectures still reference the course (the message explains what to clear).
 // =====================================================
+interface CourseRow {
+  id: number; name: string; code: string; professorName: string;
+  coefficient: number; semester: number; academicYearId: number;
+}
+
 function ModulesManager() {
-  const [courses, setCourses] = React.useState<Array<{ id: number; name: string; code: string; professorName: string; coefficient: number; semester: number }>>([]);
+  const [courses, setCourses] = React.useState<CourseRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState(""); const [code, setCode] = React.useState("");
@@ -1408,6 +1678,18 @@ function ModulesManager() {
   const [selYear, setSelYear] = React.useState<string>("");
   const [selSemester, setSelSemester] = React.useState("1");
   const { user } = useAuth();
+  // round 6: edit/delete state
+  const [editCourse, setEditCourse] = React.useState<CourseRow | null>(null);
+  const [editName, setEditName] = React.useState("");
+  const [editCode, setEditCode] = React.useState("");
+  const [editProfessor, setEditProfessor] = React.useState("");
+  const [editCoefficient, setEditCoefficient] = React.useState("2");
+  const [editYear, setEditYear] = React.useState("");
+  const [editSemester, setEditSemester] = React.useState("1");
+  const [editSaving, setEditSaving] = React.useState(false);
+  const [deleteCourse, setDeleteCourse] = React.useState<CourseRow | null>(null);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   React.useEffect(() => {
     fetch(`/api/onboarding/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
@@ -1449,10 +1731,58 @@ function ModulesManager() {
     } finally { setSaving(false); }
   }
 
+  function openEditCourse(c: CourseRow) {
+    setEditName(c.name); setEditCode(c.code);
+    setEditProfessor(c.professorName || "");
+    setEditCoefficient(String(c.coefficient ?? 2));
+    setEditYear(String(c.academicYearId ?? ""));
+    setEditSemester(String(c.semester ?? 1));
+    setEditCourse(c);
+  }
+
+  async function handleEditSave() {
+    if (!editCourse) return;
+    if (!editName.trim() || !editCode.trim()) { toast.error("الاسم والكود مطلوبان"); return; }
+    setEditSaving(true);
+    try {
+      const res = await fetch("/api/courses", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editCourse.id, name: editName.trim(), code: editCode.trim(),
+          professorName: editProfessor.trim(), coefficient: parseFloat(editCoefficient) || 2,
+          semester: parseInt(editSemester),
+          ...(editYear ? { academicYearId: parseInt(editYear) } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم تعديل المقياس ✅");
+      setEditCourse(null);
+      fetchData();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setEditSaving(false); }
+  }
+
+  async function handleDelete() {
+    if (!deleteCourse) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/courses?id=${deleteCourse.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setDeleteError(data.error); toast.error(data.error); return; }
+      toast.success("تم حذف المقياس");
+      setDeleteCourse(null); setDeleteError(null);
+      fetchData();
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeleting(false); }
+  }
+
+  const yearName = (id: number) => years.find((y) => y.id === id)?.yearName ?? "";
+
   return (
     <Card className="p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div><h3 className="font-bold text-sm flex items-center gap-2"><BookOpen className="w-4 h-4 text-primary" />المقاييس</h3><p className="text-xs text-muted-foreground">إدارة مقررات التخصص — حسب السنة والسداسي</p></div>
+        <div><h3 className="font-bold text-sm flex items-center gap-2"><BookOpen className="w-4 h-4 text-primary" />المقاييس</h3><p className="text-xs text-muted-foreground">إدارة مقررات التخصص — حسب السنة والسداسي (تعديل وحذف متاحان)</p></div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm"><Plus className="w-4 h-4 ml-1" />مقياس</Button></DialogTrigger>
           <DialogContent>
@@ -1479,11 +1809,77 @@ function ModulesManager() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* round 6: edit dialog */}
+      {editCourse && (
+        <Dialog open onOpenChange={() => setEditCourse(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5 text-primary" />تعديل المقياس</DialogTitle></DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5"><Label>اسم المقياس</Label><Input value={editName} onChange={(e) => setEditName(e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>الكود</Label><Input value={editCode} onChange={(e) => setEditCode(e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>الأستاذ</Label><Input value={editProfessor} onChange={(e) => setEditProfessor(e.target.value)} placeholder="اسم الأستاذ" /></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5"><Label>المعامل</Label><Input type="number" value={editCoefficient} onChange={(e) => setEditCoefficient(e.target.value)} /></div>
+                <div className="space-y-1.5"><Label>السداسي</Label>
+                  <select value={editSemester} onChange={(e) => setEditSemester(e.target.value)} className={selectCls}>
+                    <option value="1">السداسي الأول</option>
+                    <option value="2">السداسي الثاني</option>
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1.5"><Label>السنة الدراسية</Label>
+                <select value={editYear} onChange={(e) => setEditYear(e.target.value)} className={selectCls}>
+                  <option value="">— بدون تغيير —</option>
+                  {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                </select>
+              </div>
+            </div>
+            <DialogFooter><Button variant="outline" onClick={() => setEditCourse(null)}>إلغاء</Button><Button onClick={handleEditSave} disabled={editSaving}>{editSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* round 6: delete confirm (guarded server-side — shows blocker message) */}
+      {deleteCourse && (
+        <Dialog open onOpenChange={() => { setDeleteCourse(null); setDeleteError(null); }}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف مقياس</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف <strong>{deleteCourse.name}</strong>؟</p>
+            <p className="text-xs text-muted-foreground">الحذف محظور تلقائياً إذا كان المقياس مرتبطاً باختبارات أو واجبات أو نقاط أو محاضرات — حمايةً لبيانات الطلبة.</p>
+            {deleteError && (
+              <div className="rounded-lg bg-destructive/10 text-destructive text-xs p-3 mt-1">{deleteError}</div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setDeleteCourse(null); setDeleteError(null); }}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {loading ? <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div> : courses.length === 0 ? (
         <div className="text-center py-4 text-sm text-muted-foreground">لا توجد مقاييس</div>
       ) : (
         <div className="space-y-2 max-h-[55vh] overflow-y-auto scrollbar-thin">
-          {courses.map((c) => <Card key={c.id} className="p-3"><div className="font-bold text-sm">{c.name}</div><div className="text-xs text-muted-foreground mt-1">{c.code} • الأستاذ: {c.professorName || "—"} • المعامل: {c.coefficient} • {c.semester === 2 ? "السداسي الثاني" : "السداسي الأول"}</div></Card>)}
+          {courses.map((c) => (
+            <Card key={c.id} className="p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-sm">{c.name}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{c.code} • الأستاذ: {c.professorName || "—"} • المعامل: {c.coefficient} • {c.semester === 2 ? "السداسي الثاني" : "السداسي الأول"}{yearName(c.academicYearId) ? ` • ${yearName(c.academicYearId)}` : ""}</div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCourse(c)} aria-label="تعديل المقياس">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => { setDeleteCourse(c); setDeleteError(null); }} aria-label="حذف المقياس">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
         </div>
       )}
     </Card>
@@ -1491,36 +1887,137 @@ function ModulesManager() {
 }
 
 // =====================================================
-// Content Uploader
+// Issues Manager (التبليغات) — round 6, closes the feedback loop.
+// Students could report problems (POST /api/issues from the courses and
+// assignments screens) but NO supervisor could ever SEE the reports —
+// they vanished into the database. This manager lists them, lets the
+// supervisor mark them resolved/reopen them, and delete spam.
+// (It replaces the old "المحتوى" tab whose upload form posted to a
+// non-existent /api/content/upload route and always failed with 404.)
 // =====================================================
-function ContentUploader() {
-  const [contentType, setContentType] = React.useState<"lecture" | "exam" | "announcement" | "assignment">("lecture");
-  const [title, setTitle] = React.useState(""); const [description, setDescription] = React.useState("");
-  const [uploading, setUploading] = React.useState(false);
-  async function handleUpload(e: React.FormEvent) {
-    e.preventDefault();
-    if (!title.trim()) { toast.error("اكتب عنواناً"); return; }
-    setUploading(true);
+interface IssueReportRow {
+  id: number; studentName: string; studentGroup: string; itemType: string;
+  itemTitle: string; description: string; date: string; status: string;
+}
+
+function IssuesManager() {
+  const [reports, setReports] = React.useState<IssueReportRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [busyId, setBusyId] = React.useState<number | null>(null);
+  const [deleteReport, setDeleteReport] = React.useState<IssueReportRow | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
+  const fetchReports = React.useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await fetch("/api/content/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentType, title: title.trim(), description: description.trim(), moduleId: 1 }) });
+      const res = await fetch("/api/issues", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل تحميل التبليغات"); return; }
+      setReports(data.reports ?? []);
+    } catch { toast.error("فشل تحميل التبليغات"); }
+    finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { fetchReports(); }, [fetchReports]);
+
+  async function toggleStatus(r: IssueReportRow) {
+    const next = r.status === "تم الحل" ? "قيد المراجعة" : "تم الحل";
+    setBusyId(r.id);
+    try {
+      const res = await fetch("/api/issues", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: r.id, status: next }),
+      });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم رفع المحتوى بنجاح"); setTitle(""); setDescription("");
-    } finally { setUploading(false); }
+      toast.success(next === "تم الحل" ? "تم حل التبليغ ✅" : "أُعيد فتح التبليغ");
+      fetchReports();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setBusyId(null); }
   }
+
+  async function handleDelete() {
+    if (!deleteReport) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/issues?id=${deleteReport.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم حذف التبليغ");
+      setDeleteReport(null);
+      fetchReports();
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeleting(false); }
+  }
+
+  const pending = reports.filter((r) => r.status !== "تم الحل").length;
+
   return (
     <Card className="p-4 space-y-3">
-      <div><h3 className="font-bold text-sm flex items-center gap-2"><Upload className="w-4 h-4 text-primary" />رفع محتوى جديد</h3><p className="text-xs text-muted-foreground">النوع يحدد الجدول الذي يُحفظ فيه — للإعلانات والاختبارات استخدم الشاشات المخصصة لها</p></div>
-      <form onSubmit={handleUpload} className="space-y-3">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {[{ k: "lecture", l: "محاضرة" }, { k: "exam", l: "امتحان" }, { k: "announcement", l: "إعلان" }, { k: "assignment", l: "واجب" }].map((o) => (
-            <button key={o.k} type="button" onClick={() => setContentType(o.k as never)} className={`py-2 rounded-lg text-xs font-bold border-2 ${contentType === o.k ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}>{o.l}</button>
-          ))}
+      <div>
+        <h3 className="font-bold text-sm flex items-center gap-2"><Flag className="w-4 h-4 text-primary" />تبليغات الطلبة</h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          مشاكل يبلّغ عنها الطلبة من شاشتي المقررات والواجبات — {pending} قيد المراجعة من أصل {reports.length}
+        </p>
+      </div>
+
+      {deleteReport && (
+        <Dialog open onOpenChange={() => setDeleteReport(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف تبليغ</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف تبليغ <strong>{deleteReport.itemTitle}</strong> المُرسل من {deleteReport.studentName}؟</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteReport(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {loading ? (
+        <div className="text-center py-8"><Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground" /></div>
+      ) : reports.length === 0 ? (
+        <div className="text-center py-8 text-sm text-muted-foreground flex flex-col items-center gap-2">
+          <CheckCheck className="w-8 h-8 text-emerald-600" />
+          <span>لا توجد تبليغات — عندما يبلّغ طالب عن مشكلة ستظهر هنا</span>
         </div>
-        <div className="space-y-1.5"><Label>العنوان</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="عنوان المحتوى" /></div>
-        <div className="space-y-1.5"><Label>الوصف</Label><Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="وصف مختصر" /></div>
-        <Button type="submit" disabled={uploading} className="w-full">{uploading && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}<Upload className="w-4 h-4 ml-1" />رفع المحتوى</Button>
-      </form>
+      ) : (
+        <div className="space-y-2 max-h-[65vh] overflow-y-auto scrollbar-thin">
+          {reports.map((r) => {
+            const resolved = r.status === "تم الحل";
+            return (
+              <Card key={r.id} className={`p-3 ${resolved ? "opacity-60" : "border-amber-500/30"}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <AlertTriangle className={`w-4 h-4 shrink-0 ${resolved ? "text-muted-foreground" : "text-amber-500"}`} />
+                      <span className="font-bold text-sm">{r.itemTitle}</span>
+                      <Badge variant={resolved ? "secondary" : "outline"} className={`text-[10px] ${resolved ? "" : "border-amber-500/50 text-amber-600"}`}>
+                        {resolved ? "تم الحل" : "قيد المراجعة"}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px]">{r.itemType}</Badge>
+                    </div>
+                    {r.description && <p className="text-xs text-muted-foreground mt-1.5 whitespace-pre-wrap">{r.description}</p>}
+                    <p className="text-[10px] text-muted-foreground mt-2">{r.studentName} • {r.date}</p>
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    <Button
+                      variant="ghost" size="icon" className="h-7 w-7 text-emerald-600 hover:bg-emerald-500/10"
+                      onClick={() => toggleStatus(r)} disabled={busyId === r.id}
+                      aria-label={resolved ? "إعادة فتح التبليغ" : "وضع علامة تم الحل"}
+                      title={resolved ? "إعادة فتح التبليغ" : "وضع علامة تم الحل"}
+                    >
+                      {busyId === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : resolved ? <RotateCcw className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
+                    </Button>
+                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteReport(r)} aria-label="حذف التبليغ">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </Card>
   );
 }

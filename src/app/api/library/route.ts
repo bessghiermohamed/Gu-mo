@@ -1,8 +1,12 @@
 /**
  * Library API — fix ج (Files screen: no way to add a file/reference)
  * Reference files (كتب، ملخصات، PDF خارجي) stored as links in library_references.
- * GET  → items of the caller's specialty
- * POST → add a reference (supervisors only)
+ * Round 6: PATCH/DELETE — items could be ADDED but never corrected or removed,
+ * so a typo in the download URL was permanent for the whole specialty.
+ *   GET    → items of the caller's specialty
+ *   POST   → add a reference (supervisors only)
+ *   PATCH  → edit a reference (supervisors, own specialty only)
+ *   DELETE → remove a reference (supervisors, own specialty only)
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -85,6 +89,95 @@ export async function POST(req: NextRequest) {
       },
     });
     return NextResponse.json({ item });
+  } catch (e) {
+    return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canUploadContent(user)) {
+    return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
+  }
+  try {
+    const body = await req.json();
+    const { id, title, author, category, description, fileFormat, downloadUrl } = body;
+    if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+    const trimTitle = title?.trim();
+    if (title !== undefined && !trimTitle) {
+      return NextResponse.json({ error: "العنوان لا يمكن أن يكون فارغاً" }, { status: 400 });
+    }
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data: item } = await supabase
+        .from("library_references").select("id, specialty_id").eq("id", Number(id)).maybeSingle();
+      if (!item) return NextResponse.json({ error: "الملف غير موجود" }, { status: 404 });
+      if (user.role !== "OWNER" && Number(item.specialty_id) !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا الملف خارج نطاق تخصصك" }, { status: 403 });
+      }
+      const patch: Record<string, unknown> = {};
+      if (trimTitle) patch.title = trimTitle;
+      if (author !== undefined) patch.author = author?.trim() || user.fullName;
+      if (category !== undefined && String(category).trim()) patch.category = String(category).trim();
+      if (description !== undefined) patch.description = String(description).trim();
+      if (fileFormat !== undefined && String(fileFormat).trim()) patch.file_format = String(fileFormat).trim();
+      if (downloadUrl !== undefined) patch.download_url = String(downloadUrl).trim();
+      const { data, error } = await supabase
+        .from("library_references").update(patch).eq("id", Number(id)).select().single();
+      if (error || !data) return NextResponse.json({ error: `فشل التحديث: ${error?.message ?? "خطأ"}` }, { status: 500 });
+      return NextResponse.json({ item: data });
+    }
+    const item = await db.libraryReference.findUnique({ where: { id: Number(id) }, select: { specialtyId: true } });
+    if (!item) return NextResponse.json({ error: "الملف غير موجود" }, { status: 404 });
+    if (user.role !== "OWNER" && item.specialtyId !== user.assignedSpecialtyId) {
+      return NextResponse.json({ error: "هذا الملف خارج نطاق تخصصك" }, { status: 403 });
+    }
+    const updated = await db.libraryReference.update({
+      where: { id: Number(id) },
+      data: {
+        ...(trimTitle ? { title: trimTitle } : {}),
+        ...(author !== undefined ? { author: author?.trim() || user.fullName } : {}),
+        ...(category !== undefined && String(category).trim() ? { category: String(category).trim() } : {}),
+        ...(description !== undefined ? { description: String(description).trim() } : {}),
+        ...(fileFormat !== undefined && String(fileFormat).trim() ? { fileFormat: String(fileFormat).trim() } : {}),
+        ...(downloadUrl !== undefined ? { downloadUrl: String(downloadUrl).trim() } : {}),
+      },
+    });
+    return NextResponse.json({ item: updated });
+  } catch (e) {
+    return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canUploadContent(user)) {
+    return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
+  }
+  const url = new URL(req.url);
+  const id = url.searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+  const itemId = parseInt(id);
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data: item } = await supabase
+        .from("library_references").select("id, specialty_id").eq("id", itemId).maybeSingle();
+      if (!item) return NextResponse.json({ error: "الملف غير موجود" }, { status: 404 });
+      if (user.role !== "OWNER" && Number(item.specialty_id) !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا الملف خارج نطاق تخصصك" }, { status: 403 });
+      }
+      const { error } = await supabase.from("library_references").delete().eq("id", itemId);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    } else {
+      const item = await db.libraryReference.findUnique({ where: { id: itemId }, select: { specialtyId: true } });
+      if (!item) return NextResponse.json({ error: "الملف غير موجود" }, { status: 404 });
+      if (user.role !== "OWNER" && item.specialtyId !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا الملف خارج نطاق تخصصك" }, { status: 403 });
+      }
+      await db.libraryReference.delete({ where: { id: itemId } });
+    }
+    return NextResponse.json({ ok: true, message: "تم حذف الملف من المكتبة" });
   } catch (e) {
     return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
   }

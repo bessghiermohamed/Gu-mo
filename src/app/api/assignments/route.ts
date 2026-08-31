@@ -2,6 +2,10 @@
  * Assignments API
  * - GET: list assignments for the user's specialty (joined with module)
  * - POST: create a new assignment (supervisors only, canCreateModules)
+ * - PATCH/DELETE (round 6): assignments could be added but never corrected
+ *   or removed — a wrong due date or title was permanent. Scope check goes
+ *   through the assignment's module → specialty (non-OWNER callers may only
+ *   touch assignments of their own specialty).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -127,6 +131,136 @@ export async function POST(req: NextRequest) {
       },
     });
     return NextResponse.json({ assignment });
+  } catch (e) {
+    return NextResponse.json(
+      { error: `خطأ داخلي: ${(e as Error).message}` },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "غير مسجّل الدخول" }, { status: 401 });
+  }
+  if (!canCreateModules(user)) {
+    return NextResponse.json(
+      { error: "غير مصرّح: تعديل الواجبات يتطلب صلاحية مدير تخصص" },
+      { status: 403 }
+    );
+  }
+  try {
+    const body = await req.json();
+    const { id, title, dueDate, description, maxScore } = body ?? {};
+    if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+    const trimTitle = title?.trim();
+    if (title !== undefined && !trimTitle) {
+      return NextResponse.json({ error: "عنوان الواجب لا يمكن أن يكون فارغاً" }, { status: 400 });
+    }
+    if (dueDate !== undefined && !String(dueDate).trim()) {
+      return NextResponse.json({ error: "تاريخ التسليم غير صالح" }, { status: 400 });
+    }
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data: asg } = await supabase
+        .from("assignments")
+        .select("id, title, module_id, module_courses!assignments_module_id_fkey(specialty_id)")
+        .eq("id", Number(id))
+        .maybeSingle();
+      if (!asg) return NextResponse.json({ error: "الواجب غير موجود" }, { status: 404 });
+      const moduleSpecialty = Number(
+        Array.isArray((asg as Record<string, unknown>).module_courses)
+          ? ((asg as Record<string, unknown>).module_courses as Array<Record<string, unknown>>)[0]?.specialty_id
+          : ((asg as Record<string, unknown>).module_courses as Record<string, unknown> | null)?.specialty_id
+      );
+      if (user.role !== "OWNER" && moduleSpecialty !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا الواجب خارج نطاق تخصصك" }, { status: 403 });
+      }
+      const patch: Record<string, unknown> = {};
+      if (trimTitle) patch.title = trimTitle;
+      if (dueDate !== undefined) patch.due_date = String(dueDate).trim();
+      if (description !== undefined) patch.description = String(description).trim();
+      if (maxScore !== undefined && !Number.isNaN(Number(maxScore))) patch.max_score = Number(maxScore);
+      const { data, error } = await supabase
+        .from("assignments").update(patch).eq("id", Number(id)).select().single();
+      if (error || !data) {
+        return NextResponse.json({ error: `فشل التحديث: ${error?.message ?? "خطأ"}` }, { status: 500 });
+      }
+      return NextResponse.json({ assignment: data });
+    }
+    const asg = await db.assignment.findUnique({
+      where: { id: Number(id) },
+      select: { moduleId: true, module: { select: { specialtyId: true } } },
+    });
+    if (!asg) return NextResponse.json({ error: "الواجب غير موجود" }, { status: 404 });
+    if (user.role !== "OWNER" && asg.module.specialtyId !== user.assignedSpecialtyId) {
+      return NextResponse.json({ error: "هذا الواجب خارج نطاق تخصصك" }, { status: 403 });
+    }
+    const updated = await db.assignment.update({
+      where: { id: Number(id) },
+      data: {
+        ...(trimTitle ? { title: trimTitle } : {}),
+        ...(dueDate !== undefined ? { dueDate: String(dueDate).trim() } : {}),
+        ...(description !== undefined ? { description: String(description).trim() } : {}),
+        ...(maxScore !== undefined && !Number.isNaN(Number(maxScore)) ? { maxScore: Number(maxScore) } : {}),
+      },
+    });
+    return NextResponse.json({ assignment: updated });
+  } catch (e) {
+    return NextResponse.json(
+      { error: `خطأ داخلي: ${(e as Error).message}` },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "غير مسجّل الدخول" }, { status: 401 });
+  }
+  if (!canCreateModules(user)) {
+    return NextResponse.json(
+      { error: "غير مصرّح: حذف الواجبات يتطلب صلاحية مدير تخصص" },
+      { status: 403 }
+    );
+  }
+  const url = new URL(req.url);
+  const id = url.searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+  const asgId = parseInt(id);
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data: asg } = await supabase
+        .from("assignments")
+        .select("id, module_id, module_courses!assignments_module_id_fkey(specialty_id)")
+        .eq("id", asgId)
+        .maybeSingle();
+      if (!asg) return NextResponse.json({ error: "الواجب غير موجود" }, { status: 404 });
+      const moduleSpecialty = Number(
+        Array.isArray((asg as Record<string, unknown>).module_courses)
+          ? ((asg as Record<string, unknown>).module_courses as Array<Record<string, unknown>>)[0]?.specialty_id
+          : ((asg as Record<string, unknown>).module_courses as Record<string, unknown> | null)?.specialty_id
+      );
+      if (user.role !== "OWNER" && moduleSpecialty !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا الواجب خارج نطاق تخصصك" }, { status: 403 });
+      }
+      const { error } = await supabase.from("assignments").delete().eq("id", asgId);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    } else {
+      const asg = await db.assignment.findUnique({
+        where: { id: asgId },
+        select: { module: { select: { specialtyId: true } } },
+      });
+      if (!asg) return NextResponse.json({ error: "الواجب غير موجود" }, { status: 404 });
+      if (user.role !== "OWNER" && asg.module.specialtyId !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا الواجب خارج نطاق تخصصك" }, { status: 403 });
+      }
+      await db.assignment.delete({ where: { id: asgId } });
+    }
+    return NextResponse.json({ ok: true, message: "تم حذف الواجب" });
   } catch (e) {
     return NextResponse.json(
       { error: `خطأ داخلي: ${(e as Error).message}` },

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { StickyNote, Download, Save, Plus, Trash2, FileText, BookMarked, ExternalLink, Loader2 } from "lucide-react";
+import { StickyNote, Download, Save, Plus, Trash2, FileText, BookMarked, ExternalLink, Loader2, Pencil } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,6 +46,10 @@ export function TalibFilesScreen() {
   const [newContent, setNewContent] = React.useState("");
   const [library, setLibrary] = React.useState<LibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = React.useState(true);
+  // round 6: edit/delete state for library items
+  const [editItem, setEditItem] = React.useState<LibraryItem | null>(null);
+  const [deleteItem, setDeleteItem] = React.useState<LibraryItem | null>(null);
+  const [deletingItem, setDeletingItem] = React.useState(false);
   const canManage = canManageRoles(user ?? null);
 
   const fetchLibrary = React.useCallback(async () => {
@@ -97,6 +101,21 @@ export function TalibFilesScreen() {
     persist(notes.filter((n) => n.id !== id));
   }
 
+  // round 6: delete a library item (a broken/wrong link could never be removed before)
+  async function handleDeleteLibraryItem() {
+    if (!deleteItem) return;
+    setDeletingItem(true);
+    try {
+      const res = await fetch(`/api/library?id=${deleteItem.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
+      toast.success("تم حذف الملف من المكتبة");
+      setDeleteItem(null);
+      fetchLibrary();
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeletingItem(false); }
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -128,6 +147,24 @@ export function TalibFilesScreen() {
 
         <TabsContent value="library" className="mt-4 space-y-3">
           {canManage && <AddLibraryItemDialog onCreated={fetchLibrary} />}
+
+          {/* round 6: edit dialog for library items */}
+          {editItem && <EditLibraryItemDialog item={editItem} onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); fetchLibrary(); }} />}
+
+          {/* round 6: delete confirm */}
+          {deleteItem && (
+            <Dialog open onOpenChange={() => setDeleteItem(null)}>
+              <DialogContent>
+                <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف ملف من المكتبة</DialogTitle></DialogHeader>
+                <p className="text-sm">هل تريد حذف <strong>{deleteItem.title}</strong> من مكتبة التخصص؟ لا يمكن التراجع.</p>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDeleteItem(null)}>إلغاء</Button>
+                  <Button variant="destructive" onClick={handleDeleteLibraryItem} disabled={deletingItem}>{deletingItem && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+
           {libraryLoading ? (
             <Card className="p-8 text-center">
               <Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground mb-2" />
@@ -163,6 +200,16 @@ export function TalibFilesScreen() {
                       <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
                         <Button size="sm" variant="outline"><ExternalLink className="w-3.5 h-3.5 ml-1" />فتح</Button>
                       </a>
+                    )}
+                    {canManage && (
+                      <div className="flex flex-col gap-1 shrink-0">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditItem(item)} aria-label="تعديل الملف">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteItem(item)} aria-label="حذف الملف">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </Card>
@@ -341,6 +388,90 @@ function AddLibraryItemDialog({ onCreated }: { onCreated: () => void }) {
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
           <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}إضافة</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// round 6: edit an existing library item (fix a broken link / typo without
+// deleting and re-adding — the item stays in place for the whole specialty).
+function EditLibraryItemDialog({ item, onClose, onSaved }: { item: LibraryItem; onClose: () => void; onSaved: () => void }) {
+  const [title, setTitle] = React.useState(item.title);
+  const [author, setAuthor] = React.useState(item.author);
+  const [category, setCategory] = React.useState(item.category);
+  const [fileFormat, setFileFormat] = React.useState(item.fileFormat);
+  const [downloadUrl, setDownloadUrl] = React.useState(item.downloadUrl);
+  const [description, setDescription] = React.useState(item.description);
+  const [saving, setSaving] = React.useState(false);
+
+  async function handleSave() {
+    if (!title.trim()) { toast.error("العنوان مطلوب"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/library", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          title: title.trim(), author: author.trim(), category: category.trim(),
+          fileFormat: fileFormat.trim(), downloadUrl: downloadUrl.trim(),
+          description: description.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+      toast.success("تم تعديل الملف ✅");
+      onSaved();
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5 text-primary" />تعديل ملف المكتبة</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="editLibTitle">العنوان</Label>
+            <Input id="editLibTitle" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="editLibAuthor">المؤلف / المُعد</Label>
+              <Input id="editLibAuthor" value={author} onChange={(e) => setAuthor(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="editLibFormat">الصيغة</Label>
+              <select id="editLibFormat" value={fileFormat} onChange={(e) => setFileFormat(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+                <option value="PDF">PDF</option>
+                <option value="DOCX">DOCX</option>
+                <option value="PPTX">PPTX</option>
+                <option value="صورة">صورة</option>
+                <option value="رابط">رابط</option>
+              </select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="editLibCategory">التصنيف</Label>
+            <select id="editLibCategory" value={category} onChange={(e) => setCategory(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+              <option value="كتاب مرجعي">كتاب مرجعي</option>
+              <option value="ملخص">ملخص</option>
+              <option value="سلسلة تمارين">سلسلة تمارين</option>
+              <option value="محاضرة مصورة">محاضرة مصورة</option>
+              <option value="أخرى">أخرى</option>
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="editLibUrl">رابط الملف</Label>
+            <Input id="editLibUrl" value={downloadUrl} onChange={(e) => setDownloadUrl(e.target.value)} placeholder="https://..." dir="ltr" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="editLibDesc">وصف مختصر</Label>
+            <Textarea id="editLibDesc" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
