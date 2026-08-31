@@ -107,28 +107,17 @@ export async function POST(req: NextRequest) {
     const ZAIModule = await import("z-ai-web-dev-sdk");
     const ZAI = ZAIModule.default;
 
-    // Read config explicitly (SDK's auto-load doesn't work on Vercel serverless)
-    const fs = await import("fs");
-    const path = await import("path");
-    let zai: InstanceType<typeof ZAI>;
+    // The SDK's constructor is private — the public entrypoint is ZAI.create().
+    // It auto-loads .z-ai-config from the project root (and /etc/ as fallback),
+    // which covers both local dev and Vercel serverless.
+    let zai: Awaited<ReturnType<typeof ZAI.create>>;
     try {
-      // Try project root first
-      const configPath = path.join(process.cwd(), ".z-ai-config");
-      const configStr = fs.readFileSync(configPath, "utf-8");
-      const config = JSON.parse(configStr);
-      zai = new ZAI(config);
-    } catch {
-      // Fallback: try /etc/
-      try {
-        const configStr = fs.readFileSync("/etc/.z-ai-config", "utf-8");
-        const config = JSON.parse(configStr);
-        zai = new ZAI(config);
-      } catch (e2) {
-        return NextResponse.json(
-          { error: "إعدادات المساعد الذكي غير موجودة" },
-          { status: 500 }
-        );
-      }
+      zai = await ZAI.create();
+    } catch (e) {
+      return NextResponse.json(
+        { error: "إعدادات المساعد الذكي غير موجودة" },
+        { status: 500 }
+      );
     }
 
     // Build messages array
