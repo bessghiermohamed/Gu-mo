@@ -36,21 +36,31 @@ R=$(curl -s -c /tmp/stud2.jar -X POST $BASE/api/auth/signup -H "Content-Type: ap
 contains "student2 signup ok" '"role":"STUDENT"' "$R"
 
 echo ""
-echo "=== 2. Onboarding: student1 → (spec A=1, year 1, track PEP) / student2 → (spec B=2, year 3, track PES) ==="
-# years: spec A years 1..5 → ids 1-5; spec B years → ids 6-10 (year 3 of B = id 8)
-R=$(curl -s -b /tmp/stud1.jar -X POST $BASE/api/onboarding/complete -H "Content-Type: application/json" -d '{"fullName":"طالب السنة الأولى","email":"s1@test.dz","institutionId":1,"specialtyId":1,"academicYearId":1,"trackId":1}')
+echo "=== 2. Onboarding: student1 → (spec A, year 1, track PEP) / student2 → (spec B, year 3, track PES) ==="
+# discover real IDs dynamically (no hardcoded ids — safe across re-seeds)
+SPEC_A=$(curl -s $BASE/api/institutions | python3 -c "import sys,json; insts=json.load(sys.stdin)['institutions']; print([i['id'] for i in insts if 'بوزريعة' in i['nameAr']][0])")
+SPEC_B_INST=$(curl -s $BASE/api/institutions | python3 -c "import sys,json; insts=json.load(sys.stdin)['institutions']; print([i['id'] for i in insts if 'وهران' in i['nameAr']][0])")
+SPEC_A_ID=$(curl -s "$BASE/api/specialties?institutionId=$SPEC_A" | python3 -c "import sys,json; print(json.load(sys.stdin)['specialties'][0]['id'])")
+SPEC_B_ID=$(curl -s "$BASE/api/specialties?institutionId=$SPEC_B_INST" | python3 -c "import sys,json; print(json.load(sys.stdin)['specialties'][0]['id'])")
+YEAR1_A=$(curl -s "$BASE/api/onboarding/years?specialtyId=$SPEC_A_ID" | python3 -c "import sys,json; print(json.load(sys.stdin)['years'][0]['id'])")
+YEAR3_B=$(curl -s "$BASE/api/onboarding/years?specialtyId=$SPEC_B_ID" | python3 -c "import sys,json; print(json.load(sys.stdin)['years'][2]['id'])")
+TRACK_A=$(curl -s "$BASE/api/tracks?specialtyId=$SPEC_A_ID" | python3 -c "import sys,json; print(json.load(sys.stdin)['tracks'][0]['id'])")
+TRACK_B=$(curl -s "$BASE/api/tracks?specialtyId=$SPEC_B_ID" | python3 -c "import sys,json; print(json.load(sys.stdin)['tracks'][2]['id'])")
+echo "   (ids: specA=$SPEC_A_ID specB=$SPEC_B_ID year1A=$YEAR1_A year3B=$YEAR3_B trackA=$TRACK_A trackB=$TRACK_B)"
+
+R=$(curl -s -b /tmp/stud1.jar -X POST $BASE/api/onboarding/complete -H "Content-Type: application/json" -d "{\"fullName\":\"طالب السنة الأولى\",\"email\":\"s1@test.dz\",\"institutionId\":$SPEC_A,\"specialtyId\":$SPEC_A_ID,\"academicYearId\":$YEAR1_A,\"trackId\":$TRACK_A}")
 contains "student1 onboarding ok" '"ok":true' "$R"
 
-R=$(curl -s -b /tmp/stud2.jar -X POST $BASE/api/onboarding/complete -H "Content-Type: application/json" -d '{"fullName":"طالب السنة الثالثة","email":"s2@test.dz","institutionId":2,"specialtyId":2,"academicYearId":8,"trackId":5}')
+R=$(curl -s -b /tmp/stud2.jar -X POST $BASE/api/onboarding/complete -H "Content-Type: application/json" -d "{\"fullName\":\"طالب السنة الثالثة\",\"email\":\"s2@test.dz\",\"institutionId\":$SPEC_B_INST,\"specialtyId\":$SPEC_B_ID,\"academicYearId\":$YEAR3_B,\"trackId\":$TRACK_B}")
 contains "student2 onboarding ok" '"ok":true' "$R"
 
 echo ""
 echo "=== 3. As owner: create courses in (A, year1) and (B, year3) ==="
-R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/courses -H "Content-Type: application/json" -d '{"name":"مقياس أ-سنة1","code":"AR-101","specialtyId":1,"academicYearId":1,"semester":1}')
+R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/courses -H "Content-Type: application/json" -d "{\"name\":\"مقياس أ-سنة1\",\"code\":\"AR-101\",\"specialtyId\":$SPEC_A_ID,\"academicYearId\":$YEAR1_A,\"semester\":1}" )
 contains "course A-year1 created" 'مقياس أ-سنة1' "$R"
-R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/courses -H "Content-Type: application/json" -d '{"name":"مقياس أ-سنة1-سداسي2","code":"AR-102","specialtyId":1,"academicYearId":1,"semester":2}')
+R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/courses -H "Content-Type: application/json" -d "{\"name\":\"مقياس أ-سنة1-سداسي2\",\"code\":\"AR-102\",\"specialtyId\":$SPEC_A_ID,\"academicYearId\":$YEAR1_A,\"semester\":2}" )
 contains "course A-year1-s2 created" 'AR-102' "$R"
-R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/courses -H "Content-Type: application/json" -d '{"name":"مقياس ب-سنة3","code":"FR-301","specialtyId":2,"academicYearId":8,"semester":1}')
+R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/courses -H "Content-Type: application/json" -d "{\"name\":\"مقياس ب-سنة3\",\"code\":\"FR-301\",\"specialtyId\":$SPEC_B_ID,\"academicYearId\":$YEAR3_B,\"semester\":1}" )
 contains "course B-year3 created" 'مقياس ب-سنة3' "$R"
 
 echo ""
@@ -72,9 +82,9 @@ contains "course carries semester=2" '"semester":2' "$R"
 
 echo ""
 echo "=== 6. ACCEPTANCE TEST أ.4: groups/cohorts visibility scoped by year ==="
-R=$(curl -s -b /tmp/stud1.jar "$BASE/api/groups?specialtyId=1&academicYearId=1")
+R=$(curl -s -b /tmp/stud1.jar "$BASE/api/groups?specialtyId=$SPEC_A_ID&academicYearId=$YEAR1_A")
 contains "student1 sees year-1 group" 'المجموعة 01 - AR' "$R"
-R=$(curl -s -b /tmp/stud2.jar "$BASE/api/groups?specialtyId=2&academicYearId=8")
+R=$(curl -s -b /tmp/stud2.jar "$BASE/api/groups?specialtyId=$SPEC_B_ID&academicYearId=$YEAR3_B")
 contains "student2 sees year-3-of-B group" 'المجموعة 01 - FR' "$R"
 
 echo ""
@@ -101,9 +111,8 @@ not_contains "student2 (spec B) does NOT see A's exam" 'امتحان منتصف 
 
 echo ""
 echo "=== 10. أ.5 flow: join request → owner sees → approve → student linked ==="
-COHORT_ID=$(curl -s -b /tmp/stud1.jar "$BASE/api/groups?specialtyId=1&academicYearId=1" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-GROUP_ID=$COHORT_ID  # first id in groups response is the group
-R=$(curl -s -b /tmp/stud1.jar -X POST $BASE/api/join-requests -H "Content-Type: application/json" -d "{\"cohortId\":1,\"groupId\":1,\"message\":\"أرغب بالانضمام\"}")
+FIRST_COHORT=$(curl -s "$BASE/api/cohort?specialtyId=$SPEC_A_ID&academicYearId=$YEAR1_A" | python3 -c "import sys,json; print(json.load(sys.stdin)['cohorts'][0]['id'])")
+R=$(curl -s -b /tmp/stud1.jar -X POST $BASE/api/join-requests -H "Content-Type: application/json" -d "{\"cohortId\":$FIRST_COHORT,\"message\":\"أرغب بالانضمام\"}")
 contains "student1 sends join request" 'pending' "$R"
 
 R=$(curl -s -b /tmp/owner.jar $BASE/api/join-requests)
@@ -114,7 +123,7 @@ R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/join-requests/$REQ_ID/approve -H
 contains "owner approves request" 'تم قبول' "$R"
 
 R=$(curl -s -b /tmp/stud1.jar $BASE/api/auth/me)
-contains "student1 now linked to cohort" '"scopeCohortGroupId":1' "$R"
+contains "student1 now linked to cohort" "\"scopeCohortGroupId\":$FIRST_COHORT" "$R"
 
 echo ""
 echo "=== 11. Promote endpoint (was missing → 404) ==="
