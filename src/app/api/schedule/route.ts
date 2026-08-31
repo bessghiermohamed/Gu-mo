@@ -10,13 +10,16 @@ export async function GET() {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ items: [] });
+    // fix أ.3: filter by the student's year too, not only the specialty
+    const yearId = user.scopeAcademicYearId ?? null;
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      const { data, error } = await supabase
+      let query = supabase
         .from("schedule_items")
         .select("*")
-        .eq("specialty_id", user.assignedSpecialtyId)
-        .order("day_of_week", { ascending: true });
+        .eq("specialty_id", user.assignedSpecialtyId);
+      if (yearId) query = query.eq("academic_year_id", yearId);
+      const { data, error } = await query.order("day_of_week", { ascending: true });
       if (error) return NextResponse.json({ items: [] });
       const items = (data ?? []).map((s: Record<string, unknown>) => ({
         id: Number(s.id), dayOfWeek: Number(s.day_of_week ?? 1),
@@ -27,7 +30,10 @@ export async function GET() {
       return NextResponse.json({ items });
     }
     const items = await db.scheduleItem.findMany({
-      where: { specialtyId: user.assignedSpecialtyId },
+      where: {
+        specialtyId: user.assignedSpecialtyId,
+        ...(yearId ? { academicYearId: yearId } : {}),
+      },
       orderBy: { dayOfWeek: "asc" },
     });
     return NextResponse.json({

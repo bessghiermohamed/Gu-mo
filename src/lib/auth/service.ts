@@ -64,11 +64,16 @@ export async function signUpUser(input: { fullName: string; email: string }): Pr
     const supabase = await createSupabaseServerClient();
     const { data: existing } = await supabase.from("app_users").select("id").eq("email", normalizedEmail).maybeSingle();
     if (existing) return { error: "هذا البريد مسجّل مسبقاً. سجّل الدخول بدلاً من ذلك." };
+    // fix: don't hardcode specialty 1 — it may not exist. Use the first real specialty.
+    const { data: firstSpecialty } = await supabase.from("specialties").select("id, institution_id").order("id", { ascending: true }).limit(1).maybeSingle();
+    if (!firstSpecialty) return { error: "لا يمكن التسجيل حالياً: لم تُضف أي تخصصات بعد." };
+    const defaultSpecialtyId = Number(firstSpecialty.id);
+    const defaultInstitutionId = firstSpecialty.institution_id != null ? Number(firstSpecialty.institution_id) : 1;
     const { count } = await supabase.from("app_users").select("id", { count: "exact", head: true });
     const isFirstUser = (count ?? 0) === 0;
     const role = isFirstUser ? "OWNER" : "STUDENT";
     const { data: newUser, error } = await supabase.from("app_users").insert({
-      full_name: trimmedName, email: normalizedEmail, student_id: studentId, role, assigned_specialty_id: 1, scope_institution_id: 1,
+      full_name: trimmedName, email: normalizedEmail, student_id: studentId, role, assigned_specialty_id: defaultSpecialtyId, scope_institution_id: defaultInstitutionId,
     }).select().single();
     if (error || !newUser) return { error: `فشل إنشاء الحساب: ${error?.message ?? "خطأ"}` };
     const token = randomBytes(48).toString("hex");
@@ -83,9 +88,12 @@ export async function signUpUser(input: { fullName: string; email: string }): Pr
   // Local Prisma
   const existing = await db.appUser.findUnique({ where: { email: normalizedEmail } });
   if (existing) return { error: "هذا البريد مسجّل مسبقاً." };
+  // fix: don't hardcode specialty 1 — it may not exist. Use the first real specialty.
+  const firstSpecialty = await db.specialty.findFirst({ orderBy: { id: "asc" } });
+  if (!firstSpecialty) return { error: "لا يمكن التسجيل حالياً: لم تُضف أي تخصصات بعد." };
   const userCount = await db.appUser.count();
   const newUser = await db.appUser.create({
-    data: { fullName: trimmedName, email: normalizedEmail, studentId, role: userCount === 0 ? "OWNER" : "STUDENT", assignedSpecialtyId: 1 },
+    data: { fullName: trimmedName, email: normalizedEmail, studentId, specialtyName: "", yearName: "", groupNumber: "", role: userCount === 0 ? "OWNER" : "STUDENT", assignedSpecialtyId: firstSpecialty.id, scopeInstitutionId: firstSpecialty.institutionId },
   });
   const token = randomBytes(48).toString("hex");
   await db.deviceSession.create({ data: { userId: newUser.id, deviceToken: token, expiresAt: new Date(Date.now() + SESSION_DURATION_DAYS * 24 * 60 * 60 * 1000) } });
@@ -132,7 +140,7 @@ export async function getUserBySessionToken(token: string): Promise<SessionUser 
       await supabase.from("device_sessions").delete().eq("id", session.id);
       return null;
     }
-    return toSessionUser(session.app_users as Record<string, unknown>);
+    return toSessionUser((session.app_users ?? {}) as unknown as Record<string, unknown>);
   }
 
   const session = await db.deviceSession.findUnique({ where: { deviceToken: token }, include: { user: true } });

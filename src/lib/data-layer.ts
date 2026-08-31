@@ -265,7 +265,7 @@ export async function fetchCohorts(
   const items = await db.cohortGroup.findMany({ where: where as never, orderBy: { id: "asc" } });
   return items.map((c) => ({
     id: c.id, specialtyId: c.specialtyId, academicYearId: c.academicYearId,
-    trackId: c.trackId ?? null, groupId: (c as never).groupId ?? null,
+    trackId: c.trackId ?? null, groupId: c.groupId ?? null,
     groupName: c.groupName, subGroup: c.subGroup,
   }));
 }
@@ -284,10 +284,10 @@ export async function fetchAcademicTracks(specialtyId: number): Promise<Academic
     if (error) return [];
     return (data ?? []).map(mapAcademicTrack);
   }
-  const items = await (db as never).academicTrack?.findMany?.({ where: { specialtyId }, orderBy: { id: "asc" } }) ?? [];
-  return items.map((t: never) => ({
-    id: (t as never).id, specialtyId: (t as never).specialtyId,
-    trackNameAr: (t as never).trackNameAr, code: (t as never).code,
+  const items = await db.academicTrack.findMany({ where: { specialtyId }, orderBy: { id: "asc" } });
+  return items.map((t) => ({
+    id: t.id, specialtyId: t.specialtyId,
+    trackNameAr: t.trackNameAr, code: t.code,
   }));
 }
 
@@ -311,8 +311,8 @@ export async function fetchStudyGroups(
   const where: Record<string, unknown> = { specialtyId };
   if (academicYearId) where.academicYearId = academicYearId;
   if (trackId) where.trackId = trackId;
-  const items = await (db as never).studyGroup?.findMany?.({ where: where as never, orderBy: { id: "asc" } }) ?? [];
-  return items.map((g: never) => ({
+  const items = await db.studyGroup.findMany({ where: where as never, orderBy: { id: "asc" } });
+  return items.map((g) => ({
     id: g.id, specialtyId: g.specialtyId, academicYearId: g.academicYearId,
     trackId: g.trackId ?? null, groupName: g.groupName, description: g.description,
   }));
@@ -335,7 +335,7 @@ export async function fetchCohortsByGroup(groupId: number): Promise<Cohort[]> {
   const items = await db.cohortGroup.findMany({ where: { groupId } as never, orderBy: { id: "asc" } });
   return items.map((c) => ({
     id: c.id, specialtyId: c.specialtyId, academicYearId: c.academicYearId,
-    trackId: c.trackId ?? null, groupId: (c as never).groupId ?? null,
+    trackId: c.trackId ?? null, groupId: c.groupId ?? null,
     groupName: c.groupName, subGroup: c.subGroup,
   }));
 }
@@ -406,15 +406,15 @@ export async function fetchPendingJoinRequests(
   }
   const where: Record<string, unknown> = { status: "pending" };
   if (specialtyId) where.cohort = { specialtyId };
-  const items = await (db as never).joinRequest?.findMany?.({
+  const items = await db.joinRequest.findMany({
     where: where as never,
     include: { requester: { select: { fullName: true } }, cohort: { select: { groupName: true } } },
     orderBy: { createdAt: "desc" },
-  }) ?? [];
-  return items.map((r: never) => ({
+  });
+  return items.map((r) => ({
     id: r.id, requesterId: r.requesterId, requesterName: r.requester?.fullName ?? "",
     cohortId: r.cohortId, cohortName: r.cohort?.groupName ?? "",
-    groupId: r.groupId ?? null, status: r.status, message: r.message,
+    groupId: r.groupId ?? null, status: r.status as JoinRequest["status"], message: r.message,
     reviewerNote: r.reviewerNote, createdAt: r.createdAt?.toISOString?.() ?? "",
     reviewedAt: r.reviewedAt?.toISOString?.() ?? null,
   }));

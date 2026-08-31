@@ -1,6 +1,11 @@
 /**
  * Complete onboarding - save user profile & link to cohort
  * Uses Supabase on Vercel, Prisma locally.
+ *
+ * fix أ.4: now saves scope_institution_id + scope_track_id so content can be
+ *          filtered by the student's full academic scope.
+ * fix (profile bug): student_profiles row is now PER USER (id = user id)
+ *          instead of the shared singleton row id=1 that every user overwrote.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -24,7 +29,7 @@ export async function POST(req: NextRequest) {
       specialtyId,
       academicYearId,
       cohortId,
-      track,
+      trackId,
     } = body;
 
     if (!fullName?.trim() || !email?.trim()) {
@@ -43,6 +48,7 @@ export async function POST(req: NextRequest) {
         { data: specialty },
         { data: year },
         { data: cohort },
+        { data: track },
       ] = await Promise.all([
         institutionId
           ? supabase.from("institutions").select("name_ar").eq("id", institutionId).maybeSingle()
@@ -56,18 +62,23 @@ export async function POST(req: NextRequest) {
         cohortId
           ? supabase.from("cohort_groups").select("group_name").eq("id", cohortId).maybeSingle()
           : Promise.resolve({ data: null }),
+        trackId
+          ? supabase.from("academic_tracks").select("track_name_ar, code").eq("id", trackId).maybeSingle()
+          : Promise.resolve({ data: null }),
       ]);
 
-      // Update app_users
+      // Update app_users — fix أ.4: persist the FULL academic scope
       const { error: userError } = await supabase
         .from("app_users")
         .update({
           full_name: fullName.trim(),
           email: email.trim().toLowerCase(),
           assigned_specialty_id: specialtyId ?? user.assignedSpecialtyId,
+          scope_institution_id: institutionId ?? null,
           scope_specialty_id: specialtyId ?? null,
           scope_academic_year_id: academicYearId ?? null,
           scope_cohort_group_id: cohortId ?? null,
+          scope_track_id: trackId ?? null,
           specialty_name: specialty?.name_ar ?? "",
           year_name: year?.year_name ?? "",
           group_number: cohort?.group_name ?? "",
@@ -81,11 +92,11 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Upsert student_profiles
+      // Upsert student_profiles — PER USER (id = user.id), not the shared row id=1
       const { error: profileError } = await supabase
         .from("student_profiles")
         .upsert({
-          id: 1,
+          id: user.id,
           user_id: String(user.id),
           full_name: fullName.trim(),
           email: email.trim().toLowerCase(),
@@ -93,7 +104,8 @@ export async function POST(req: NextRequest) {
           university: institution?.name_ar ?? "",
           faculty: specialty?.faculty ?? "",
           specialty_name: specialty?.name_ar ?? "",
-          profile_track: track ?? "",
+          profile_track: track?.track_name_ar ?? "",
+          track_id: trackId ?? null,
           selected_specialty_id: specialtyId ?? 1,
           selected_year_id: academicYearId ?? 1,
           selected_cohort_id: cohortId ?? null,
@@ -122,6 +134,9 @@ export async function POST(req: NextRequest) {
     const cohort = cohortId
       ? await db.cohortGroup.findUnique({ where: { id: cohortId } })
       : null;
+    const track = trackId
+      ? await db.academicTrack.findUnique({ where: { id: trackId } })
+      : null;
 
     await db.appUser.update({
       where: { id: user.id },
@@ -129,50 +144,40 @@ export async function POST(req: NextRequest) {
         fullName: fullName.trim(),
         email: email.trim().toLowerCase(),
         assignedSpecialtyId: specialtyId ?? user.assignedSpecialtyId,
+        scopeInstitutionId: institutionId ?? null,
         scopeSpecialtyId: specialtyId ?? null,
         scopeAcademicYearId: academicYearId ?? null,
         scopeCohortGroupId: cohortId ?? null,
+        scopeTrackId: trackId ?? null,
         specialtyName: specialty?.nameAr ?? "",
         yearName: year?.yearName ?? "",
         groupNumber: cohort?.groupName ?? "",
       },
     });
 
+    // PER-USER profile (id = user.id)
+    const profileData = {
+      userId: String(user.id),
+      fullName: fullName.trim(),
+      email: email.trim().toLowerCase(),
+      institution: institution?.nameAr ?? "",
+      university: institution?.nameAr ?? "",
+      faculty: specialty?.faculty ?? "",
+      specialtyName: specialty?.nameAr ?? "",
+      profileTrack: track?.trackNameAr ?? "",
+      trackId: trackId ?? null,
+      selectedSpecialtyId: specialtyId ?? 1,
+      selectedYearId: academicYearId ?? 1,
+      selectedCohortId: cohortId ?? null,
+      academicYearName: year?.yearName ?? "",
+      groupNumber: cohort?.groupName ?? "",
+      isConfigured: true,
+    };
+
     await db.studentProfile.upsert({
-      where: { id: 1 },
-      create: {
-        id: 1,
-        userId: String(user.id),
-        fullName: fullName.trim(),
-        email: email.trim().toLowerCase(),
-        institution: institution?.nameAr ?? "",
-        university: institution?.nameAr ?? "",
-        faculty: specialty?.faculty ?? "",
-        specialtyName: specialty?.nameAr ?? "",
-        profileTrack: track ?? "",
-        selectedSpecialtyId: specialtyId ?? 1,
-        selectedYearId: academicYearId ?? 1,
-        selectedCohortId: cohortId ?? null,
-        academicYearName: year?.yearName ?? "",
-        groupNumber: cohort?.groupName ?? "",
-        isConfigured: true,
-      },
-      update: {
-        userId: String(user.id),
-        fullName: fullName.trim(),
-        email: email.trim().toLowerCase(),
-        institution: institution?.nameAr ?? "",
-        university: institution?.nameAr ?? "",
-        faculty: specialty?.faculty ?? "",
-        specialtyName: specialty?.nameAr ?? "",
-        profileTrack: track ?? "",
-        selectedSpecialtyId: specialtyId ?? 1,
-        selectedYearId: academicYearId ?? 1,
-        selectedCohortId: cohortId ?? null,
-        academicYearName: year?.yearName ?? "",
-        groupNumber: cohort?.groupName ?? "",
-        isConfigured: true,
-      },
+      where: { id: user.id },
+      create: { id: user.id, ...profileData },
+      update: profileData,
     });
 
     return NextResponse.json({ ok: true });

@@ -11,4 +11,7 @@ export interface SessionUser {
   scopeCohortGroupId: number | null;
   scopeAcademicYearId: number | null;
   scopeSpecialtyId: number | null;
+  scopeTrackId: number | null;
+  scopeInstitutionId: number | null;
+  scopeGroupId: number | null;
 }
