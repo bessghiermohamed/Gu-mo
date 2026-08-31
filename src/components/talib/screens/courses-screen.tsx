@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, Plus, Flag, Loader2, ChevronDown } from "lucide-react";
+import { BookOpen, Plus, Flag, Loader2, ChevronDown, Send } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
+import { useShell } from "@/app/page";
 import { canManageRoles } from "@/lib/auth/permissions";
 import { toast } from "sonner";
 
@@ -32,6 +33,7 @@ interface Course {
 
 export function TalibCoursesScreen() {
   const { t } = useI18n();
+  const { navigate } = useShell();
   const [courses, setCourses] = React.useState<Course[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -60,6 +62,25 @@ export function TalibCoursesScreen() {
         <h1 className="text-2xl font-black mb-1">{t("courses.title")}</h1>
         <p className="text-sm text-muted-foreground">تصفّح مقرراتك حسب السداسي</p>
       </div>
+
+      {/* round 7: بوابة دروس تيليجرام — المحتوى المرتبط بالمقاييس من القنوات */}
+      <Card
+        role="button"
+        tabIndex={0}
+        onClick={() => navigate("TELEGRAM")}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("TELEGRAM"); } }}
+        className="p-3.5 cursor-pointer hover:border-primary/40 hover:shadow-md transition-all flex items-center gap-3 bg-primary/5 border-primary/20"
+        aria-label="فتح دروس تيليجرام"
+      >
+        <div className="w-10 h-10 rounded-xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
+          <Send className="w-5 h-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-sm">دروس تيليجرام 📲</p>
+          <p className="text-xs text-muted-foreground">محاضرات وتمارين القنوات مرتبة حسب المقياس — انقر للتصفّح</p>
+        </div>
+        <ChevronDown className="w-4 h-4 text-muted-foreground -rotate-90 shrink-0" />
+      </Card>
 
       <Tabs defaultValue="all">
         <TabsList className="grid w-full grid-cols-3">

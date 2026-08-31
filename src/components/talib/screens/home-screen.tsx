@@ -15,6 +15,7 @@ import {
   Clock,
   BookMarked,
   CheckSquare,
+  Send,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -97,6 +98,13 @@ export function TalibHomeScreen() {
       icon: <Users className="w-6 h-6" />,
       route: "GROUP",
       delay: 0.35,
+    },
+    {
+      title: "دروس تيليجرام",
+      subtitle: "قنوات ومساحة الفوج",
+      icon: <Send className="w-6 h-6" />,
+      route: "TELEGRAM",
+      delay: 0.4,
     },
   ];
 

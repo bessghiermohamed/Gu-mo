@@ -483,6 +483,70 @@ model ClassPoll {
 }
 
 // =====================================================
+// 14.5 دروس تيليجرام (Telegram Lessons) — round 7
+// telegram_sources = قنوات/مجموعات مربوطة بالبوت، مرتبطة
+// بالتسلسل الأكاديمي (سنة/سداسي/مقياس) أو بفوج محدد (مساحة مشتركة).
+// telegram_items  = المنشورات المستوردة (روابط فقط، لا ملفات)
+// =====================================================
+model TelegramSource {
+  id            Int      @id @default(autoincrement())
+  tgChannelId   String   @unique // chat id من تيليجرام (-100… للقنوات/المجموعات)
+  tgUsername    String   @default("") // @username للقنوات العامة (يبني روابط t.me)
+  titleAr       String // اسم للعرض داخل التطبيق
+  sourceType    String   @default("channel") // channel (قناة) | group (مجموعة فوج)
+  kind          String   @default("public") // public | private
+  institutionId Int?
+  specialtyId   Int
+  trackId       Int?
+  yearId        Int?
+  semester      Int?
+  moduleId      Int? // الربط بالمقياس (للنوع channel)
+  cohortId      Int? // الربط بالفوج (للنوع group — مساحة مشتركة)
+  isActive      Boolean  @default(true) // إيقاف الاستيراد مؤقتاً
+  lastUpdateId  Int      @default(0)
+  items         TelegramItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TelegramItem {
+  id           Int      @id @default(autoincrement())
+  sourceId     Int? // NULL = إضافة يدوية داخل المساحة المشتركة
+  source       TelegramSource? @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  tgMessageId  Int      @default(0) // 0 = ليس منشور تيليجرام
+  mediaGroupId String   @default("") // تجميع صور الألبوم الواحد
+  kind         String   @default("text") // pdf|doc|ppt|image|video|audio|text|link|other
+  titleAr      String   @default("")
+  captionText  String   @default("")
+  searchText   String   @default("") // نسخة مُطبَّعة (بدون تشكيل) للبحث
+  fileName     String   @default("")
+  mimeType     String   @default("")
+  fileId       String   @default("") // لعرض الصور عبر الوكيل
+  fileUniqueId String   @default("") // كشف التكرار
+  sizeBytes    Int      @default(0)
+  link         String // رابط t.me المباشر للمنشور الأصلي
+  specialtyId  Int      @default(1)
+  moduleId     Int?
+  itemType     String   @default("محاضرة") // محاضرة|أعمال موجهة TD|تمارين|امتحان|ملخص|كتاب|إعلان|عام
+  origin       String   @default("telegram") // telegram | manual
+  postedBy     String   @default("")
+  cohortId     Int? // مساحة الفوج المشتركة
+  isHidden     Boolean  @default(false)
+  isFeatured   Boolean  @default(false)
+  aiClassified Boolean  @default(false) // صُنِّف عبر Gemini
+  postedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sourceId, tgMessageId])
+  @@index([moduleId])
+  @@index([cohortId])
+  @@index([specialtyId])
+}
+
+// =====================================================
 // 15. مستخدمو النظام (AppUser) - مع RBAC كامل
 // fix A.1: introduce supervisoryScopeEnforced flag
 // =====================================================

@@ -5,7 +5,7 @@ import {
   Users, Layers, BookOpen, Cloud, Plus, TestTube2,
   CheckCircle2, XCircle, Loader2, FolderTree, UserPlus, Clock,
   Check, X, Building2, GraduationCap, Shield, Trash2, Route, CalendarDays, Pencil,
-  Flag, AlertTriangle, CheckCheck, RotateCcw,
+  Flag, AlertTriangle, CheckCheck, RotateCcw, Send, Eye, EyeOff, Star, Link2, Sparkles, Power,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -132,6 +132,7 @@ export function TalibAdminPanelScreen() {
           <TabsTrigger value="requests" className="text-xs flex-1 min-w-24"><UserPlus className="w-3.5 h-3.5 ml-1" />الطلبات</TabsTrigger>
           <TabsTrigger value="modules" className="text-xs flex-1 min-w-24"><BookOpen className="w-3.5 h-3.5 ml-1" />المقررات</TabsTrigger>
           <TabsTrigger value="issues" className="text-xs flex-1 min-w-24"><Flag className="w-3.5 h-3.5 ml-1" />التبليغات</TabsTrigger>
+          <TabsTrigger value="telegram" className="text-xs flex-1 min-w-24"><Send className="w-3.5 h-3.5 ml-1" />تيليجرام</TabsTrigger>
           <TabsTrigger value="cloud" className="text-xs flex-1 min-w-24"><Cloud className="w-3.5 h-3.5 ml-1" />السحابة</TabsTrigger>
         </TabsList>
 
@@ -144,6 +145,7 @@ export function TalibAdminPanelScreen() {
         <TabsContent value="requests" className="mt-4"><JoinRequestsManager /></TabsContent>
         <TabsContent value="modules" className="mt-4"><ModulesManager /></TabsContent>
         <TabsContent value="issues" className="mt-4"><IssuesManager /></TabsContent>
+        <TabsContent value="telegram" className="mt-4"><TelegramManager /></TabsContent>
         <TabsContent value="cloud" className="mt-4"><CloudManager /></TabsContent>
       </Tabs>
     </div>
@@ -2050,6 +2052,706 @@ function CloudManager() {
       )}
       <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-lg flex items-start gap-2"><Shield className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span>مفاتيح Supabase محفوظة بأمان في متغيرات البيئة.</span></div>
     </Card>
+  );
+}
+
+// =====================================================
+// Telegram Manager (تيليجرام) — round 7
+//
+// إدارة ميزة "دروس تيليجرام": ربط القنوات/مجموعات الأفواج بالبوت،
+// تفعيل الويبهوك، وتنقيح المنشورات المستوردة (تصنيف/إخفاء/تثبيت/
+// إعادة ربط/حذف). القاعدة الذهبية من الجولة 6 مطبقة من اليوم الأول:
+// كل كيان له إنشاء + تعديل + حذف — لا كيان "نصف مزود".
+// =====================================================
+interface TgSourceRow {
+  id: number;
+  tgChannelId: string;
+  tgUsername: string;
+  titleAr: string;
+  sourceType: string;
+  kind: string;
+  yearId: number | null;
+  semester: number | null;
+  moduleId: number | null;
+  moduleName: string | null;
+  cohortId: number | null;
+  cohortName: string | null;
+  isActive: boolean;
+  lastUpdateId: number;
+  itemCount: number;
+}
+
+interface TgItemAdminRow {
+  id: number;
+  titleAr: string;
+  kind: string;
+  itemType: string;
+  moduleId: number | null;
+  moduleName: string | null;
+  sourceTitle: string | null;
+  sourceUsername: string | null;
+  origin: string;
+  postedBy: string;
+  link: string;
+  isHidden: boolean;
+  isFeatured: boolean;
+  aiClassified: boolean;
+  postedAt: string | null;
+}
+
+interface TgCourseRow { id: number; name: string; semester: number; academicYearId: number }
+interface TgCohortRow { id: number; groupName: string; academicYearId: number }
+
+const TG_TYPES_ADMIN = ["محاضرة", "أعمال موجهة TD", "تمارين", "امتحان", "ملخص", "كتاب", "إعلان", "عام"];
+
+function TelegramManager() {
+  return (
+    <div className="space-y-4">
+      <TgStatusCard />
+      <Card className="p-4">
+        <Tabs defaultValue="sources">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="sources" className="text-xs data-[state=active]:font-bold">القنوات والأربطة</TabsTrigger>
+            <TabsTrigger value="posts" className="text-xs data-[state=active]:font-bold">تنقيح المنشورات</TabsTrigger>
+          </TabsList>
+          <TabsContent value="sources" className="mt-4"><TgSourcesManager /></TabsContent>
+          <TabsContent value="posts" className="mt-4"><TgItemsManager /></TabsContent>
+        </Tabs>
+      </Card>
+    </div>
+  );
+}
+
+// -----------------------------------------------------
+// حالة الربط (البوت/الويبهوك/Gemini) + زر التفعيل
+// -----------------------------------------------------
+function TgStatusCard() {
+  const [status, setStatus] = React.useState<{
+    botConfigured: boolean;
+    geminiConfigured: boolean;
+    webhook: { url: string; pendingUpdateCount: number; lastErrorMessage: string } | null;
+  } | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [activating, setActivating] = React.useState(false);
+
+  const fetchStatus = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/telegram/setup", { cache: "no-store" });
+      if (res.ok) setStatus(await res.json());
+    } catch { /* silent */ }
+    finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+  async function handleActivate() {
+    setActivating(true);
+    try {
+      const res = await fetch("/api/telegram/setup", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success(data.message);
+      fetchStatus();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setActivating(false); }
+  }
+
+  if (loading) {
+    return <Card className="p-4"><div className="text-center py-2"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div></Card>;
+  }
+  const botOk = status?.botConfigured ?? false;
+  const geminiOk = status?.geminiConfigured ?? false;
+  const webhookUrl = status?.webhook?.url ?? "";
+
+  return (
+    <Card className="p-4 space-y-3">
+      <div>
+        <h3 className="font-bold text-sm flex items-center gap-2"><Send className="w-4 h-4 text-primary" />حالة ربط تيليجرام</h3>
+        <p className="text-xs text-muted-foreground mt-1">استيراد تلقائي للمنشورات الجديدة من القنوات المرتبطة</p>
+      </div>
+
+      <div className="grid gap-2">
+        <StatusLine ok={botOk} label="توكن البوت (TELEGRAM_BOT_TOKEN)" okText="مضبوط" badText="غير مضبوط — أنشئ بوتاً عبر BotFather وأضف التوكن في متغيرات البيئة على Vercel" />
+        <StatusLine ok={webhookUrl.length > 0} label="الويبهوك" okText={`مفعّل: ${webhookUrl}`} badText="غير مفعّل — اضغط «تفعيل الربط» بعد ضبط التوكن والسر" />
+        <StatusLine ok={geminiOk} label="التصنيف الذكي (GEMINI_API_KEY)" okText="التصنيف الآلي بالذكاء الاصطناعي مفعّل" badText="غير مضبوط — يُستعمل التصنيف المحلي بالكلمات المفتاحية (يعمل بشكل كامل)" />
+      </div>
+
+      {status?.webhook?.lastErrorMessage ? (
+        <div className="rounded-lg bg-destructive/10 text-destructive text-xs p-3">
+          آخر خطأ من تيليجرام: {status.webhook.lastErrorMessage}
+        </div>
+      ) : null}
+
+      <Button onClick={handleActivate} disabled={activating || !botOk} className="w-full">
+        {activating ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Power className="w-4 h-4 ml-1" />}
+        تفعيل الربط
+      </Button>
+
+      <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-lg leading-relaxed space-y-1">
+        <p className="font-bold text-foreground/80">خطوات الربط (مرة واحدة):</p>
+        <p>١. أنشئ بوتاً عبر @BotFather وانسخ التوكن → TELEGRAM_BOT_TOKEN على Vercel.</p>
+        <p>٢. اضبط TELEGRAM_WEBHOOK_SECRET (أي نص عشوائي طويل) على Vercel.</p>
+        <p>٣. أضف البوت «مشرفاً» في كل قناة/مجموعة تريد استيرادها.</p>
+        <p>٤. عد هنا ← أضف القناة ← ثم اضغط «تفعيل الربط».</p>
+        <p>٥. (اختياري) GEMINI_API_KEY لتصنيف المحتوى واستخراج نص الصور آلياً.</p>
+      </div>
+    </Card>
+  );
+}
+
+function StatusLine({ ok, label, okText, badText }: { ok: boolean; label: string; okText: string; badText: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-border/60 p-2.5">
+      {ok ? <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" /> : <XCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />}
+      <div className="min-w-0">
+        <p className="text-xs font-bold">{label}</p>
+        <p className={cn("text-[11px] mt-0.5 leading-relaxed break-all", ok ? "text-emerald-700" : "text-muted-foreground")}>{ok ? okText : badText}</p>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------
+// إدارة المصادر (القنوات المرتبطة)
+// -----------------------------------------------------
+function TgSourcesManager() {
+  const { user } = useAuth();
+  const [sources, setSources] = React.useState<TgSourceRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [tablesReady, setTablesReady] = React.useState(true);
+
+  // add dialog
+  const [open, setOpen] = React.useState(false);
+  const [handle, setHandle] = React.useState("");
+  const [title, setTitle] = React.useState("");
+  const [sourceType, setSourceType] = React.useState("channel");
+  const [yearId, setYearId] = React.useState("");
+  const [semester, setSemester] = React.useState("");
+  const [moduleId, setModuleId] = React.useState("");
+  const [cohortId, setCohortId] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  // edit dialog
+  const [editSource, setEditSource] = React.useState<TgSourceRow | null>(null);
+  const [editTitle, setEditTitle] = React.useState("");
+  const [editModuleId, setEditModuleId] = React.useState("");
+  const [editIsActive, setEditIsActive] = React.useState(true);
+  const [editApply, setEditApply] = React.useState(false);
+  const [editSaving, setEditSaving] = React.useState(false);
+
+  // delete confirm
+  const [deleteSource, setDeleteSource] = React.useState<TgSourceRow | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+
+  // cascade data
+  const [years, setYears] = React.useState<Year[]>([]);
+  const [courses, setCourses] = React.useState<TgCourseRow[]>([]);
+  const [cohorts, setCohorts] = React.useState<TgCohortRow[]>([]);
+
+  React.useEffect(() => {
+    fetch(`/api/onboarding/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
+      .then((r) => r.json()).then((data) => setYears(data.years ?? [])).catch(() => setYears([]));
+    fetch("/api/courses", { cache: "no-store" })
+      .then((r) => r.json()).then((data) => setCourses(data.courses ?? [])).catch(() => setCourses([]));
+  }, [user]);
+
+  React.useEffect(() => {
+    if (!yearId) { setCohorts([]); return; }
+    fetch(`/api/cohort?specialtyId=${user?.assignedSpecialtyId ?? 1}&academicYearId=${yearId}`)
+      .then((r) => r.json()).then((data) => setCohorts(data.cohorts ?? [])).catch(() => setCohorts([]));
+  }, [yearId, user]);
+
+  const fetchSources = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/telegram/sources", { cache: "no-store" });
+      const data = await res.json();
+      setSources(data.sources ?? []);
+      if (data.tablesReady === false) setTablesReady(false);
+    } catch { setSources([]); }
+    finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { fetchSources(); }, [fetchSources]);
+
+  const yearCourses = courses.filter((c) => !yearId || String(c.academicYearId) === yearId);
+
+  async function handleCreate() {
+    if (!handle.trim()) { toast.error("أدخل رابط القناة أو @اسمها"); return; }
+    if (sourceType === "group" && !cohortId) { toast.error("اختر الفوج المرتبط بالمساحة المشتركة"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/telegram/sources", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          handle: handle.trim(), title: title.trim(), sourceType,
+          ...(yearId ? { yearId: parseInt(yearId) } : {}),
+          ...(semester ? { semester: parseInt(semester) } : {}),
+          ...(sourceType === "channel" && moduleId ? { moduleId: parseInt(moduleId) } : {}),
+          ...(sourceType === "group" && cohortId ? { cohortId: parseInt(cohortId) } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم ربط القناة ✅ — تأكد أن البوت مشرف فيها ليستورد المنشورات الجديدة");
+      setOpen(false); setHandle(""); setTitle(""); setModuleId(""); setCohortId(""); setSemester("");
+      fetchSources();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setSaving(false); }
+  }
+
+  function openEdit(s: TgSourceRow) {
+    setEditTitle(s.titleAr);
+    setEditModuleId(s.moduleId ? String(s.moduleId) : "");
+    setEditIsActive(s.isActive);
+    setEditApply(false);
+    setEditSource(s);
+  }
+
+  async function handleEditSave() {
+    if (!editSource) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch("/api/telegram/sources", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editSource.id,
+          titleAr: editTitle.trim(),
+          ...(editSource.moduleId != null || editModuleId ? { moduleId: editModuleId ? parseInt(editModuleId) : null } : {}),
+          isActive: editIsActive,
+          applyToItems: editApply,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم تعديل المصدر ✅");
+      setEditSource(null);
+      fetchSources();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setEditSaving(false); }
+  }
+
+  async function handleToggleActive(s: TgSourceRow) {
+    const res = await fetch("/api/telegram/sources", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: s.id, isActive: !s.isActive }),
+    });
+    const data = await res.json();
+    if (!res.ok) { toast.error(data.error); return; }
+    toast.success(!s.isActive ? "تم استئناف الاستيراد" : "تم إيقاف الاستيراد مؤقتاً");
+    fetchSources();
+  }
+
+  async function handleDelete() {
+    if (!deleteSource) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/telegram/sources?id=${deleteSource.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setDeleteError(data.error); toast.error(data.error); return; }
+      toast.success(data.message ?? "تم فك الربط");
+      setDeleteSource(null); setDeleteError(null);
+      fetchSources();
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeleting(false); }
+  }
+
+  if (!tablesReady) {
+    return (
+      <div className="rounded-lg bg-amber-500/10 text-amber-700 text-xs p-4 leading-relaxed">
+        جداول تيليجرام غير منشأة بعد في Supabase. نفّذ الملف <span className="font-mono" dir="ltr">download/supabase_telegram.sql</span> في محرر SQL ثم أعد التحميل.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-xs text-muted-foreground">
+            كل قناة مرتبطة بمقياس (أو فوج للمساحة المشتركة) — منشوراتها الجديدة تُستورد وتُصنّف تلقائياً
+          </p>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild><Button size="sm" shrink-0><Plus className="w-4 h-4 ml-1" />ربط قناة</Button></DialogTrigger>
+          <DialogContent>
+            <DialogHeader><DialogTitle>ربط قناة/مجموعة تيليجرام 🔗</DialogTitle></DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5">
+                <Label>رابط القناة أو @اسمها</Label>
+                <Input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="https://t.me/channel_name أو @channel_name" dir="ltr" />
+                <p className="text-[10px] text-muted-foreground">البوت يجب أن يكون مشرفاً في القناة قبل الربط.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label>النوع</Label>
+                  <select value={sourceType} onChange={(e) => setSourceType(e.target.value)} className={selectCls}>
+                    <option value="channel">قناة (محتوى مقياس)</option>
+                    <option value="group">مجموعة فوج (مساحة مشتركة)</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>اسم للعرض (اختياري)</Label>
+                  <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="يُقرأ تلقائياً من تيليجرام" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>السنة الدراسية</Label>
+                <select value={yearId} onChange={(e) => setYearId(e.target.value)} className={selectCls}>
+                  <option value="">— بدون —</option>
+                  {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                </select>
+              </div>
+              {sourceType === "channel" ? (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>السداسي (اختياري)</Label>
+                    <select value={semester} onChange={(e) => setSemester(e.target.value)} className={selectCls}>
+                      <option value="">— بدون —</option>
+                      <option value="1">السداسي الأول</option>
+                      <option value="2">السداسي الثاني</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>المقياس (تصنيف منشورات القناة)</Label>
+                    <select value={moduleId} onChange={(e) => setModuleId(e.target.value)} className={selectCls}>
+                      <option value="">— عام (بدون مقياس) —</option>
+                      {yearCourses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label>الفوج (أصحاب المساحة المشتركة)</Label>
+                  <select value={cohortId} onChange={(e) => setCohortId(e.target.value)} className={selectCls}>
+                    <option value="">— اختر الفوج —</option>
+                    {cohorts.map((c) => <option key={c.id} value={c.id}>{c.groupName}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
+              <Button onClick={handleCreate} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}ربط</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* edit dialog */}
+      {editSource && (
+        <Dialog open onOpenChange={() => setEditSource(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5 text-primary" />تعديل الربط</DialogTitle></DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5">
+                <Label>اسم العرض</Label>
+                <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>المقياس</Label>
+                <select value={editModuleId} onChange={(e) => setEditModuleId(e.target.value)} className={selectCls}>
+                  <option value="">— عام (بدون مقياس) —</option>
+                  {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input type="checkbox" checked={editIsActive} onChange={(e) => setEditIsActive(e.target.checked)} className="accent-primary" />
+                الاستيراد مفعّل
+              </label>
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input type="checkbox" checked={editApply} onChange={(e) => setEditApply(e.target.checked)} className="accent-primary" />
+                تطبيق التغيير على المنشورات المستوردة الموجودة (إعادة تصنيفها للمقياس الجديد)
+              </label>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditSource(null)}>إلغاء</Button>
+              <Button onClick={handleEditSave} disabled={editSaving}>{editSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* delete confirm */}
+      {deleteSource && (
+        <Dialog open onOpenChange={() => { setDeleteSource(null); setDeleteError(null); }}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />فك ربط القناة</DialogTitle></DialogHeader>
+            <p className="text-sm">
+              هل تريد فك ربط <strong>{deleteSource.titleAr}</strong>؟
+              سيتم حذف <strong>{deleteSource.itemCount}</strong> منشوراً مستورداً منها نهائياً.
+            </p>
+            <p className="text-xs text-muted-foreground">الإضافات اليدوية للطلبة في مساحة الفوج لا تتأثر — فقط منشورات هذا المصدر.</p>
+            {deleteError && <div className="rounded-lg bg-destructive/10 text-destructive text-xs p-3 mt-1">{deleteError}</div>}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setDeleteSource(null); setDeleteError(null); }}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}فك الربط نهائياً</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {loading ? (
+        <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div>
+      ) : sources.length === 0 ? (
+        <div className="text-center py-6 text-sm text-muted-foreground flex flex-col items-center gap-2">
+          <Send className="w-8 h-8" />
+          <span>لا توجد قنوات مربوطة — ابدأ بزر «ربط قناة» بعد إضافة البوت مشرفاً فيها</span>
+        </div>
+      ) : (
+        <div className="space-y-2 max-h-[55vh] overflow-y-auto scrollbar-thin">
+          {sources.map((s) => (
+            <Card key={s.id} className="p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-sm">{s.titleAr}</span>
+                    <Badge variant="outline" className={`text-[10px] ${s.sourceType === "group" ? "border-teal-500/50 text-teal-700" : ""}`}>
+                      {s.sourceType === "group" ? "مجموعة فوج" : s.kind === "private" ? "قناة خاصة" : "قناة عامة"}
+                    </Badge>
+                    {!s.isActive && <Badge variant="secondary" className="text-[10px]">الاستيراد موقوف</Badge>}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
+                    {s.tgUsername ? <span dir="ltr" className="font-mono">@{s.tgUsername}</span> : <span dir="ltr" className="font-mono">{s.tgChannelId}</span>}
+                    <span>• {s.itemCount} منشوراً</span>
+                    {s.moduleName ? <span>• المقياس: {s.moduleName}</span> : null}
+                    {s.cohortName ? <span>• {s.cohortName}</span> : null}
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleToggleActive(s)}
+                    aria-label={s.isActive ? "إيقاف الاستيراد" : "استئناف الاستيراد"} title={s.isActive ? "إيقاف الاستيراد" : "استئناف الاستيراد"}>
+                    <Power className={`w-3.5 h-3.5 ${s.isActive ? "text-emerald-600" : "text-muted-foreground"}`} />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(s)} aria-label="تعديل الربط">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => { setDeleteSource(s); setDeleteError(null); }} aria-label="فك الربط">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// -----------------------------------------------------
+// تنقيح المنشورات (تصنيف/إخفاء/تثبيت/إعادة ربط/حذف)
+// -----------------------------------------------------
+function TgItemsManager() {
+  const [items, setItems] = React.useState<TgItemAdminRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [q, setQ] = React.useState("");
+  const [sourceId, setSourceId] = React.useState("");
+  const [itemType, setItemType] = React.useState("");
+  const [sources, setSources] = React.useState<TgSourceRow[]>([]);
+  const [courses, setCourses] = React.useState<TgCourseRow[]>([]);
+  const [busyId, setBusyId] = React.useState<number | null>(null);
+
+  // edit dialog
+  const [editItem, setEditItem] = React.useState<TgItemAdminRow | null>(null);
+  const [editTitle, setEditTitle] = React.useState("");
+  const [editType, setEditType] = React.useState("عام");
+  const [editModuleId, setEditModuleId] = React.useState("");
+  const [editSaving, setEditSaving] = React.useState(false);
+
+  // delete confirm
+  const [deleteItem, setDeleteItem] = React.useState<TgItemAdminRow | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
+  React.useEffect(() => {
+    fetch("/api/telegram/sources", { cache: "no-store" }).then((r) => r.json()).then((d) => setSources(d.sources ?? [])).catch(() => setSources([]));
+    fetch("/api/courses", { cache: "no-store" }).then((r) => r.json()).then((d) => setCourses(d.courses ?? [])).catch(() => setCourses([]));
+  }, []);
+
+  const fetchItems = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ mode: "admin" });
+      if (q.trim()) params.set("q", q.trim());
+      if (sourceId) params.set("sourceId", sourceId);
+      if (itemType) params.set("itemType", itemType);
+      const res = await fetch(`/api/telegram/items?${params.toString()}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل تحميل المنشورات"); return; }
+      setItems(data.items ?? []);
+    } catch { toast.error("فشل تحميل المنشورات"); }
+    finally { setLoading(false); }
+  }, [q, sourceId, itemType]);
+  React.useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  async function patchItem(id: number, patch: Record<string, unknown>, successMsg: string) {
+    setBusyId(id);
+    try {
+      const res = await fetch("/api/telegram/items", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...patch }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success(successMsg);
+      fetchItems();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setBusyId(null); }
+  }
+
+  async function handleDelete() {
+    if (!deleteItem) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/telegram/items?id=${deleteItem.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم حذف المنشور");
+      setDeleteItem(null);
+      fetchItems();
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeleting(false); }
+  }
+
+  function openEdit(i: TgItemAdminRow) {
+    setEditTitle(i.titleAr);
+    setEditType(i.itemType);
+    setEditModuleId(i.moduleId ? String(i.moduleId) : "");
+    setEditItem(i);
+  }
+
+  async function handleEditSave() {
+    if (!editItem) return;
+    if (!editTitle.trim()) { toast.error("العنوان مطلوب"); return; }
+    setEditSaving(true);
+    try {
+      await patchItem(editItem.id, {
+        titleAr: editTitle.trim(),
+        itemType: editType,
+        moduleId: editModuleId ? parseInt(editModuleId) : null,
+      }, "تم تحديث المنشور ✅");
+      setEditItem(null);
+    } finally { setEditSaving(false); }
+  }
+
+  const hiddenCount = items.filter((i) => i.isHidden).length;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 flex-wrap">
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث…" className="flex-1 min-w-32" />
+        <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} className={`${selectCls} w-40`}>
+          <option value="">كل القنوات</option>
+          {sources.map((s) => <option key={s.id} value={s.id}>{s.titleAr}</option>)}
+        </select>
+        <select value={itemType} onChange={(e) => setItemType(e.target.value)} className={`${selectCls} w-36`}>
+          <option value="">كل الأنواع</option>
+          {TG_TYPES_ADMIN.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {items.length} منشوراً{hiddenCount > 0 ? ` — ${hiddenCount} مخفي` : ""} — المصنّف آلياً يعلّمه ✦
+      </p>
+
+      {editItem && (
+        <Dialog open onOpenChange={() => setEditItem(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5 text-primary" />تنقيح المنشور</DialogTitle></DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5">
+                <Label>العنوان</Label>
+                <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label>النوع الأكاديمي</Label>
+                  <select value={editType} onChange={(e) => setEditType(e.target.value)} className={selectCls}>
+                    {TG_TYPES_ADMIN.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>المقياس</Label>
+                  <select value={editModuleId} onChange={(e) => setEditModuleId(e.target.value)} className={selectCls}>
+                    <option value="">— عام —</option>
+                    {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              {editItem.sourceTitle && (
+                <p className="text-[11px] text-muted-foreground">المصدر: {editItem.sourceTitle}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditItem(null)}>إلغاء</Button>
+              <Button onClick={handleEditSave} disabled={editSaving}>{editSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {deleteItem && (
+        <Dialog open onOpenChange={() => setDeleteItem(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف منشور</DialogTitle></DialogHeader>
+            <p className="text-sm">حذف <strong>{deleteItem.titleAr || deleteItem.link}</strong> من المكتبة؟ يبقى الأصل في تيليجرام — يمكن استيراده مجدداً بإعادة نشره.</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteItem(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {loading ? (
+        <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div>
+      ) : items.length === 0 ? (
+        <div className="text-center py-6 text-sm text-muted-foreground">لا توجد منشورات — تُستورد تلقائياً فور نشرها في القنوات المرتبطة</div>
+      ) : (
+        <div className="space-y-2 max-h-[55vh] overflow-y-auto scrollbar-thin">
+          {items.map((i) => (
+            <Card key={i.id} className={`p-3 ${i.isHidden ? "opacity-55" : ""}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {i.isFeatured && <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />}
+                    <span className="font-bold text-sm">{i.titleAr || i.link}</span>
+                    <Badge variant="outline" className="text-[10px]">{i.itemType}</Badge>
+                    {i.aiClassified && <span title="صُنِّف آلياً" className="text-[10px] text-muted-foreground"><Sparkles className="w-3 h-3" /></span>}
+                    {i.isHidden && <Badge variant="secondary" className="text-[10px]">مخفي</Badge>}
+                    {i.origin === "manual" && <Badge variant="outline" className="text-[10px] border-teal-500/50 text-teal-700">يدوي</Badge>}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
+                    {i.sourceTitle ? <span>{i.sourceTitle}</span> : <span>إضافة: {i.postedBy || "—"}</span>}
+                    {i.moduleName ? <span>• {i.moduleName}</span> : null}
+                    <a href={i.link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-0.5" dir="ltr">
+                      <Link2 className="w-3 h-3" />t.me
+                    </a>
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" disabled={busyId === i.id}
+                    onClick={() => patchItem(i.id, { isFeatured: !i.isFeatured }, i.isFeatured ? "أُلغى التثبيت" : "تم التثبيت في المقدمة ⭐")}
+                    aria-label={i.isFeatured ? "إلغاء التثبيت" : "تثبيت في المقدمة"} title={i.isFeatured ? "إلغاء التثبيت" : "تثبيت في المقدمة"}>
+                    <Star className={`w-3.5 h-3.5 ${i.isFeatured ? "text-amber-500 fill-amber-500" : ""}`} />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" disabled={busyId === i.id}
+                    onClick={() => patchItem(i.id, { isHidden: !i.isHidden }, i.isHidden ? "أُظهر المنشور" : "أُخفي المنشور")}
+                    aria-label={i.isHidden ? "إظهار" : "إخفاء"} title={i.isHidden ? "إظهار" : "إخفاء"}>
+                    {i.isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(i)} aria-label="تنقيح">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteItem(i)} aria-label="حذف">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

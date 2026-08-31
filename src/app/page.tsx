@@ -25,6 +25,7 @@ import { TalibAdminPanelScreen } from "@/components/talib/screens/admin-panel-sc
 import { TalibGroupScreen } from "@/components/talib/screens/group-screen";
 import { TalibAssignmentsScreen } from "@/components/talib/screens/assignments-screen";
 import { TalibBrowseGroupsScreen } from "@/components/talib/screens/browse-groups-screen";
+import { TalibTelegramScreen } from "@/components/talib/screens/telegram-screen";
 import { TalibBottomNavBar } from "@/components/talib/bottom-nav-bar";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +42,7 @@ export type ScreenRoute =
   | "PROFILE"
   | "ANNOUNCEMENTS"
   | "ADMIN"
+  | "TELEGRAM"
   | "ONBOARDING";
 
 interface ShellContextValue {
@@ -349,6 +351,7 @@ function ShellInner() {
               {currentScreen === "GRADES" && <TalibGradesScreen />}
               {currentScreen === "ASSIGNMENTS" && <TalibAssignmentsScreen />}
               {currentScreen === "FILES" && <TalibFilesScreen />}
+              {currentScreen === "TELEGRAM" && <TalibTelegramScreen />}
               {currentScreen === "GROUP" && <TalibGroupScreen />}
               {currentScreen === "BROWSE_GROUPS" && <TalibBrowseGroupsScreen />}
               {currentScreen === "ANNOUNCEMENTS" && <TalibAnnouncementsScreen />}
