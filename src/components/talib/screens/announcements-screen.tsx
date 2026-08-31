@@ -1,11 +1,23 @@
 "use client";
 
 import * as React from "react";
-import { Megaphone, AlertCircle, Info, Calendar } from "lucide-react";
+import { Megaphone, AlertCircle, Info, Calendar, Plus, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
+} from "@/components/ui/dialog";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
+import { canManageRoles } from "@/lib/auth/permissions";
+import { toast } from "sonner";
+
+// fix ج: announcements screen had NO way to create announcements.
+// Now supervisors (with scope) get a floating "+" button + form.
 
 interface Announcement {
   id: number;
@@ -22,16 +34,19 @@ export function TalibAnnouncementsScreen() {
   const { user } = useAuth();
   const [announcements, setAnnouncements] = React.useState<Announcement[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const canPublish = canManageRoles(user ?? null);
 
-  React.useEffect(() => {
-    fetch("/api/announcements", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((data) => {
-        setAnnouncements(data.announcements ?? []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+  const fetchAnnouncements = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/announcements", { cache: "no-store" });
+      const data = await res.json();
+      setAnnouncements(data.announcements ?? []);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
   }, []);
+
+  React.useEffect(() => { fetchAnnouncements(); }, [fetchAnnouncements]);
 
   const urgencyConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
     "عاجل": { label: t("announcements.urgencyUrgent"), color: "bg-red-500", icon: <AlertCircle className="w-3 h-3" /> },
@@ -41,11 +56,14 @@ export function TalibAnnouncementsScreen() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-black mb-1">{t("announcements.title")}</h1>
-        <p className="text-sm text-muted-foreground">
-          تنبيهات وإعلانات الفوج والتخصص
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-black mb-1">{t("announcements.title")}</h1>
+          <p className="text-sm text-muted-foreground">
+            تنبيهات وإعلانات الفوج والتخصص
+          </p>
+        </div>
+        {canPublish && <AddAnnouncementDialog onCreated={fetchAnnouncements} />}
       </div>
 
       {loading ? (
@@ -57,7 +75,9 @@ export function TalibAnnouncementsScreen() {
           <Megaphone className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
           <h3 className="font-bold text-sm mb-1">{t("announcements.noAnnouncements")}</h3>
           <p className="text-xs text-muted-foreground">
-            ستظهر الإعلانات الجديدة هنا عند نشرها من طرف الممثل أو الإدارة.
+            {canPublish
+              ? "لا توجد إعلانات بعد — أضف أول إعلان بزر \"+ إعلان\"."
+              : "ستظهر الإعلانات الجديدة هنا عند نشرها من طرف الممثل أو الإدارة."}
           </p>
         </Card>
       ) : (
@@ -89,5 +109,65 @@ export function TalibAnnouncementsScreen() {
         </div>
       )}
     </div>
+  );
+}
+
+function AddAnnouncementDialog({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [title, setTitle] = React.useState("");
+  const [content, setContent] = React.useState("");
+  const [urgency, setUrgency] = React.useState("عام");
+  const [saving, setSaving] = React.useState(false);
+
+  async function handleSave() {
+    if (!title.trim() || !content.trim()) { toast.error("العنوان والمحتوى مطلوبان"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/announcements", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), content: content.trim(), urgency }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل النشر"); return; }
+      toast.success("تم نشر الإعلان ✅");
+      setOpen(false); setTitle(""); setContent(""); setUrgency("عام");
+      onCreated();
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button><Plus className="w-4 h-4 ml-1" />إعلان</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>نشر إعلان جديد 📢</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="annTitle">العنوان</Label>
+            <Input id="annTitle" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: تأجيل محاضرة الأدب الجاهلي" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="annContent">المحتوى</Label>
+            <Textarea id="annContent" value={content} onChange={(e) => setContent(e.target.value)} placeholder="اكتب تفاصيل الإعلان هنا..." rows={4} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>الأهمية</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {[{ k: "عام", l: "عام" }, { k: "هام", l: "هام" }, { k: "عاجل", l: "عاجل 🔴" }].map((o) => (
+                <button key={o.k} type="button" onClick={() => setUrgency(o.k)}
+                  className={`py-2 rounded-lg text-xs font-bold border-2 ${urgency === o.k ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}>
+                  {o.l}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}نشر</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,17 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { StickyNote, Download, Save, Plus, Trash2, FileText } from "lucide-react";
+import { StickyNote, Download, Save, Plus, Trash2, FileText, BookMarked, ExternalLink, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
+} from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
+import { useAuth } from "@/components/talib/auth-provider";
+import { canManageRoles } from "@/lib/auth/permissions";
 import { toast } from "sonner";
 
-// Fix "ج": merged "ملفاتي" + "محتوى مخزن" into single screen with sub-tabs
+// fix ج: the Files screen had no way to add files. A new "المكتبة" tab shows
+// reference files (books/summaries/PDF links) of the specialty, and privileged
+// users get a "+ إضافة ملف" button.
 
 interface Note {
   id: number;
@@ -20,11 +28,37 @@ interface Note {
   color: string;
 }
 
+interface LibraryItem {
+  id: number;
+  title: string;
+  author: string;
+  category: string;
+  description: string;
+  fileFormat: string;
+  downloadUrl: string;
+}
+
 export function TalibFilesScreen() {
   const { t } = useI18n();
+  const { user } = useAuth();
   const [notes, setNotes] = React.useState<Note[]>([]);
   const [newTitle, setNewTitle] = React.useState("");
   const [newContent, setNewContent] = React.useState("");
+  const [library, setLibrary] = React.useState<LibraryItem[]>([]);
+  const [libraryLoading, setLibraryLoading] = React.useState(true);
+  const canManage = canManageRoles(user ?? null);
+
+  const fetchLibrary = React.useCallback(async () => {
+    setLibraryLoading(true);
+    try {
+      const res = await fetch("/api/library", { cache: "no-store" });
+      const data = await res.json();
+      setLibrary(data.items ?? []);
+    } catch { /* silent */ }
+    finally { setLibraryLoading(false); }
+  }, []);
+
+  React.useEffect(() => { fetchLibrary(); }, [fetchLibrary]);
 
   React.useEffect(() => {
     const stored = localStorage.getItem("talib-notes");
@@ -68,13 +102,16 @@ export function TalibFilesScreen() {
       <div>
         <h1 className="text-2xl font-black mb-1">{t("files.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          محفوظاتك، تحميلاتك، وملاحظاتك في مكان واحد
+          مكتبة الملفات، محفوظاتك، وملاحظاتك في مكان واحد
         </p>
       </div>
 
-      {/* Single screen with sub-tabs (fix "ج": merge files + offline) */}
-      <Tabs defaultValue="notes">
-        <TabsList className="grid w-full grid-cols-3">
+      <Tabs defaultValue="library">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="library">
+            <BookMarked className="w-3.5 h-3.5 ml-1.5" />
+            المكتبة
+          </TabsTrigger>
           <TabsTrigger value="saved">
             <Save className="w-3.5 h-3.5 ml-1.5" />
             {t("files.tabSaved")}
@@ -88,6 +125,51 @@ export function TalibFilesScreen() {
             {t("files.tabNotes")}
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="library" className="mt-4 space-y-3">
+          {canManage && <AddLibraryItemDialog onCreated={fetchLibrary} />}
+          {libraryLoading ? (
+            <Card className="p-8 text-center">
+              <Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+            </Card>
+          ) : library.length === 0 ? (
+            <Card className="p-8 text-center bg-muted/30 border-dashed">
+              <BookMarked className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+              <h3 className="font-bold text-sm mb-1">المكتبة فارغة</h3>
+              <p className="text-xs text-muted-foreground">
+                {canManage
+                  ? "أضف ملفات ومراجع لتخصصك بزر \"+ إضافة ملف\"."
+                  : "ستظهر الكتب والملفات المرجعية هنا عند إضافتها من طرف الممثل أو الإدارة."}
+              </p>
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {library.map((item) => (
+                <Card key={item.id} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h3 className="font-bold text-sm">{item.title}</h3>
+                        <Badge variant="outline" className="text-[10px]">{item.fileFormat}</Badge>
+                        <Badge variant="secondary" className="text-[10px]">{item.category}</Badge>
+                      </div>
+                      {item.description && (
+                        <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{item.description}</p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground mt-2">بواسطة: {item.author}</p>
+                    </div>
+                    {item.downloadUrl && (
+                      <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                        <Button size="sm" variant="outline"><ExternalLink className="w-3.5 h-3.5 ml-1" />فتح</Button>
+                      </a>
+                    )}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="saved" className="mt-4">
           <Card className="p-8 text-center bg-muted/30 border-dashed">
@@ -176,5 +258,91 @@ export function TalibFilesScreen() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function AddLibraryItemDialog({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [title, setTitle] = React.useState("");
+  const [author, setAuthor] = React.useState("");
+  const [category, setCategory] = React.useState("كتاب مرجعي");
+  const [fileFormat, setFileFormat] = React.useState("PDF");
+  const [downloadUrl, setDownloadUrl] = React.useState("");
+  const [description, setDescription] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  async function handleSave() {
+    if (!title.trim()) { toast.error("العنوان مطلوب"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/library", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim(), author: author.trim(), category: category.trim(),
+          fileFormat: fileFormat.trim(), downloadUrl: downloadUrl.trim(),
+          description: description.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+      toast.success("تمت إضافة الملف للمكتبة ✅");
+      setOpen(false); setTitle(""); setAuthor(""); setDownloadUrl(""); setDescription("");
+      onCreated();
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button className="w-full"><Plus className="w-4 h-4 ml-1" />إضافة ملف</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>إضافة ملف/مرجع للمكتبة 📚</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="libTitle">العنوان</Label>
+            <Input id="libTitle" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: ملخص الأدب الجاهلي" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="libAuthor">المؤلف / المُعد</Label>
+              <Input id="libAuthor" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="اسمك أو اسم الأستاذ" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="libFormat">الصيغة</Label>
+              <select id="libFormat" value={fileFormat} onChange={(e) => setFileFormat(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+                <option value="PDF">PDF</option>
+                <option value="DOCX">DOCX</option>
+                <option value="PPTX">PPTX</option>
+                <option value="صورة">صورة</option>
+                <option value="رابط">رابط</option>
+              </select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="libCategory">التصنيف</Label>
+            <select id="libCategory" value={category} onChange={(e) => setCategory(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+              <option value="كتاب مرجعي">كتاب مرجعي</option>
+              <option value="ملخص">ملخص</option>
+              <option value="سلسلة تمارين">سلسلة تمارين</option>
+              <option value="محاضرة مصورة">محاضرة مصورة</option>
+              <option value="أخرى">أخرى</option>
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="libUrl">رابط الملف (Google Drive أو غيره)</Label>
+            <Input id="libUrl" value={downloadUrl} onChange={(e) => setDownloadUrl(e.target.value)} placeholder="https://..." dir="ltr" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="libDesc">وصف مختصر</Label>
+            <Textarea id="libDesc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="وصف اختياري لمحتوى الملف..." rows={2} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}إضافة</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

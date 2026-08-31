@@ -56,8 +56,12 @@ export function TalibBrowseGroupsScreen() {
 
   React.useEffect(() => {
     if (!user) return;
+    // fix أ.4: only show groups/cohorts of the student's OWN year (+track)
+    // (was fetching ALL groups of the specialty — a year-5 student saw year-1 cohorts)
+    const yearParam = user.scopeAcademicYearId ? `&academicYearId=${user.scopeAcademicYearId}` : "";
+    const trackParam = user.scopeTrackId ? `&trackId=${user.scopeTrackId}` : "";
     Promise.all([
-      fetch(`/api/groups?specialtyId=${user.assignedSpecialtyId}`, { cache: "no-store" }).then((r) => r.json()),
+      fetch(`/api/groups?specialtyId=${user.assignedSpecialtyId}${yearParam}${trackParam}`, { cache: "no-store" }).then((r) => r.json()),
       fetch("/api/join-requests/mine", { cache: "no-store" }).then((r) => r.json()),
     ]).then(([groupsData, requestsData]) => {
       setGroups(groupsData.groups ?? []);

@@ -25,6 +25,8 @@ interface Course {
   professorName: string;
   category: string;
   description: string;
+  semester: number;
+  academicYearId: number;
 }
 
 export function TalibCoursesScreen() {
@@ -47,8 +49,9 @@ export function TalibCoursesScreen() {
 
   React.useEffect(() => { fetchCourses(); }, [fetchCourses]);
 
-  const s1Courses = courses.filter((c) => c.code?.includes("S1") || c.description?.includes("سداسي 1"));
-  const s2Courses = courses.filter((c) => c.code?.includes("S2") || c.description?.includes("سداسي 2"));
+  // fix أ.3: real semester filter (was guessing from course code strings!)
+  const s1Courses = courses.filter((c) => c.semester === 1);
+  const s2Courses = courses.filter((c) => c.semester === 2);
 
   return (
     <div className="space-y-4">
@@ -163,15 +166,35 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
   const [code, setCode] = React.useState("");
   const [professor, setProfessor] = React.useState("");
   const [coefficient, setCoefficient] = React.useState("2");
+  const [semester, setSemester] = React.useState("1");
+  const [years, setYears] = React.useState<Array<{ id: number; yearName: string }>>([]);
+  const [yearId, setYearId] = React.useState<string>("");
   const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    fetch(`/api/onboarding/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const l = data.years ?? [];
+        setYears(l);
+        const own = l.find((y: { id: number }) => y.id === user?.scopeAcademicYearId);
+        setYearId(own ? String(own.id) : l.length > 0 ? String(l[0].id) : "");
+      })
+      .catch(() => setYears([]));
+  }, [user, open]);
 
   async function handleSave() {
     if (!name.trim() || !code.trim()) { toast.error("الاسم والكود مطلوبان"); return; }
+    if (!yearId) { toast.error("اختر السنة الدراسية"); return; }
     setSaving(true);
     try {
       const res = await fetch("/api/courses", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), code: code.trim(), professorName: professor.trim(), coefficient: parseFloat(coefficient) || 2, specialtyId: user?.assignedSpecialtyId ?? 1, academicYearId: 1 }),
+        body: JSON.stringify({
+          name: name.trim(), code: code.trim(), professorName: professor.trim(),
+          coefficient: parseFloat(coefficient) || 2, semester: parseInt(semester),
+          specialtyId: user?.assignedSpecialtyId ?? 1, academicYearId: parseInt(yearId),
+        }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
@@ -189,6 +212,18 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
       <DialogContent>
         <DialogHeader><DialogTitle>إضافة مقياس دراسي جديد 📚</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
+          <div className="space-y-1.5"><Label htmlFor="year">السنة الدراسية</Label>
+            <select id="year" value={yearId} onChange={(e) => setYearId(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+              <option value="">— اختر —</option>
+              {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5"><Label htmlFor="semester">السداسي</Label>
+            <select id="semester" value={semester} onChange={(e) => setSemester(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+              <option value="1">السداسي الأول</option>
+              <option value="2">السداسي الثاني</option>
+            </select>
+          </div>
           <div className="space-y-1.5"><Label htmlFor="name">{t("courses.courseName")}</Label><Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="مثال: الأدب الجاهلي" /></div>
           <div className="space-y-1.5"><Label htmlFor="code">{t("courses.courseCode")}</Label><Input id="code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="مثال: AR-LIT-101" /></div>
           <div className="space-y-1.5"><Label htmlFor="prof">الأستاذ</Label><Input id="prof" value={professor} onChange={(e) => setProfessor(e.target.value)} placeholder="اسم الأستاذ" /></div>
