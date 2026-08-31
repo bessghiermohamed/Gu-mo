@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { Cairo, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Toaster } from "@/components/ui/toaster";
+// round 4: removed the unused radix <Toaster /> from the old shadcn toast
+// system — the app exclusively uses sonner (mounted in src/app/page.tsx).
+// Dead files src/components/ui/toaster.tsx, ui/toast.tsx and
+// hooks/use-toast.ts were deleted with it (safety grep: no other importers).
 import { ThemeProvider } from "@/components/talib/theme-provider";
 import { I18nProvider } from "@/components/talib/i18n-provider";
 
@@ -55,7 +58,6 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <I18nProvider>{children}</I18nProvider>
-          <Toaster />
         </ThemeProvider>
       </body>
     </html>

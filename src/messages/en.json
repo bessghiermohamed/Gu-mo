@@ -62,7 +62,8 @@
     "errorEmailExists": "This email is already registered. Sign in instead.",
     "errorInvalidEmail": "Invalid email format",
     "errorMissingFields": "Please fill all required fields",
-    "welcomeBack": "Welcome back"
+    "welcomeBack": "Welcome back",
+    "errorNetwork": "Connection error. Check your internet and try again."
   },
   "onboarding": {
     "step": "Step",

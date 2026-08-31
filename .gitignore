@@ -55,3 +55,4 @@ Thumbs.db
 # z scripts internal
 .zscripts/
 .env*
+dev-3100.log

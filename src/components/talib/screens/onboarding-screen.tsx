@@ -175,9 +175,8 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
           <span className="text-xs font-medium text-muted-foreground">
             {t("onboarding.step")} {step + 1} {t("onboarding.of")} {totalSteps}
           </span>
-          <span className="text-xs text-muted-foreground">
-            {Math.round(((step + 1) / totalSteps) * 100)}%
-          </span>
+          {/* fix L-1 (round 4): raw technical percentages (83%, 100%) removed —
+              the "step X of 6" counter above is the user-friendly indicator. */}
         </div>
         <div className="h-2 bg-muted rounded-full overflow-hidden">
           <motion.div

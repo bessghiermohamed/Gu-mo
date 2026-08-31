@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, ChevronLeft, Loader2, Moon, Sun, Palette, Languages, LogOut, Settings, RefreshCw } from "lucide-react";
+import { Bell, ChevronLeft, Loader2, Moon, Sun, Palette, LogOut, Settings, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Toaster as SonnerToaster } from "sonner";
@@ -60,7 +60,7 @@ export function useShell() {
 }
 
 function ShellInner() {
-  const { t, locale, setLocale, dir } = useI18n();
+  const { t, dir } = useI18n();
   const { theme, setTheme } = useTheme();
   const { palette, togglePalette } = usePalette();
   const { user, loading: authLoading, signOut, refresh } = useAuth();
@@ -227,23 +227,16 @@ function ShellInner() {
 
               {/* Action buttons */}
               <div className="flex items-center gap-1">
-                {/* Language toggle */}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setLocale(locale === "ar" ? "en" : "ar")}
-                  className="shrink-0"
-                  aria-label="Toggle language"
-                >
-                  <Languages className="w-4 h-4" />
-                </Button>
+                {/* fix H-1 (round 4): language toggle hidden — EN translation
+                    is incomplete (~450 hardcoded Arabic strings). Re-enable the
+                    Languages button when src/messages/en.json covers all UI. */}
 
                 {/* Palette toggle (academic / modern) */}
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={togglePalette}
-                  className="shrink-0"
+                  className="shrink-0 h-10 w-10"
                   aria-label="Toggle palette"
                   title={palette === "academic" ? "أكاديمي" : "عصري"}
                 >
@@ -255,7 +248,7 @@ function ShellInner() {
                   variant="ghost"
                   size="icon"
                   onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                  className="shrink-0"
+                  className="shrink-0 h-10 w-10"
                   aria-label="Toggle dark mode"
                 >
                   {theme === "dark" ? (
@@ -270,7 +263,7 @@ function ShellInner() {
                   variant="ghost"
                   size="icon"
                   onClick={() => navigate("ANNOUNCEMENTS")}
-                  className="shrink-0 relative"
+                  className="shrink-0 relative h-10 w-10"
                   aria-label={t("nav.notifications")}
                 >
                   <Bell className="w-4 h-4" />
@@ -289,7 +282,7 @@ function ShellInner() {
                   variant="ghost"
                   size="icon"
                   onClick={() => navigate("PROFILE")}
-                  className="shrink-0"
+                  className="shrink-0 h-10 w-10"
                   aria-label={t("nav.profile")}
                 >
                   <Settings className="w-4 h-4" />

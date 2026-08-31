@@ -22,9 +22,14 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = React.useState<Locale>("ar");
 
   React.useEffect(() => {
-    const stored = (localStorage.getItem("talib-locale") as Locale) || "ar";
-    setLocaleState(stored);
-    applyDir(stored);
+    // fix H-1 (round 4): the app has ~450 hardcoded Arabic strings vs ~125
+    // translated keys — switching to English produced a mixed-language UI.
+    // The language toggle is hidden until translation is complete, and any
+    // previously stored "en" preference is reset so users aren't stuck in a
+    // half-English interface with no way back to Arabic.
+    localStorage.removeItem("talib-locale");
+    setLocaleState("ar");
+    applyDir("ar");
   }, []);
 
   const setLocale = React.useCallback((l: Locale) => {

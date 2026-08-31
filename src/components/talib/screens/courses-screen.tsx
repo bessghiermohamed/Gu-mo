@@ -1,14 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { motion } from "framer-motion";
-import { BookOpen, Plus, Flag, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { BookOpen, Plus, Flag, Loader2, ChevronDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -62,9 +63,10 @@ export function TalibCoursesScreen() {
 
       <Tabs defaultValue="all">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="all">الكل</TabsTrigger>
-          <TabsTrigger value="s1">{t("courses.semester1")}</TabsTrigger>
-          <TabsTrigger value="s2">{t("courses.semester2")}</TabsTrigger>
+          {/* fix M-3 (round 4): stronger active-tab visual anchor */}
+          <TabsTrigger value="all" className="data-[state=active]:font-bold">الكل</TabsTrigger>
+          <TabsTrigger value="s1" className="data-[state=active]:font-bold">{t("courses.semester1")}</TabsTrigger>
+          <TabsTrigger value="s2" className="data-[state=active]:font-bold">{t("courses.semester2")}</TabsTrigger>
         </TabsList>
         <TabsContent value="all" className="mt-4">
           <CoursesList courses={courses} loading={loading} onRefresh={fetchCourses} />
@@ -86,6 +88,10 @@ function CoursesList({ courses, loading, onRefresh }: { courses: Course[]; loadi
   const canManage = canManageRoles(user ?? null);
   const [reportOpen, setReportOpen] = React.useState<number | null>(null);
   const [reportReason, setReportReason] = React.useState("");
+  // fix C-1 (round 4): cards were flat non-clickable containers — the course
+  // list felt dead and students had no way to see course details. Now each
+  // card expands in place to reveal the course description from the database.
+  const [expandedId, setExpandedId] = React.useState<number | null>(null);
 
   function handleReport(courseName: string) {
     if (!reportReason.trim()) { toast.error("اكتب وصف المشكلة"); return; }
@@ -118,41 +124,105 @@ function CoursesList({ courses, loading, onRefresh }: { courses: Course[]; loadi
           <p className="text-xs text-muted-foreground">سيتم تحميل مقرراتك تلقائياً بعد ربط ملفك بالتخصص والسنة.</p>
         </Card>
       ) : (
-        courses.map((course) => (
-          <Card key={course.id} className="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-bold text-sm">{course.name}</h3>
-                  <Badge variant="outline" className="text-[10px]">{course.code}</Badge>
+        courses.map((course) => {
+          const expanded = expandedId === course.id;
+          return (
+            <Card
+              key={course.id}
+              role="button"
+              tabIndex={0}
+              aria-expanded={expanded}
+              aria-label={`عرض تفاصيل ${course.name}`}
+              onClick={() => setExpandedId(expanded ? null : course.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setExpandedId(expanded ? null : course.id);
+                }
+              }}
+              className={cn(
+                "p-4 cursor-pointer transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                expanded
+                  ? "border-primary/50 shadow-md"
+                  : "hover:border-primary/40 hover:shadow-md hover:-translate-y-0.5"
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="font-bold text-sm">{course.name}</h3>
+                    {/* fix M-5 (round 4): empty codes rendered empty pill badges */}
+                    {course.code && (
+                      <Badge variant="outline" className="text-[10px]">{course.code}</Badge>
+                    )}
+                  </div>
+                  {course.professorName && <p className="text-xs text-muted-foreground">الأستاذ: {course.professorName}</p>}
+                  <div className="flex items-center gap-3 mt-2 text-[10px]">
+                    <span className="text-muted-foreground">{t("courses.coefficient")}: {course.coefficient}</span>
+                    {course.category && <Badge variant="secondary" className="text-[10px]">{course.category}</Badge>}
+                  </div>
                 </div>
-                {course.professorName && <p className="text-xs text-muted-foreground">الأستاذ: {course.professorName}</p>}
-                <div className="flex items-center gap-3 mt-2 text-[10px]">
-                  <span className="text-muted-foreground">{t("courses.coefficient")}: {course.coefficient}</span>
-                  <Badge variant="secondary" className="text-[10px]">{course.category}</Badge>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Dialog open={reportOpen === course.id} onOpenChange={(open) => { setReportOpen(open ? course.id : null); if (!open) setReportReason(""); }}>
+                    <DialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground hover:text-amber-600 shrink-0"
+                        aria-label="تبليغ عن مشكلة"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Flag className="w-4 h-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader><DialogTitle>تبليغ عن خطأ في المقياس 🚩</DialogTitle></DialogHeader>
+                      <div className="space-y-3 py-2">
+                        <p className="text-xs text-muted-foreground">المقياس: <span className="font-bold">{course.name}</span></p>
+                        <div className="space-y-1.5"><Label htmlFor="reason">وصف المشكلة</Label><Input id="reason" value={reportReason} onChange={(e) => setReportReason(e.target.value)} placeholder="مثال: معلومات الأستاذ غير صحيحة..." /></div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setReportOpen(null)}>إلغاء</Button>
+                        <Button onClick={() => handleReport(course.name)}>إرسال التبليغ</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                  <ChevronDown
+                    aria-hidden
+                    className={cn(
+                      "w-4 h-4 text-muted-foreground transition-transform duration-200",
+                      expanded && "rotate-180 text-primary"
+                    )}
+                  />
                 </div>
               </div>
-              <Dialog open={reportOpen === course.id} onOpenChange={(open) => { setReportOpen(open ? course.id : null); if (!open) setReportReason(""); }}>
-                <DialogTrigger asChild>
-                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-amber-600 shrink-0" aria-label="تبليغ عن مشكلة">
-                    <Flag className="w-4 h-4" />
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader><DialogTitle>تبليغ عن خطأ في المقياس 🚩</DialogTitle></DialogHeader>
-                  <div className="space-y-3 py-2">
-                    <p className="text-xs text-muted-foreground">المقياس: <span className="font-bold">{course.name}</span></p>
-                    <div className="space-y-1.5"><Label htmlFor="reason">وصف المشكلة</Label><Input id="reason" value={reportReason} onChange={(e) => setReportReason(e.target.value)} placeholder="مثال: معلومات الأستاذ غير صحيحة..." /></div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setReportOpen(null)}>إلغاء</Button>
-                    <Button onClick={() => handleReport(course.name)}>إرسال التبليغ</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </Card>
-        ))
+              <AnimatePresence initial={false}>
+                {expanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mt-3 pt-3 border-t border-border/70 space-y-2">
+                      <div>
+                        <p className="text-[10px] font-bold text-muted-foreground mb-1">وصف المقياس</p>
+                        <p className="text-xs text-foreground/90 leading-relaxed">
+                          {course.description?.trim()
+                            || "لا يوجد وصف متاح لهذا المقياس بعد — يمكن للمشرفين إضافته لاحقاً."}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="text-[10px]">
+                        السداسي: {course.semester === 2 ? "الثاني" : "الأول"}
+                      </Badge>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </Card>
+          );
+        })
       )}
       {canManage && <AddModuleDialog onCreated={onRefresh} />}
     </div>

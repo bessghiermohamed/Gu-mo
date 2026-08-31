@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import type { SessionUser, UserRole } from "@/lib/auth/types";
+import { useI18n } from "@/components/talib/i18n-provider";
 
 interface AuthContextValue {
   user: SessionUser | null;
@@ -15,6 +16,7 @@ interface AuthContextValue {
 const AuthContext = React.createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n();
   const [user, setUser] = React.useState<SessionUser | null>(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -40,32 +42,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = React.useCallback(
     async (fullName: string, email: string) => {
-      const res = await fetch("/api/auth/signin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName, email }),
-      });
-      const data = await res.json();
-      if (data.error) return { error: data.error };
-      await refresh();
-      return {};
+      // fix H-6 (round 4): network failures used to throw an unhandled
+      // rejection → the login form silently did nothing. Now every failure
+      // path returns a user-visible message shown by the login toast.
+      try {
+        const res = await fetch("/api/auth/signin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fullName, email }),
+        });
+        const data = await res.json();
+        if (data.error) return { error: data.error };
+        await refresh();
+        return {};
+      } catch {
+        return { error: t("auth.errorNetwork") };
+      }
     },
-    [refresh]
+    [refresh, t]
   );
 
   const signUp = React.useCallback(
     async (fullName: string, email: string) => {
-      const res = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName, email }),
-      });
-      const data = await res.json();
-      if (data.error) return { error: data.error };
-      await refresh();
-      return {};
+      // fix H-6 (round 4): same network-failure guard as signIn.
+      try {
+        const res = await fetch("/api/auth/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fullName, email }),
+        });
+        const data = await res.json();
+        if (data.error) return { error: data.error };
+        await refresh();
+        return {};
+      } catch {
+        return { error: t("auth.errorNetwork") };
+      }
     },
-    [refresh]
+    [refresh, t]
   );
 
   const signOut = React.useCallback(async () => {

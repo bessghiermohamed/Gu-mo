@@ -60,6 +60,49 @@ async function main() {
     },
   });
 
+  // ============================================================
+  // round 4: second institution/specialty (وهران) + tracks + study
+  // groups. The local seed was missing these — the acceptance suite
+  // (scripts/acceptance-test.sh) was written against a richer DB that
+  // matched the Supabase round-2 migration (default group per
+  // specialty/year + tracks). Without them the suite cannot reproduce
+  // the 48/48 result. Still STRUCTURAL data only — no users, no
+  // hardcoded student data (per project rules).
+  // ============================================================
+  const ensOran = await db.institution.create({
+    data: {
+      nameAr: "المدرسة العليا للأساتذة - وهران",
+      type: "المدرسة العليا للأساتذة",
+      city: "وهران",
+    },
+  });
+
+  const frenchLang = await db.specialty.create({
+    data: {
+      institutionId: ensOran.id,
+      nameAr: "اللغة الفرنسية",
+      code: "FR-LANG",
+      iconName: "translate",
+      description: "تخصص اللغة الفرنسية - المدرسة العليا للأساتذة وهران",
+      institution: "المدرسة العليا للأساتذة - وهران (ENS)",
+      faculty: "قسم اللغة الفرنسية",
+    },
+  });
+
+  // Tracks (الملامح) — presets per specialty.
+  // Spec A: 1 track. Spec B: 3 tracks (test picks tracks[2]).
+  const trackDefs: Array<{ specId: number; nameAr: string; code: string }> = [
+    { specId: arabicLit.id, nameAr: "أستاذ التعليم الابتدائي (PEP)", code: "PEP" },
+    { specId: frenchLang.id, nameAr: "أستاذ التعليم الابتدائي (PEP)", code: "PEP" },
+    { specId: frenchLang.id, nameAr: "أستاذ التعليم المتوسط (PEM)", code: "PEM" },
+    { specId: frenchLang.id, nameAr: "أستاذ التعليم الثانوي (PES)", code: "PES" },
+  ];
+  for (const td of trackDefs) {
+    await db.academicTrack.create({
+      data: { specialtyId: td.specId, trackNameAr: td.nameAr, code: td.code },
+    });
+  }
+
   const years = await Promise.all(
     [
       { name: "السنة الأولى (L1)", sem: 1 },
@@ -78,15 +121,46 @@ async function main() {
     )
   );
 
-  for (const year of years) {
+  // Spec B: 3 years (the suite onboards its student into year 3 = years[2]).
+  const yearsB = await Promise.all(
+    ["السنة الأولى (L1)", "السنة الثانية (L2)", "السنة الثالثة (L3)"].map(
+      (name) =>
+        db.academicYear.create({
+          data: { specialtyId: frenchLang.id, yearName: name, semester: 1 },
+        })
+    )
+  );
+
+  // Default shared study group per (specialty, year) — trackId null means
+  // shared by ALL tracks of that (specialty, year), mirroring the Supabase
+  // round-2 migration. Cohorts (الأفواج) live INSIDE the group.
+  const allYears: Array<{ yearId: number; specId: number; code: string }> = [
+    ...years.map((y) => ({ yearId: y.id, specId: arabicLit.id, code: "AR" })),
+    ...yearsB.map((y) => ({ yearId: y.id, specId: frenchLang.id, code: "FR" })),
+  ];
+
+  let cohortCount = 0;
+  for (const { yearId, specId, code } of allYears) {
+    const group = await db.studyGroup.create({
+      data: {
+        specialtyId: specId,
+        academicYearId: yearId,
+        trackId: null,
+        groupName: `المجموعة 01 - ${code}`,
+        description: "المجموعة الافتراضية المشتركة لكل ملامح التخصص والسنة",
+      },
+    });
     for (let i = 1; i <= 3; i++) {
       await db.cohortGroup.create({
         data: {
-          specialtyId: arabicLit.id,
-          academicYearId: year.id,
+          specialtyId: specId,
+          academicYearId: yearId,
+          trackId: null,
+          groupId: group.id,
           groupName: `الفوج 0${i}`,
         },
       });
+      cohortCount++;
     }
   }
 
@@ -109,10 +183,12 @@ async function main() {
   });
 
   console.log("✅ Seed completed:");
-  console.log(`   - 1 institution: ${ens.nameAr}`);
-  console.log(`   - 1 specialty: ${arabicLit.nameAr}`);
-  console.log(`   - ${years.length} academic years`);
-  console.log(`   - ${years.length * 3} cohorts (dynamic)`);
+  console.log(`   - 2 institutions: ${ens.nameAr} + ${ensOran.nameAr}`);
+  console.log(`   - 2 specialties: ${arabicLit.nameAr} + ${frenchLang.nameAr}`);
+  console.log(`   - ${years.length + yearsB.length} academic years (5 + 3)`);
+  console.log(`   - ${trackDefs.length} tracks (الملامح)`);
+  console.log(`   - ${allYears.length} default study groups`);
+  console.log(`   - ${cohortCount} cohorts (dynamic, inside groups)`);
   console.log("   - 2 calendar events");
   console.log("");
   console.log("⚠️  No users created. First user must register via the app.");

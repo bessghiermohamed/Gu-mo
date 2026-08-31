@@ -102,7 +102,10 @@ export function TalibHomeScreen() {
 
   return (
     <div className="space-y-6">
-      {/* Hero banner — using local SVG (fix B.2: no broken external link) */}
+      {/* Hero banner — local asset (fix B.2: no broken external link).
+          Round 4: replaced flat SVG with illustrated banner (pending هـ design
+          work). File swap point: overwrite public/talib/hero-banner.jpg with
+          the owner's own artwork — no code change needed. */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -110,8 +113,8 @@ export function TalibHomeScreen() {
         className="relative overflow-hidden rounded-3xl shadow-lg"
       >
         <img
-          src="/talib/hero-banner.svg"
-          alt="Talib banner"
+          src="/talib/hero-banner.jpg"
+          alt="طالب — رفيقك الأكاديمي"
           className="w-full h-44 object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />

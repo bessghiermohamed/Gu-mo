@@ -212,8 +212,10 @@ export function TalibProfileScreen({ onSignOut }: Props) {
         </DialogContent>
       </Dialog>
 
+      {/* fix M-6 (round 4): internal version string removed for production —
+          same tagline as the login footer for consistency. */}
       <p className="text-xs text-center text-muted-foreground">
-        طالب | Talib — نسخة 2.0 ويب
+        طالب | Talib — رفيقك الأكاديمي
       </p>
     </div>
   );
