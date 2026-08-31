@@ -94,7 +94,7 @@ async function loadItem(id: number): Promise<ItemRow | null> {
       moduleId: r.module_id == null ? null : Number(r.module_id), itemType: String(r.item_type ?? "عام"),
       origin: String(r.origin ?? "telegram"), postedBy: String(r.posted_by ?? ""),
       cohortId: r.cohort_id == null ? null : Number(r.cohort_id), isHidden: !!r.is_hidden, isFeatured: !!r.is_featured,
-      aiClassified: !!r.ai_classified, postedAt: r.posted_at ?? null,
+      aiClassified: !!r.ai_classified, postedAt: (r.posted_at as string | null) ?? null,
     };
   }
   const it = await db.telegramItem.findUnique({ where: { id } });
@@ -233,7 +233,7 @@ export async function GET(req: NextRequest) {
         moduleId: r.module_id == null ? null : Number(r.module_id), itemType: String(r.item_type ?? "عام"),
         origin: String(r.origin ?? "telegram"), postedBy: String(r.posted_by ?? ""),
         cohortId: r.cohort_id == null ? null : Number(r.cohort_id), isHidden: !!r.is_hidden, isFeatured: !!r.is_featured,
-        aiClassified: !!r.ai_classified, postedAt: r.posted_at ?? null,
+        aiClassified: !!r.ai_classified, postedAt: (r.posted_at as string | null) ?? null,
       }));
     } else {
       const { normalizeArabic } = await import("@/lib/telegram/normalize");

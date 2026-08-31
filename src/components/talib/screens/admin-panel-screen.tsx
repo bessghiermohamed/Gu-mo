@@ -23,6 +23,7 @@ import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { canManageRoles, canCreateGroups, canCreateModules, canCreateCohorts } from "@/lib/auth/permissions";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 // =====================================================
 // Shared types + cascade hook (fix أ.1/أ.2/ب)
