@@ -50,12 +50,21 @@ export function TalibBrowseGroupsScreen() {
   const [cohorts, setCohorts] = React.useState<Record<number, Cohort[]>>({});
   const [myRequests, setMyRequests] = React.useState<MyRequest[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [needsOnboarding, setNeedsOnboarding] = React.useState(false);
   const [requestCohort, setRequestCohort] = React.useState<Cohort | null>(null);
   const [requestMessage, setRequestMessage] = React.useState("");
   const [sending, setSending] = React.useState(false);
 
   React.useEffect(() => {
     if (!user) return;
+    // fix أ.3/أ.4 (round 3): a student without a completed profile has no
+    // year/track scope — there is nothing legit to show them, so we skip the
+    // fetch entirely (the API enforces the same rule server-side anyway).
+    if (user.role === "STUDENT" && user.scopeAcademicYearId == null) {
+      setNeedsOnboarding(true);
+      setLoading(false);
+      return;
+    }
     // fix أ.4: only show groups/cohorts of the student's OWN year (+track)
     // (was fetching ALL groups of the specialty — a year-5 student saw year-1 cohorts)
     const yearParam = user.scopeAcademicYearId ? `&academicYearId=${user.scopeAcademicYearId}` : "";
@@ -65,6 +74,7 @@ export function TalibBrowseGroupsScreen() {
       fetch("/api/join-requests/mine", { cache: "no-store" }).then((r) => r.json()),
     ]).then(([groupsData, requestsData]) => {
       setGroups(groupsData.groups ?? []);
+      if (groupsData.needsOnboarding) setNeedsOnboarding(true);
       setMyRequests(requestsData.requests ?? []);
       setLoading(false);
       const groupIds = (groupsData.groups ?? []).map((g: StudyGroup) => g.id);
@@ -128,7 +138,13 @@ export function TalibBrowseGroupsScreen() {
         </Card>
       )}
 
-      {groups.length === 0 ? (
+      {needsOnboarding ? (
+        <Card className="p-8 text-center bg-amber-500/5 border-amber-500/30">
+          <AlertCircle className="w-10 h-10 mx-auto text-amber-500 mb-3" />
+          <h3 className="font-bold text-sm mb-1">أكمل إعداد حسابك أولاً</h3>
+          <p className="text-xs text-muted-foreground">لا يمكن عرض المجموعات والأفواج قبل اختيار المؤسسة والتخصص والملمح والسنة من شاشة الإعداد.</p>
+        </Card>
+      ) : groups.length === 0 ? (
         <Card className="p-8 text-center bg-muted/30 border-dashed">
           <FolderTree className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
           <h3 className="font-bold text-sm mb-1">لا توجد مجموعات متاحة</h3>

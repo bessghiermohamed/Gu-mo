@@ -7,11 +7,28 @@ import { fetchCohorts } from "@/lib/data-layer";
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export async function GET(req: NextRequest) {
+  // fix أ.3/أ.4 (round 3): server-side scope enforcement (was fully open).
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "يجب تسجيل الدخول" }, { status: 401 });
   const url = new URL(req.url);
-  const specialtyId = url.searchParams.get("specialtyId");
+  let specialtyId = url.searchParams.get("specialtyId");
   const academicYearId = url.searchParams.get("academicYearId");
   const trackId = url.searchParams.get("trackId");
   const groupId = url.searchParams.get("groupId");
+
+  if (user.role === "STUDENT") {
+    // Students never browse other specialties' regiments.
+    specialtyId = String(user.assignedSpecialtyId);
+    const filtered = await fetchCohorts(
+      user.assignedSpecialtyId,
+      user.scopeAcademicYearId ?? undefined,
+      user.scopeTrackId ?? undefined
+    );
+    return NextResponse.json({ cohorts: filtered });
+  }
+  if (user.role === "REPRESENTATIVE" || user.role === "SPECIALTY_ADMIN") {
+    specialtyId = String(user.assignedSpecialtyId);
+  }
   if (!specialtyId) return NextResponse.json({ cohorts: [] });
   try {
     const cohorts = await fetchCohorts(
@@ -91,10 +108,18 @@ export async function DELETE(req: NextRequest) {
       const supabase = await createSupabaseServerClient();
       const { data: usersInCohort } = await supabase.from("app_users").select("id").eq("scope_cohort_group_id", parseInt(id));
       if (usersInCohort && usersInCohort.length > 0) return NextResponse.json({ error: `لا يمكن حذف الفوج: ${usersInCohort.length} مستخدم مُلحق به.` }, { status: 400 });
+      // round 3: clean dangling profile references so deleted regiments
+      // never reappear inside students' profile screens
+      await supabase.from("student_profiles").update({ selected_cohort_id: null, group_number: "" }).eq("selected_cohort_id", parseInt(id));
       const { error } = await supabase.from("cohort_groups").delete().eq("id", parseInt(id));
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     } else {
       const { db } = await import("@/lib/db");
+      // round 3: same protection as the Supabase branch — the local branch used
+      // to delete straight away, silently detaching (SetNull) every student.
+      const attached = await db.appUser.count({ where: { scopeCohortGroupId: parseInt(id) } });
+      if (attached > 0) return NextResponse.json({ error: `لا يمكن حذف الفوج: ${attached} مستخدم مُلحق به.` }, { status: 400 });
+      await db.studentProfile.updateMany({ where: { selectedCohortId: parseInt(id) } as never, data: { selectedCohortId: null, groupNumber: "" } });
       await db.cohortGroup.delete({ where: { id: parseInt(id) } });
     }
     return NextResponse.json({ ok: true, message: "تم حذف الفوج" });

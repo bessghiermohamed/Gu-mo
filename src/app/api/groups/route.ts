@@ -8,10 +8,38 @@ import { fetchStudyGroups } from "@/lib/data-layer";
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export async function GET(req: NextRequest) {
+  // fix أ.3/أ.4 (round 3): this endpoint used to trust the client's
+  // specialtyId/yearId/trackId with NO auth — any logged-in student could
+  // forge the URL and see every other specialty's groups. Now the scope is
+  // derived SERVER-SIDE from the session:
+  //   STUDENT  → always their own (specialty + year + track); if onboarding
+  //              isn't complete they get an empty list + a hint flag.
+  //   REPRESENTATIVE → their own specialty (and year if scoped).
+  //   SPECIALTY_ADMIN → their own specialty only.
+  //   OWNER → free browsing (manages everything).
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "يجب تسجيل الدخول" }, { status: 401 });
+  }
   const url = new URL(req.url);
-  const specialtyId = url.searchParams.get("specialtyId");
-  const academicYearId = url.searchParams.get("academicYearId");
-  const trackId = url.searchParams.get("trackId");
+  let specialtyId = url.searchParams.get("specialtyId");
+  let academicYearId = url.searchParams.get("academicYearId");
+  let trackId = url.searchParams.get("trackId");
+
+  if (user.role === "STUDENT") {
+    if (user.scopeAcademicYearId == null) {
+      return NextResponse.json({ groups: [], needsOnboarding: true });
+    }
+    specialtyId = String(user.assignedSpecialtyId);
+    academicYearId = String(user.scopeAcademicYearId);
+    trackId = user.scopeTrackId != null ? String(user.scopeTrackId) : null;
+  } else if (user.role === "REPRESENTATIVE" || user.role === "SPECIALTY_ADMIN") {
+    specialtyId = String(user.assignedSpecialtyId);
+    if (user.role === "REPRESENTATIVE" && user.scopeAcademicYearId != null) {
+      academicYearId = String(user.scopeAcademicYearId);
+    }
+  }
+
   if (!specialtyId) return NextResponse.json({ groups: [] });
   try {
     const groups = await fetchStudyGroups(

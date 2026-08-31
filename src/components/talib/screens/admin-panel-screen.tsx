@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   Users, Layers, BookOpen, Upload, Cloud, Plus, TestTube2,
   CheckCircle2, XCircle, Loader2, FolderTree, UserPlus, Clock,
-  Check, X, Building2, GraduationCap, Shield, Trash2, Route,
+  Check, X, Building2, GraduationCap, Shield, Trash2, Route, CalendarDays,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -125,6 +125,7 @@ export function TalibAdminPanelScreen() {
           <TabsTrigger value="users" className="text-xs flex-1 min-w-24"><Users className="w-3.5 h-3.5 ml-1" />المستخدمون</TabsTrigger>
           <TabsTrigger value="structure" className="text-xs flex-1 min-w-24"><Building2 className="w-3.5 h-3.5 ml-1" />الهيكل</TabsTrigger>
           <TabsTrigger value="tracks" className="text-xs flex-1 min-w-24"><Route className="w-3.5 h-3.5 ml-1" />الملامح</TabsTrigger>
+          <TabsTrigger value="years" className="text-xs flex-1 min-w-24"><CalendarDays className="w-3.5 h-3.5 ml-1" />السنوات</TabsTrigger>
           <TabsTrigger value="cohorts" className="text-xs flex-1 min-w-24"><Layers className="w-3.5 h-3.5 ml-1" />الأفواج</TabsTrigger>
           <TabsTrigger value="groups" className="text-xs flex-1 min-w-24"><FolderTree className="w-3.5 h-3.5 ml-1" />المجموعات</TabsTrigger>
           <TabsTrigger value="requests" className="text-xs flex-1 min-w-24"><UserPlus className="w-3.5 h-3.5 ml-1" />الطلبات</TabsTrigger>
@@ -136,6 +137,7 @@ export function TalibAdminPanelScreen() {
         <TabsContent value="users" className="mt-4"><UsersManager /></TabsContent>
         <TabsContent value="structure" className="mt-4"><StructureManager /></TabsContent>
         <TabsContent value="tracks" className="mt-4"><TracksManager /></TabsContent>
+        <TabsContent value="years" className="mt-4"><YearsManager /></TabsContent>
         <TabsContent value="cohorts" className="mt-4"><CohortsManager /></TabsContent>
         <TabsContent value="groups" className="mt-4"><GroupsManager /></TabsContent>
         <TabsContent value="requests" className="mt-4"><JoinRequestsManager /></TabsContent>
@@ -657,6 +659,179 @@ function TracksManager() {
 }
 
 // =====================================================
+// Years Manager — NEW in round 3 (زر "السنوات")
+// The admin previously had NO way to add study years: every year dropdown
+// in the app (groups, cohorts, modules, onboarding) read a read-only list.
+// A new specialty started with zero years → impossible to create groups or
+// regiments. This tab adds years (quick presets 1..5 + custom) and lets the
+// supervisor delete a year (blocked while groups/cohorts/modules exist).
+// =====================================================
+const YEAR_PRESETS = ["السنة الأولى", "السنة الثانية", "السنة الثالثة", "السنة الرابعة", "السنة الخامسة"];
+
+interface YearRow extends Year { semester?: number }
+
+function YearsManager() {
+  const cascade = useCascade();
+  const [years, setYears] = React.useState<YearRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [open, setOpen] = React.useState(false);
+  const [customName, setCustomName] = React.useState("");
+  const [customSemester, setCustomSemester] = React.useState("1");
+  const [saving, setSaving] = React.useState(false);
+  const [deleteYear, setDeleteYear] = React.useState<YearRow | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+
+  const fetchYears = React.useCallback(async (specialtyId: string) => {
+    if (!specialtyId) { setYears([]); setLoading(false); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/years?specialtyId=${specialtyId}`, { cache: "no-store" });
+      const data = await res.json();
+      setYears(data.years ?? []);
+    } catch { toast.error("فشل تحميل السنوات"); }
+    finally { setLoading(false); }
+  }, []);
+
+  React.useEffect(() => { fetchYears(cascade.specId); }, [fetchYears, cascade.specId]);
+
+  async function addYear(yearName: string, semester?: number) {
+    if (!cascade.specId) { toast.error("اختر المؤسسة والتخصص أولاً"); return false; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/years", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ specialtyId: parseInt(cascade.specId), yearName, semester }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return false; }
+      return true;
+    } catch { toast.error("فشل الاتصال"); return false; }
+    finally { setSaving(false); }
+  }
+
+  async function handlePreset(name: string) {
+    const ok = await addYear(name);
+    if (ok) { toast.success(`تمت إضافة "${name}" ✅`); fetchYears(cascade.specId); }
+  }
+
+  async function handleCustom() {
+    if (!customName.trim()) { toast.error("اكتب اسم السنة"); return; }
+    const ok = await addYear(customName.trim(), parseInt(customSemester));
+    if (ok) {
+      toast.success("تمت إضافة السنة ✅");
+      setCustomName(""); setCustomSemester("1"); setOpen(false);
+      fetchYears(cascade.specId);
+    }
+  }
+
+  async function handleDelete(year: YearRow) {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/years?id=${year.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم حذف السنة");
+      setDeleteYear(null);
+      fetchYears(cascade.specId);
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeleting(false); }
+  }
+
+  return (
+    <Card className="p-4 space-y-3">
+      <div>
+        <h3 className="font-bold text-sm flex items-center gap-2"><CalendarDays className="w-4 h-4 text-primary" />السنوات الدراسية</h3>
+        <p className="text-xs text-muted-foreground mt-1">أضف سنوات التخصص حتى تتمكن من إنشاء المجموعات والأفواج والمقاييس</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <Label>المؤسسة</Label>
+          <select value={cascade.instId} onChange={(e) => cascade.setInstId(e.target.value)} className={selectCls}>
+            <option value="">— اختر —</option>
+            {cascade.institutions.map((i) => <option key={i.id} value={i.id}>{i.nameAr}</option>)}
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>التخصص</Label>
+          <select value={cascade.specId} onChange={(e) => cascade.setSpecId(e.target.value)} className={selectCls}>
+            <option value="">— اختر —</option>
+            {cascade.specialties.map((s) => <option key={s.id} value={s.id}>{s.nameAr}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {!cascade.specId ? (
+        <div className="text-center py-6 text-sm text-muted-foreground">اختر مؤسسة وتخصصاً لعرض/إضافة السنوات</div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {YEAR_PRESETS.map((name) => {
+              const exists = years.some((y) => y.yearName === name);
+              return (
+                <Button key={name} size="sm" variant={exists ? "outline" : "secondary"} disabled={saving || exists} onClick={() => handlePreset(name)}>
+                  <Plus className="w-3.5 h-3.5 ml-1" />{name}{exists ? " ✓" : ""}
+                </Button>
+              );
+            })}
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild><Button size="sm" variant="ghost"><Plus className="w-3.5 h-3.5 ml-1" />سنة أخرى...</Button></DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>إضافة سنة مخصصة</DialogTitle></DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div className="space-y-1.5"><Label>اسم السنة</Label><Input value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="مثال: السنة السادسة (تحضيري)" /></div>
+                  <div className="space-y-1.5">
+                    <Label>السداسي</Label>
+                    <select value={customSemester} onChange={(e) => setCustomSemester(e.target.value)} className={selectCls}>
+                      <option value="1">السداسي 1</option>
+                      <option value="2">السداسي 2</option>
+                    </select>
+                  </div>
+                </div>
+                <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button><Button onClick={handleCustom} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}إضافة</Button></DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {loading ? <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div> : years.length === 0 ? (
+            <div className="text-center py-4 text-sm text-muted-foreground">لا توجد سنوات لهذا التخصص — استخدم الأزرار السريعة أعلاه</div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {years.map((y) => (
+                <Card key={y.id} className="p-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="font-bold text-sm">{y.yearName}</div>
+                      <Badge variant="outline" className="mt-2 text-[10px]">ID: {y.id}</Badge>
+                    </div>
+                    <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteYear(y)}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {deleteYear && (
+        <Dialog open onOpenChange={() => setDeleteYear(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف سنة</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف <strong>{deleteYear.yearName}</strong>؟ سيتم فصل الطلبة المرتبطين بها. لا يمكن الحذف إذا كانت تحتوي مجموعات أو أفواجاً أو مقاييس.</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteYear(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={() => handleDelete(deleteYear)} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </Card>
+  );
+}
+
+// =====================================================
 // Cohorts Manager — fix ب: cohort creation now asks for
 // institution → specialty → track → year → GROUP → name.
 // A cohort can no longer be created without a parent group.
@@ -673,6 +848,8 @@ function CohortsManager() {
   const [listYear, setYear] = React.useState<string>("");
   const [listSpecialties, setListSpecialties] = React.useState<Spec[]>([]);
   const [listYears, setListYears] = React.useState<Year[]>([]);
+  const [deleteCohort, setDeleteCohort] = React.useState<{ id: number; groupName: string; subGroup: string } | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   // list filters (separate light cascade for browsing)
   React.useEffect(() => {
@@ -728,14 +905,17 @@ function CohortsManager() {
     } finally { setCreating(false); }
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("هل تريد حذف هذا الفوج؟")) return;
+  async function handleDelete(c: { id: number; groupName: string }) {
+    setDeleting(true);
     try {
-      const res = await fetch(`/api/cohort?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/cohort?id=${c.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم حذف الفوج"); fetchCohorts();
+      toast.success("تم حذف الفوج");
+      setDeleteCohort(null);
+      fetchCohorts();
     } catch { toast.error("فشل الحذف"); }
+    finally { setDeleting(false); }
   }
 
   return (
@@ -822,11 +1002,24 @@ function CohortsManager() {
             <Card key={c.id} className="p-3">
               <div className="flex items-start justify-between">
                 <div><div className="font-bold text-sm">{c.groupName}</div>{c.subGroup && <div className="text-xs text-muted-foreground mt-0.5">{c.subGroup}</div>}<Badge variant="outline" className="mt-2 text-[10px]">ID: {c.id}</Badge></div>
-                <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => handleDelete(c.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteCohort(c)}><Trash2 className="w-3.5 h-3.5" /></Button>
               </div>
             </Card>
           ))}
         </div>
+      )}
+
+      {deleteCohort && (
+        <Dialog open onOpenChange={() => setDeleteCohort(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف فوج</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف <strong>{deleteCohort.groupName}</strong>؟ سيُرفض الحذف إذا كان هناك طلبة ملحقون به.</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteCohort(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={() => handleDelete(deleteCohort)} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </Card>
   );

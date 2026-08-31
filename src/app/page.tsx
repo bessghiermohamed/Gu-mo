@@ -63,7 +63,7 @@ function ShellInner() {
   const { t, locale, setLocale, dir } = useI18n();
   const { theme, setTheme } = useTheme();
   const { palette, togglePalette } = usePalette();
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, loading: authLoading, signOut, refresh } = useAuth();
 
   const [currentScreen, setCurrentScreen] = React.useState<ScreenRoute>("HOME");
   const [history, setHistory] = React.useState<ScreenRoute[]>([]);
@@ -330,13 +330,19 @@ function ShellInner() {
             >
               {currentScreen === "ONBOARDING" && (
                 <TalibOnboardingScreen
-                  onComplete={() => {
+                  onComplete={async () => {
                     if (user) {
                       localStorage.setItem(
                         `talib-onboarding-${user.id}`,
                         "true"
                       );
                     }
+                    // fix أ.3/أ.4 (round 3): the session user used to stay stale
+                    // after onboarding (assignedSpecialtyId = first specialty,
+                    // null year/track) so the join screen leaked other
+                    // specialties' groups until a full page reload. Refresh the
+                    // session user BEFORE navigating home.
+                    await refresh();
                     setOnboardingDone(true);
                     setCurrentScreen("HOME");
                     toast.success(t("onboarding.finish"));

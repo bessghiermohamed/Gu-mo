@@ -111,7 +111,7 @@ not_contains "student2 (spec B) does NOT see A's exam" 'امتحان منتصف 
 
 echo ""
 echo "=== 10. أ.5 flow: join request → owner sees → approve → student linked ==="
-FIRST_COHORT=$(curl -s "$BASE/api/cohort?specialtyId=$SPEC_A_ID&academicYearId=$YEAR1_A" | python3 -c "import sys,json; print(json.load(sys.stdin)['cohorts'][0]['id'])")
+FIRST_COHORT=$(curl -s -b /tmp/owner.jar "$BASE/api/cohort?specialtyId=$SPEC_A_ID&academicYearId=$YEAR1_A" | python3 -c "import sys,json; print(json.load(sys.stdin)['cohorts'][0]['id'])")
 R=$(curl -s -b /tmp/stud1.jar -X POST $BASE/api/join-requests -H "Content-Type: application/json" -d "{\"cohortId\":$FIRST_COHORT,\"message\":\"أرغب بالانضمام\"}")
 contains "student1 sends join request" 'pending' "$R"
 
@@ -124,6 +124,10 @@ contains "owner approves request" 'تم قبول' "$R"
 
 R=$(curl -s -b /tmp/stud1.jar $BASE/api/auth/me)
 contains "student1 now linked to cohort" "\"scopeCohortGroupId\":$FIRST_COHORT" "$R"
+
+# round 3: deleting a cohort that has an attached student must be BLOCKED
+R=$(curl -s -b /tmp/owner.jar -X DELETE "$BASE/api/cohort?id=$FIRST_COHORT")
+contains "cohort with attached student cannot be deleted" 'لا يمكن حذف الفوج' "$R"
 
 echo ""
 echo "=== 11. Promote endpoint (was missing → 404) ==="
@@ -144,6 +148,70 @@ contains "specialty for new institution" 'تخصص سوقر' "$R"
 NEW_SPEC=$(curl -s -b /tmp/owner.jar "$BASE/api/specialties?institutionId=$NEW_INST" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
 R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/tracks -H "Content-Type: application/json" -d "{\"specialtyId\":$NEW_SPEC,\"trackNameAr\":\"أستاذ التعليم الابتدائي (PEP)\",\"code\":\"PEP\"}")
 contains "track PEP preset for new specialty" 'PEP' "$R"
+
+echo ""
+echo "=== 13. ROUND 3: server-side scope enforcement (forged params rejected) ==="
+# A student FORGES the specialtyId of the OTHER specialty — the server must
+# ignore it and return only the student's own scope.
+R=$(curl -s -b /tmp/stud1.jar "$BASE/api/groups?specialtyId=$SPEC_B_ID")
+not_contains "forged specialtyId: student1 (spec A) does NOT see B's groups" 'المجموعة 01 - FR' "$R"
+contains "forged specialtyId: student1 still sees own year-1 group" 'المجموعة 01 - AR' "$R"
+
+# A student FORGES a foreign academicYearId — ignored as well (server forces
+# the student's own year, so they still see exactly their 1 own group).
+COUNT=$(curl -s -b /tmp/stud1.jar "$BASE/api/groups?specialtyId=$SPEC_A_ID&academicYearId=$YEAR3_B" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('groups',[])))")
+check "forged yearId ignored: student1 sees exactly own 1 group" "1" "$COUNT"
+
+# Unauthenticated access is now rejected (401) on the previously-open routes.
+CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/groups?specialtyId=$SPEC_A_ID")
+check "anonymous /api/groups is 401" "401" "$CODE"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/cohort?specialtyId=$SPEC_A_ID")
+check "anonymous /api/cohort is 401" "401" "$CODE"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/groups/1/cohorts")
+check "anonymous /api/groups/cohorts is 401" "401" "$CODE"
+
+# A student cannot read another specialty's group cohorts even by id.
+B_GROUP=$(curl -s -b /tmp/owner.jar "$BASE/api/groups?specialtyId=$SPEC_B_ID&academicYearId=$YEAR3_B" | python3 -c "import sys,json; print(json.load(sys.stdin)['groups'][0]['id'])")
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud1.jar "$BASE/api/groups/$B_GROUP/cohorts")
+check "student1 (spec A) reading spec-B group cohorts is 403" "403" "$CODE"
+
+echo ""
+echo "=== 14. ROUND 3: years management API (زر السنوات) ==="
+# Owner adds a year to the NEW specialty (سكهر) which had none.
+R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/years -H "Content-Type: application/json" -d "{\"specialtyId\":$NEW_SPEC,\"yearName\":\"السنة الأولى\"}")
+contains "owner adds year to new specialty" 'السنة الأولى' "$R"
+
+NEW_YEAR_ID=$(curl -s -b /tmp/owner.jar "$BASE/api/years?specialtyId=$NEW_SPEC" | python3 -c "import sys,json; print(json.load(sys.stdin)['years'][0]['id'])")
+
+# duplicate year is rejected.
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/owner.jar -X POST $BASE/api/years -H "Content-Type: application/json" -d "{\"specialtyId\":$NEW_SPEC,\"yearName\":\"السنة الأولى\"}")
+check "duplicate year rejected (409)" "409" "$CODE"
+
+# students cannot create years.
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud1.jar -X POST $BASE/api/years -H "Content-Type: application/json" -d "{\"specialtyId\":$NEW_SPEC,\"yearName\":\"سنة ممنوعة\"}")
+check "student cannot create year (403)" "403" "$CODE"
+
+# year deletion works for an EMPTY year.
+R=$(curl -s -b /tmp/owner.jar -X DELETE "$BASE/api/years?id=$NEW_YEAR_ID")
+contains "owner deletes empty year" 'تم حذف السنة' "$R"
+
+# year deletion is BLOCKED while cohorts exist inside.
+R=$(curl -s -b /tmp/owner.jar -X DELETE "$BASE/api/years?id=$YEAR1_A")
+contains "year with cohorts cannot be deleted" 'لا يمكن حذف السنة' "$R"
+
+echo ""
+echo "=== 15. ROUND 3: student without onboarding gets hint, not data ==="
+rm -f /tmp/stud3.jar
+R=$(curl -s -c /tmp/stud3.jar -X POST $BASE/api/auth/signup -H "Content-Type: application/json" -d '{"fullName":"طالب بلا إعداد","email":"s3@test.dz"}')
+contains "student3 signup ok" '"role":"STUDENT"' "$R"
+R=$(curl -s -b /tmp/stud3.jar "$BASE/api/groups?specialtyId=$SPEC_A_ID")
+contains "un-onboarded student gets needsOnboarding flag" 'needsOnboarding' "$R"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud3.jar "$BASE/api/groups/1/cohorts")
+check "un-onboarded student cohorts call returns 200 (hint in body)" "200" "$CODE"
+# use a REAL group id (ids shift after re-seeds)
+REAL_GROUP=$(curl -s -b /tmp/owner.jar "$BASE/api/groups?specialtyId=$SPEC_A_ID&academicYearId=$YEAR1_A" | python3 -c "import sys,json; print(json.load(sys.stdin)['groups'][0]['id'])")
+R=$(curl -s -b /tmp/stud3.jar "$BASE/api/groups/$REAL_GROUP/cohorts")
+contains "un-onboarded student gets empty cohorts + hint" 'needsOnboarding' "$R"
 
 echo ""
 echo "=========================================="

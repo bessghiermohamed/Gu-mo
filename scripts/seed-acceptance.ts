@@ -69,18 +69,21 @@ async function main() {
     await db.academicTrack.create({ data: { specialtyId: spec.id, trackNameAr: "أستاذ التعليم الثانوي (PES)", code: `${prefix}-PES` } });
 
     // years + groups + cohorts
+    // round 3: default groups/cohorts are track-less (NULL = shared by all
+    // tracks of the specialty-year), matching production data created before
+    // tracks existed. A tagged group is visible ONLY to its own track.
     for (let i = 0; i < 5; i++) {
       const year = await db.academicYear.create({
         data: { specialtyId: spec.id, yearName: yearNames[i], semester: 1 },
       });
       const group = await db.studyGroup.create({
         data: {
-          specialtyId: spec.id, academicYearId: year.id, trackId: pep.id,
+          specialtyId: spec.id, academicYearId: year.id, trackId: null,
           groupName: `المجموعة 01 - ${prefix}`, description: "مجموعة افتراضية",
         },
       });
-      await db.cohortGroup.create({ data: { specialtyId: spec.id, academicYearId: year.id, trackId: pep.id, groupId: group.id, groupName: "الفوج 01", subGroup: "" } });
-      await db.cohortGroup.create({ data: { specialtyId: spec.id, academicYearId: year.id, trackId: pep.id, groupId: group.id, groupName: "الفوج 02", subGroup: "" } });
+      await db.cohortGroup.create({ data: { specialtyId: spec.id, academicYearId: year.id, trackId: null, groupId: group.id, groupName: "الفوج 01", subGroup: "" } });
+      await db.cohortGroup.create({ data: { specialtyId: spec.id, academicYearId: year.id, trackId: null, groupId: group.id, groupName: "الفوج 02", subGroup: "" } });
     }
   }
 

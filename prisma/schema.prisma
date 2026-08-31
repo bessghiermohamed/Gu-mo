@@ -42,6 +42,7 @@ model Specialty {
   institutionRef Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   academicYears  AcademicYear[]
   cohortGroups   CohortGroup[]
+  studyGroups    StudyGroup[]
   modules        ModuleCourse[]
   appUsers       AppUser[]
   announcements Announcement[]
@@ -58,6 +59,7 @@ model AcademicYear {
   semester     Int            @default(1)
   specialty    Specialty      @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
   cohortGroups CohortGroup[]
+  studyGroups  StudyGroup[]
   modules      ModuleCourse[]
 
   createdAt DateTime @default(now())
@@ -73,17 +75,63 @@ model CohortGroup {
   specialtyId     Int
   academicYearId  Int
   trackId         Int?          // NEW: link to academic track (PEP/PEM/PES/etc.)
+  groupId         Int?          // fix ب: cohort belongs to a StudyGroup (المجموعة)
   groupName       String // "الفوج 01", "الفوج 02"...
   subGroup        String        @default("")
   createdAt       DateTime      @default(now())
   specialty       Specialty     @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
   academicYear    AcademicYear  @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
   track           AcademicTrack? @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  group           StudyGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
   appUsers        AppUser[]
+  joinRequests    JoinRequest[]
 
   updatedAt DateTime @updatedAt
 
   @@unique([specialtyId, academicYearId, groupName])
+}
+
+// =====================================================
+// 0.3 المجموعات الدراسية (Study Groups) — fix ب
+// الفوج ينتمي لمجموعة، والمجموعة تنتمي لمؤسسة+تخصص+سنة
+// RESTORED (round 3): was accidentally dropped by the AI-cleanup commit
+// =====================================================
+model StudyGroup {
+  id             Int            @id @default(autoincrement())
+  specialtyId    Int
+  academicYearId Int
+  trackId        Int?
+  groupName      String
+  description    String         @default("")
+  createdAt      DateTime       @default(now())
+  specialty      Specialty      @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  academicYear   AcademicYear   @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  track          AcademicTrack? @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  cohorts        CohortGroup[]
+  appUsers       AppUser[]
+
+  updatedAt DateTime @updatedAt
+}
+
+// =====================================================
+// 19. طلبات الانضمام للأفواج (Join Requests)
+// الطلب يرسله الطالب ويوافق عليه الممثل/المشرف
+// RESTORED (round 3): was accidentally dropped by the AI-cleanup commit
+// =====================================================
+model JoinRequest {
+  id           Int         @id @default(autoincrement())
+  requesterId  Int
+  cohortId     Int
+  groupId      Int?
+  status       String      @default("pending") // pending | approved | rejected
+  message      String      @default("")
+  reviewerId   Int?
+  reviewerNote String      @default("")
+  requester    AppUser     @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+  cohort       CohortGroup @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime  @default(now())
+  reviewedAt DateTime?
 }
 
 // =====================================================
@@ -97,6 +145,7 @@ model AcademicTrack {
   code        String    // "PEP", "PEM", "PES", "INF-GEN", "ISIL"
   specialty   Specialty @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
   cohorts     CohortGroup[]
+  studyGroups StudyGroup[]
   appUsers    AppUser[]
 
   createdAt DateTime @default(now())
@@ -456,9 +505,12 @@ model AppUser {
   scopeAcademicYearId   Int?
   scopeCohortGroupId    Int?
   scopeTrackId          Int?     // NEW: track-level scope (PEP/PEM/PES)
+  scopeGroupId          Int?     // study-group-level scope (restored round 3)
   specialty             Specialty? @relation(fields: [assignedSpecialtyId], references: [id])
   cohortGroup           CohortGroup? @relation(fields: [scopeCohortGroupId], references: [id])
   track                 AcademicTrack? @relation(fields: [scopeTrackId], references: [id], onDelete: SetNull)
+  scopeGroup            StudyGroup?   @relation(fields: [scopeGroupId], references: [id], onDelete: SetNull)
+  joinRequestsMade      JoinRequest[]
   deviceSessions        DeviceSession[]
   contentUploads        ContentUploadLog[]
   notificationReads    NotificationReadState[]

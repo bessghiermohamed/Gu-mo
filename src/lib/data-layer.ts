@@ -254,14 +254,15 @@ export async function fetchCohorts(
     const supabase = await createSupabaseServerClient();
     let query = supabase.from("cohort_groups").select("*").eq("specialty_id", specialtyId);
     if (academicYearId) query = query.eq("academic_year_id", academicYearId);
-    if (trackId) query = query.eq("track_id", trackId);
+    // round 3: NULL-track cohorts are shared across tracks (same rule as groups)
+    if (trackId) query = query.or(`track_id.is.null,track_id.eq.${trackId}`);
     const { data, error } = await query.order("id", { ascending: true });
     if (error) return [];
     return (data ?? []).map(mapCohort);
   }
   const where: Record<string, unknown> = { specialtyId };
   if (academicYearId) where.academicYearId = academicYearId;
-  if (trackId) where.trackId = trackId;
+  if (trackId) where.OR = [{ trackId: null }, { trackId }];
   const items = await db.cohortGroup.findMany({ where: where as never, orderBy: { id: "asc" } });
   return items.map((c) => ({
     id: c.id, specialtyId: c.specialtyId, academicYearId: c.academicYearId,
@@ -294,6 +295,26 @@ export async function fetchAcademicTracks(specialtyId: number): Promise<Academic
 // =====================================================
 // Study Groups
 // =====================================================
+// fix أ.3/أ.4 (round 3): fetch a single study group with its scope fields
+// so API routes can verify a student is allowed to see it (and its cohorts).
+export async function fetchStudyGroupById(groupId: number): Promise<StudyGroup | null> {
+  if (isVercel) {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase
+      .from("study_groups")
+      .select("*")
+      .eq("id", groupId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return mapStudyGroup(data);
+  }
+  const group = await db.studyGroup.findUnique({ where: { id: groupId } });
+  if (!group) return null;
+  return {
+    id: group.id, specialtyId: group.specialtyId, academicYearId: group.academicYearId,
+    trackId: group.trackId ?? null, groupName: group.groupName, description: group.description,
+  };
+}
 export async function fetchStudyGroups(
   specialtyId: number,
   academicYearId?: number,
@@ -303,14 +324,16 @@ export async function fetchStudyGroups(
     const supabase = await createSupabaseServerClient();
     let query = supabase.from("study_groups").select("*").eq("specialty_id", specialtyId);
     if (academicYearId) query = query.eq("academic_year_id", academicYearId);
-    if (trackId) query = query.eq("track_id", trackId);
+    // round 3: a group with no track is shared by ALL tracks of that
+    // (specialty, year) — strict equality wrongly hid them from tracked students.
+    if (trackId) query = query.or(`track_id.is.null,track_id.eq.${trackId}`);
     const { data, error } = await query.order("id", { ascending: true });
     if (error) return [];
     return (data ?? []).map(mapStudyGroup);
   }
   const where: Record<string, unknown> = { specialtyId };
   if (academicYearId) where.academicYearId = academicYearId;
-  if (trackId) where.trackId = trackId;
+  if (trackId) where.OR = [{ trackId: null }, { trackId }];
   const items = await db.studyGroup.findMany({ where: where as never, orderBy: { id: "asc" } });
   return items.map((g) => ({
     id: g.id, specialtyId: g.specialtyId, academicYearId: g.academicYearId,
@@ -320,19 +343,31 @@ export async function fetchStudyGroups(
 
 // =====================================================
 // Cohorts by Group
+// fix أ.3/أ.4 (round 3): optional year/track filters — a student must only
+// see cohorts of their OWN year+track, never the whole specialty.
 // =====================================================
-export async function fetchCohortsByGroup(groupId: number): Promise<Cohort[]> {
+export async function fetchCohortsByGroup(
+  groupId: number,
+  academicYearId?: number,
+  trackId?: number
+): Promise<Cohort[]> {
   if (isVercel) {
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase
+    let query = supabase
       .from("cohort_groups")
       .select("*")
-      .eq("group_id", groupId)
-      .order("id", { ascending: true });
+      .eq("group_id", groupId);
+    if (academicYearId) query = query.eq("academic_year_id", academicYearId);
+    // round 3: NULL-track cohorts are shared across tracks (same rule as groups)
+    if (trackId) query = query.or(`track_id.is.null,track_id.eq.${trackId}`);
+    const { data, error } = await query.order("id", { ascending: true });
     if (error) return [];
     return (data ?? []).map(mapCohort);
   }
-  const items = await db.cohortGroup.findMany({ where: { groupId } as never, orderBy: { id: "asc" } });
+  const where: Record<string, unknown> = { groupId };
+  if (academicYearId) where.academicYearId = academicYearId;
+  if (trackId) where.OR = [{ trackId: null }, { trackId }];
+  const items = await db.cohortGroup.findMany({ where: where as never, orderBy: { id: "asc" } });
   return items.map((c) => ({
     id: c.id, specialtyId: c.specialtyId, academicYearId: c.academicYearId,
     trackId: c.trackId ?? null, groupId: c.groupId ?? null,
