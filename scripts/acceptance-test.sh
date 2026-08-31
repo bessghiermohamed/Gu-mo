@@ -214,6 +214,82 @@ R=$(curl -s -b /tmp/stud3.jar "$BASE/api/groups/$REAL_GROUP/cohorts")
 contains "un-onboarded student gets empty cohorts + hint" 'needsOnboarding' "$R"
 
 echo ""
+echo "=== 16. ROUND 5: the missing edit layer (PATCH endpoints) ==="
+# 16a. year rename — even while groups/cohorts exist inside (unblocks the delete-guard deadlock)
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/years -H "Content-Type: application/json" -d "{\"id\":$YEAR1_A,\"yearName\":\"السنة الأولى (معدلة)\",\"semester\":2}")
+contains "year renamed while dependents exist (deadlock fixed)" 'السنة الأولى (معدلة)' "$R"
+contains "year semester updated via PATCH" '"semester":2' "$R"
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/years -H "Content-Type: application/json" -d "{\"id\":$YEAR1_A,\"yearName\":\"السنة الأولى (L1)\",\"semester\":1}")
+contains "year restored" 'السنة الأولى (L1)' "$R"
+
+# 16b. duplicate-name rename rejected (seed years use (L1)..(L5) suffixes)
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/owner.jar -X PATCH $BASE/api/years -H "Content-Type: application/json" -d "{\"id\":$YEAR1_A,\"yearName\":\"السنة الثالثة (L3)\"}")
+check "year rename to duplicate name rejected (409)" "409" "$CODE"
+
+# 16c. cohort rename — this cohort has an ATTACHED student (section 10) yet renames safely
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/cohort -H "Content-Type: application/json" -d "{\"id\":$FIRST_COHORT,\"groupName\":\"الفوج 01 (معدل)\"}")
+contains "cohort renamed while student attached" 'الفوج 01 (معدل)' "$R"
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/cohort -H "Content-Type: application/json" -d "{\"id\":$FIRST_COHORT,\"groupName\":\"الفوج 01\"}")
+contains "cohort name restored" 'الفوج 01' "$R"
+
+# 16d. group rename + description update (group contains cohorts)
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/groups -H "Content-Type: application/json" -d "{\"id\":$REAL_GROUP,\"groupName\":\"المجموعة 01 - AR (معدلة)\",\"description\":\"وصف محدث\"}")
+contains "group renamed while cohorts inside" 'المجموعة 01 - AR (معدلة)' "$R"
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/groups -H "Content-Type: application/json" -d "{\"id\":$REAL_GROUP,\"groupName\":\"المجموعة 01 - AR\",\"description\":\"\"}")
+contains "group name restored" 'المجموعة 01 - AR' "$R"
+
+# 16e. exam edit (reschedule without delete + retype)
+EXAM_ID=$(curl -s -b /tmp/owner.jar $BASE/api/exams | python3 -c "import sys,json; print([e['id'] for e in json.load(sys.stdin)['exams'] if 'منتصف' in e['title']][0])")
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/exams -H "Content-Type: application/json" -d "{\"id\":$EXAM_ID,\"room\":\"قاعة 9\",\"examDate\":\"2026-10-01\"}")
+contains "exam rescheduled via PATCH" 'قاعة 9' "$R"
+
+# 16f. schedule slot edit
+SCHED_ID=$(curl -s -b /tmp/owner.jar $BASE/api/schedule | python3 -c "import sys,json; print(json.load(sys.stdin)['items'][0]['id'])")
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/schedule -H "Content-Type: application/json" -d "{\"id\":$SCHED_ID,\"room\":\"قاعة 7 (معدلة)\"}")
+contains "schedule slot edited via PATCH" 'قاعة 7 (معدلة)' "$R"
+
+# 16g. announcement edit + delete by owner (previously a mistake was PERMANENT)
+ANN_ID=$(curl -s -b /tmp/owner.jar $BASE/api/announcements | python3 -c "import sys,json; print(json.load(sys.stdin)['announcements'][0]['id'])")
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/announcements -H "Content-Type: application/json" -d "{\"id\":$ANN_ID,\"title\":\"إعلان رسمي (معدل)\",\"urgency\":\"عاجل\"}")
+contains "announcement edited by owner" 'إعلان رسمي (معدل)' "$R"
+R=$(curl -s -b /tmp/owner.jar -X DELETE "$BASE/api/announcements?id=$ANN_ID")
+contains "announcement deleted by owner" 'تم حذف الإعلان' "$R"
+
+echo ""
+echo "=== 17. ROUND 5: cross-specialty delete/edit authorization (IDOR closed) ==="
+# promote stud2 to SPECIALTY_ADMIN of spec B so the ROLE check passes and only
+# the new SCOPE check can reject the cross-specialty request.
+R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/users/$STUD2_ID/promote -H "Content-Type: application/json" -d '{"newRole":"SPECIALTY_ADMIN"}')
+contains "stud2 promoted to specialty admin (spec B)" 'تم تحديث الدور' "$R"
+
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud2.jar -X DELETE "$BASE/api/years?id=$YEAR1_A")
+check "admin of spec B cannot delete spec A year (403)" "403" "$CODE"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud2.jar -X DELETE "$BASE/api/groups?id=$REAL_GROUP")
+check "admin of spec B cannot delete spec A group (403)" "403" "$CODE"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud2.jar -X DELETE "$BASE/api/cohort?id=$FIRST_COHORT")
+check "admin of spec B cannot delete spec A cohort (403)" "403" "$CODE"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud2.jar -X DELETE "$BASE/api/exams?id=$EXAM_ID")
+check "admin of spec B cannot delete spec A exam (403)" "403" "$CODE"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud2.jar -X DELETE "$BASE/api/schedule?id=$SCHED_ID")
+check "admin of spec B cannot delete spec A schedule slot (403)" "403" "$CODE"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud2.jar -X PATCH $BASE/api/years -H "Content-Type: application/json" -d "{\"id\":$YEAR1_A,\"yearName\":\"اختراق\"}")
+check "admin of spec B cannot rename spec A year (403)" "403" "$CODE"
+# announcements: cross-specialty delete also rejected
+R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/announcements -H "Content-Type: application/json" -d '{"title":"إعلان تخصص أ","content":"محتوى"}')
+contains "owner creates announcement in spec A" 'إعلان تخصص أ' "$R"
+ANN_B_ID=$(curl -s -b /tmp/owner.jar $BASE/api/announcements | python3 -c "import sys,json; print([a['id'] for a in json.load(sys.stdin)['announcements'] if 'تخصص أ' in a['title']][0])")
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud2.jar -X DELETE "$BASE/api/announcements?id=$ANN_B_ID")
+check "admin of spec B cannot delete spec A announcement (403)" "403" "$CODE"
+# students still cannot edit or delete announcements
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud1.jar -X PATCH $BASE/api/announcements -H "Content-Type: application/json" -d "{\"id\":$ANN_B_ID,\"title\":\"x\"}")
+check "student cannot edit announcement (403)" "403" "$CODE"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud1.jar -X DELETE "$BASE/api/announcements?id=$ANN_B_ID")
+check "student cannot delete announcement (403)" "403" "$CODE"
+# owner can still delete it (authority confirmed)
+R=$(curl -s -b /tmp/owner.jar -X DELETE "$BASE/api/announcements?id=$ANN_B_ID")
+contains "owner deletes the spec A announcement" 'تم حذف الإعلان' "$R"
+
+echo ""
 echo "=========================================="
 echo "RESULTS: $PASS passed, $FAIL failed"
 echo "=========================================="

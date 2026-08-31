@@ -84,6 +84,78 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/**
+ * Schedule API
+ * GET    → items of the caller's specialty (+year), grouped by day
+ * POST   → add an item (supervisors only, stamped with the caller's specialty)
+ * PATCH  → edit an item (round 5 — fix a typo/move a slot without delete+retype)
+ * DELETE → remove an item (supervisors only)
+ *
+ * Round 5: PATCH and DELETE now verify the item belongs to the caller's
+ * specialty (the previous DELETE only checked the role — any supervisor
+ * could delete another specialty's schedule by forging the id).
+ */
+export async function PATCH(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canManageSchedule(user)) {
+    return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
+  }
+  try {
+    const body = await req.json();
+    const { id, dayOfWeek, startTime, endTime, moduleName, type, room, professor } = body;
+    if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+    const st = startTime?.trim();
+    if (startTime !== undefined && !st) return NextResponse.json({ error: "وقت البداية مطلوب" }, { status: 400 });
+    const mn = moduleName?.trim();
+    if (moduleName !== undefined && !mn) return NextResponse.json({ error: "اسم المقياس مطلوب" }, { status: 400 });
+    if (dayOfWeek !== undefined && !(Number(dayOfWeek) >= 1 && Number(dayOfWeek) <= 7)) {
+      return NextResponse.json({ error: "اليوم غير صحيح" }, { status: 400 });
+    }
+
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      // round 5: ownership check
+      const { data: item } = await supabase.from("schedule_items").select("specialty_id").eq("id", Number(id)).maybeSingle();
+      if (!item) return NextResponse.json({ error: "الحصة غير موجودة" }, { status: 404 });
+      if (user.role !== "OWNER" && Number(item.specialty_id) !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذه الحصة خارج نطاق تخصصك" }, { status: 403 });
+      }
+      const patch: Record<string, unknown> = {};
+      if (dayOfWeek !== undefined) patch.day_of_week = Number(dayOfWeek);
+      if (st) patch.start_time = st;
+      if (endTime !== undefined) patch.end_time = endTime?.trim() || "";
+      if (mn) patch.module_name = mn;
+      if (type !== undefined && type?.trim()) patch.type = type.trim();
+      if (room !== undefined) patch.room = room?.trim() || "";
+      if (professor !== undefined) patch.professor = professor?.trim() || "";
+      if (Object.keys(patch).length === 0) return NextResponse.json({ error: "لا توجد تغييرات" }, { status: 400 });
+      const { data, error } = await supabase.from("schedule_items").update(patch).eq("id", Number(id)).select().single();
+      if (error || !data) return NextResponse.json({ error: `فشل التحديث: ${error?.message ?? "خطأ"}` }, { status: 500 });
+      return NextResponse.json({ item: data });
+    }
+    const item = await db.scheduleItem.findUnique({ where: { id: Number(id) } });
+    if (!item) return NextResponse.json({ error: "الحصة غير موجودة" }, { status: 404 });
+    if (user.role !== "OWNER" && item.specialtyId !== user.assignedSpecialtyId) {
+      return NextResponse.json({ error: "هذه الحصة خارج نطاق تخصصك" }, { status: 403 });
+    }
+    const updated = await db.scheduleItem.update({
+      where: { id: Number(id) },
+      data: {
+        ...(dayOfWeek !== undefined ? { dayOfWeek: Number(dayOfWeek) } : {}),
+        ...(st ? { startTime: st } : {}),
+        ...(endTime !== undefined ? { endTime: endTime?.trim() || "" } : {}),
+        ...(mn ? { moduleName: mn } : {}),
+        ...(type !== undefined && type?.trim() ? { type: type.trim() } : {}),
+        ...(room !== undefined ? { room: room?.trim() || "" } : {}),
+        ...(professor !== undefined ? { professor: professor?.trim() || "" } : {}),
+      },
+    });
+    return NextResponse.json({ item: updated });
+  } catch (e) {
+    return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user || !canManageSchedule(user)) {
@@ -95,9 +167,20 @@ export async function DELETE(req: NextRequest) {
   try {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
+      // round 5: ownership check
+      const { data: item } = await supabase.from("schedule_items").select("specialty_id").eq("id", parseInt(id)).maybeSingle();
+      if (!item) return NextResponse.json({ error: "الحصة غير موجودة" }, { status: 404 });
+      if (user.role !== "OWNER" && Number(item.specialty_id) !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذه الحصة خارج نطاق تخصصك" }, { status: 403 });
+      }
       const { error } = await supabase.from("schedule_items").delete().eq("id", parseInt(id));
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     } else {
+      const item = await db.scheduleItem.findUnique({ where: { id: parseInt(id) }, select: { specialtyId: true } });
+      if (!item) return NextResponse.json({ error: "الحصة غير موجودة" }, { status: 404 });
+      if (user.role !== "OWNER" && item.specialtyId !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذه الحصة خارج نطاق تخصصك" }, { status: 403 });
+      }
       await db.scheduleItem.delete({ where: { id: parseInt(id) } });
     }
     return NextResponse.json({ ok: true });

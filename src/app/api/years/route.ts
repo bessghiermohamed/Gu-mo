@@ -15,10 +15,15 @@ import { fetchAcademicYears } from "@/lib/data-layer";
  *
  *   GET    ?specialtyId=1            → list years of a specialty (login required)
  *   POST   { specialtyId, yearName } → add a year (supervisory roles)
+ *   PATCH  { id, yearName?, semester? } → rename a year / change semester
+ *                                      (round 5: unblocks the delete-guard deadlock)
  *   DELETE ?id=7                     → delete a year (blocked while groups/
  *                                      cohorts/modules still reference it)
  *
  * Permission: same as group creation (OWNER / SPECIALTY_ADMIN / REPRESENTATIVE).
+ * Round 5: non-OWNER callers may only touch years of their OWN specialty
+ * (scope check on PATCH and DELETE — previously only the role was checked,
+ * so a representative of specialty A could delete a year of specialty B).
  */
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -97,6 +102,88 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canCreateGroups(user)) {
+    return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
+  }
+  try {
+    const body = await req.json();
+    const { id, yearName, semester } = body;
+    if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+    const name = yearName?.trim();
+    if (yearName !== undefined && !name) {
+      return NextResponse.json({ error: "اسم السنة لا يمكن أن يكون فارغاً" }, { status: 400 });
+    }
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data: year } = await supabase
+        .from("academic_years")
+        .select("id, specialty_id, year_name, semester")
+        .eq("id", Number(id))
+        .maybeSingle();
+      if (!year) return NextResponse.json({ error: "السنة غير موجودة" }, { status: 404 });
+      // round 5: scope check — non-OWNER may only edit their own specialty's years
+      if (user.role !== "OWNER" && Number(year.specialty_id) !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذه السنة خارج نطاق تخصصك" }, { status: 403 });
+      }
+      // duplicate guard (same specialty + same name, excluding this row)
+      if (name && name !== year.year_name) {
+        const { data: dup } = await supabase
+          .from("academic_years")
+          .select("id")
+          .eq("specialty_id", year.specialty_id)
+          .eq("year_name", name)
+          .neq("id", Number(id))
+          .maybeSingle();
+        if (dup) {
+          return NextResponse.json({ error: `السنة "${name}" موجودة مسبقاً لهذا التخصص` }, { status: 409 });
+        }
+      }
+      const patch: Record<string, unknown> = {};
+      if (name) patch.year_name = name;
+      if (semester === 1 || semester === 2) patch.semester = semester;
+      const { data, error } = await supabase
+        .from("academic_years")
+        .update(patch)
+        .eq("id", Number(id))
+        .select()
+        .single();
+      if (error || !data) {
+        return NextResponse.json({ error: `فشل التحديث: ${error?.message ?? "خطأ"}` }, { status: 500 });
+      }
+      return NextResponse.json({
+        year: { id: data.id, specialtyId: data.specialty_id, yearName: data.year_name, semester: data.semester },
+      });
+    }
+    const year = await db.academicYear.findUnique({ where: { id: Number(id) } });
+    if (!year) return NextResponse.json({ error: "السنة غير موجودة" }, { status: 404 });
+    if (user.role !== "OWNER" && year.specialtyId !== user.assignedSpecialtyId) {
+      return NextResponse.json({ error: "هذه السنة خارج نطاق تخصصك" }, { status: 403 });
+    }
+    if (name && name !== year.yearName) {
+      const dup = await db.academicYear.findFirst({
+        where: { specialtyId: year.specialtyId, yearName: name, id: { not: Number(id) } },
+      });
+      if (dup) {
+        return NextResponse.json({ error: `السنة "${name}" موجودة مسبقاً لهذا التخصص` }, { status: 409 });
+      }
+    }
+    const updated = await db.academicYear.update({
+      where: { id: Number(id) },
+      data: {
+        ...(name ? { yearName: name } : {}),
+        ...(semester === 1 || semester === 2 ? { semester } : {}),
+      },
+    });
+    return NextResponse.json({
+      year: { id: updated.id, specialtyId: updated.specialtyId, yearName: updated.yearName, semester: updated.semester },
+    });
+  } catch (e) {
+    return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user || !canCreateGroups(user)) {
@@ -109,6 +196,12 @@ export async function DELETE(req: NextRequest) {
   try {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
+      // round 5: scope check — non-OWNER may only delete their own specialty's years
+      const { data: yr } = await supabase.from("academic_years").select("specialty_id").eq("id", yearId).maybeSingle();
+      if (!yr) return NextResponse.json({ error: "السنة غير موجودة" }, { status: 404 });
+      if (user.role !== "OWNER" && Number(yr.specialty_id) !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذه السنة خارج نطاق تخصصك" }, { status: 403 });
+      }
       // protect: block while dependents still reference the year
       const [groups, cohorts, modules] = await Promise.all([
         supabase.from("study_groups").select("id", { count: "exact", head: true }).eq("academic_year_id", yearId),
@@ -126,6 +219,12 @@ export async function DELETE(req: NextRequest) {
       const { error } = await supabase.from("academic_years").delete().eq("id", yearId);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     } else {
+      // round 5: scope check (local branch parity)
+      const yr = await db.academicYear.findUnique({ where: { id: yearId }, select: { specialtyId: true } });
+      if (!yr) return NextResponse.json({ error: "السنة غير موجودة" }, { status: 404 });
+      if (user.role !== "OWNER" && yr.specialtyId !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذه السنة خارج نطاق تخصصك" }, { status: 403 });
+      }
       const g = await db.studyGroup.count({ where: { academicYearId: yearId } });
       const c = await db.cohortGroup.count({ where: { academicYearId: yearId } });
       const m = await db.moduleCourse.count({ where: { academicYearId: yearId } });

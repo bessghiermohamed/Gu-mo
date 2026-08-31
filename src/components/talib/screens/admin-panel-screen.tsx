@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   Users, Layers, BookOpen, Upload, Cloud, Plus, TestTube2,
   CheckCircle2, XCircle, Loader2, FolderTree, UserPlus, Clock,
-  Check, X, Building2, GraduationCap, Shield, Trash2, Route, CalendarDays,
+  Check, X, Building2, GraduationCap, Shield, Trash2, Route, CalendarDays, Pencil,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -679,6 +679,11 @@ function YearsManager() {
   const [saving, setSaving] = React.useState(false);
   const [deleteYear, setDeleteYear] = React.useState<YearRow | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  // round 5: edit dialog state (rename + semester)
+  const [editYear, setEditYear] = React.useState<YearRow | null>(null);
+  const [editName, setEditName] = React.useState("");
+  const [editSemester, setEditSemester] = React.useState("1");
+  const [editSaving, setEditSaving] = React.useState(false);
 
   const fetchYears = React.useCallback(async (specialtyId: string) => {
     if (!specialtyId) { setYears([]); setLoading(false); return; }
@@ -734,6 +739,30 @@ function YearsManager() {
       fetchYears(cascade.specId);
     } catch { toast.error("فشل الحذف"); }
     finally { setDeleting(false); }
+  }
+
+  function openEditYear(y: YearRow) {
+    setEditName(y.yearName);
+    setEditSemester(String(y.semester ?? 1));
+    setEditYear(y);
+  }
+
+  async function handleEditSave() {
+    if (!editYear) return;
+    if (!editName.trim()) { toast.error("اكتب اسم السنة"); return; }
+    setEditSaving(true);
+    try {
+      const res = await fetch("/api/years", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editYear.id, yearName: editName.trim(), semester: parseInt(editSemester) }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم تعديل السنة ✅");
+      setEditYear(null);
+      fetchYears(cascade.specId);
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setEditSaving(false); }
   }
 
   return (
@@ -803,9 +832,14 @@ function YearsManager() {
                       <div className="font-bold text-sm">{y.yearName}</div>
                       <Badge variant="outline" className="mt-2 text-[10px]">ID: {y.id}</Badge>
                     </div>
-                    <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteYear(y)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditYear(y)} aria-label="تعديل السنة">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteYear(y)} aria-label="حذف السنة">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 </Card>
               ))}
@@ -822,6 +856,29 @@ function YearsManager() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setDeleteYear(null)}>إلغاء</Button>
               <Button variant="destructive" onClick={() => handleDelete(deleteYear)} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {editYear && (
+        <Dialog open onOpenChange={() => setEditYear(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5" />تعديل السنة</DialogTitle></DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5"><Label>اسم السنة</Label><Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="مثال: السنة الثالثة" /></div>
+              <div className="space-y-1.5">
+                <Label>السداسي</Label>
+                <select value={editSemester} onChange={(e) => setEditSemester(e.target.value)} className={selectCls}>
+                  <option value="1">السداسي 1</option>
+                  <option value="2">السداسي 2</option>
+                </select>
+              </div>
+              <p className="text-xs text-muted-foreground">التعديل آمن حتى لو كانت السنة تحتوي مجموعات وأفواجاً ومقاييس — لا تُفقد أي بيانات.</p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditYear(null)}>إلغاء</Button>
+              <Button onClick={handleEditSave} disabled={editSaving}>{editSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديل</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -849,6 +906,11 @@ function CohortsManager() {
   const [listYears, setListYears] = React.useState<Year[]>([]);
   const [deleteCohort, setDeleteCohort] = React.useState<{ id: number; groupName: string; subGroup: string } | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  // round 5: edit state (rename cohort)
+  const [editCohort, setEditCohort] = React.useState<{ id: number; groupName: string; subGroup: string } | null>(null);
+  const [editCohortName, setEditCohortName] = React.useState("");
+  const [editSubGroup, setEditSubGroup] = React.useState("");
+  const [editCohortSaving, setEditCohortSaving] = React.useState(false);
 
   // list filters (separate light cascade for browsing)
   React.useEffect(() => {
@@ -915,6 +977,30 @@ function CohortsManager() {
       fetchCohorts();
     } catch { toast.error("فشل الحذف"); }
     finally { setDeleting(false); }
+  }
+
+  function openEditCohort(c: { id: number; groupName: string; subGroup: string }) {
+    setEditCohortName(c.groupName);
+    setEditSubGroup(c.subGroup ?? "");
+    setEditCohort(c);
+  }
+
+  async function handleEditCohortSave() {
+    if (!editCohort) return;
+    if (!editCohortName.trim()) { toast.error("اكتب اسم الفوج"); return; }
+    setEditCohortSaving(true);
+    try {
+      const res = await fetch("/api/cohort", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editCohort.id, groupName: editCohortName.trim(), subGroup: editSubGroup.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم تعديل الفوج ✅");
+      setEditCohort(null);
+      fetchCohorts();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setEditCohortSaving(false); }
   }
 
   return (
@@ -1001,7 +1087,10 @@ function CohortsManager() {
             <Card key={c.id} className="p-3">
               <div className="flex items-start justify-between">
                 <div><div className="font-bold text-sm">{c.groupName}</div>{c.subGroup && <div className="text-xs text-muted-foreground mt-0.5">{c.subGroup}</div>}<Badge variant="outline" className="mt-2 text-[10px]">ID: {c.id}</Badge></div>
-                <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteCohort(c)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                <div className="flex flex-col gap-1 shrink-0">
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditCohort(c)} aria-label="تعديل الفوج"><Pencil className="w-3.5 h-3.5" /></Button>
+                  <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteCohort(c)} aria-label="حذف الفوج"><Trash2 className="w-3.5 h-3.5" /></Button>
+                </div>
               </div>
             </Card>
           ))}
@@ -1016,6 +1105,23 @@ function CohortsManager() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setDeleteCohort(null)}>إلغاء</Button>
               <Button variant="destructive" onClick={() => handleDelete(deleteCohort)} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {editCohort && (
+        <Dialog open onOpenChange={() => setEditCohort(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5" />تعديل الفوج</DialogTitle></DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5"><Label>اسم الفوج</Label><Input value={editCohortName} onChange={(e) => setEditCohortName(e.target.value)} placeholder="مثال: الفوج 04" /></div>
+              <div className="space-y-1.5"><Label>القسم الفرعي (اختياري)</Label><Input value={editSubGroup} onChange={(e) => setEditSubGroup(e.target.value)} placeholder="مثال: الفرع ب" /></div>
+              <p className="text-xs text-muted-foreground">يمكن تعديل الفوج حتى لو كان به طلبة ملحقون — الاسم فقط يتغير دون المساس بالبيانات.</p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditCohort(null)}>إلغاء</Button>
+              <Button onClick={handleEditCohortSave} disabled={editCohortSaving}>{editCohortSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديل</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -1036,6 +1142,13 @@ function GroupsManager() {
   const [newName, setNewName] = React.useState(""); const [newDesc, setNewDesc] = React.useState("");
   const [creating, setCreating] = React.useState(false);
   const [listYear, setListYear] = React.useState<string>("");
+  // round 5: edit state + dialog-based delete (replaced native confirm())
+  const [editGroup, setEditGroup] = React.useState<GroupRow | null>(null);
+  const [editGroupName, setEditGroupName] = React.useState("");
+  const [editGroupDesc, setEditGroupDesc] = React.useState("");
+  const [editGroupSaving, setEditGroupSaving] = React.useState(false);
+  const [deleteGroup, setDeleteGroup] = React.useState<GroupRow | null>(null);
+  const [deletingGroup, setDeletingGroup] = React.useState(false);
 
   React.useEffect(() => { setListYear(cascade.yearId); }, [cascade.yearId]);
 
@@ -1070,14 +1183,41 @@ function GroupsManager() {
     } finally { setCreating(false); }
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("هل تريد حذف هذه المجموعة؟")) return;
+  async function handleDelete(g: GroupRow) {
+    setDeletingGroup(true);
     try {
-      const res = await fetch(`/api/groups?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/groups?id=${g.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم حذف المجموعة"); fetchGroups();
+      toast.success("تم حذف المجموعة");
+      setDeleteGroup(null);
+      fetchGroups();
     } catch { toast.error("فشل الحذف"); }
+    finally { setDeletingGroup(false); }
+  }
+
+  function openEditGroup(g: GroupRow) {
+    setEditGroupName(g.groupName);
+    setEditGroupDesc(g.description ?? "");
+    setEditGroup(g);
+  }
+
+  async function handleEditGroupSave() {
+    if (!editGroup) return;
+    if (!editGroupName.trim()) { toast.error("اكتب اسم المجموعة"); return; }
+    setEditGroupSaving(true);
+    try {
+      const res = await fetch("/api/groups", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editGroup.id, groupName: editGroupName.trim(), description: editGroupDesc.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم تعديل المجموعة ✅");
+      setEditGroup(null);
+      fetchGroups();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setEditGroupSaving(false); }
   }
 
   return (
@@ -1158,11 +1298,44 @@ function GroupsManager() {
             <Card key={g.id} className="p-3">
               <div className="flex items-start justify-between">
                 <div><div className="font-bold text-sm flex items-center gap-1"><FolderTree className="w-3.5 h-3.5 text-primary" />{g.groupName}</div>{g.description && <div className="text-xs text-muted-foreground mt-1">{g.description}</div>}</div>
-                <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => handleDelete(g.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                <div className="flex flex-col gap-1 shrink-0">
+                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditGroup(g)} aria-label="تعديل المجموعة"><Pencil className="w-3.5 h-3.5" /></Button>
+                  <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteGroup(g)} aria-label="حذف المجموعة"><Trash2 className="w-3.5 h-3.5" /></Button>
+                </div>
               </div>
             </Card>
           ))}
         </div>
+      )}
+
+      {deleteGroup && (
+        <Dialog open onOpenChange={() => setDeleteGroup(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف مجموعة</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف <strong>{deleteGroup.groupName}</strong>؟ سيُرفض الحذف إذا كانت تحتوي أفواجاً.</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteGroup(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={() => handleDelete(deleteGroup)} disabled={deletingGroup}>{deletingGroup && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {editGroup && (
+        <Dialog open onOpenChange={() => setEditGroup(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5" />تعديل المجموعة</DialogTitle></DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="space-y-1.5"><Label>اسم المجموعة</Label><Input value={editGroupName} onChange={(e) => setEditGroupName(e.target.value)} placeholder="مثال: المجموعة 3" /></div>
+              <div className="space-y-1.5"><Label>الوصف</Label><Input value={editGroupDesc} onChange={(e) => setEditGroupDesc(e.target.value)} placeholder="مثال: مجموعة مسائية" /></div>
+              <p className="text-xs text-muted-foreground">يمكن تعديل المجموعة حتى لو كانت تحتوي أفواجاً — الاسم والوصف فقط يتغيران.</p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditGroup(null)}>إلغاء</Button>
+              <Button onClick={handleEditGroupSave} disabled={editGroupSaving}>{editGroupSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديل</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </Card>
   );

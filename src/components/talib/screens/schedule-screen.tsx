@@ -10,6 +10,7 @@ import {
   MapPin,
   User,
   Trash2,
+  Pencil,
   Loader2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -57,6 +58,10 @@ export function TalibScheduleScreen() {
   const [items, setItems] = React.useState<ScheduleItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [addOpen, setAddOpen] = React.useState(false);
+  // round 5: dialog-based delete (replaced native confirm) + edit dialog
+  const [itemToDelete, setItemToDelete] = React.useState<ScheduleItem | null>(null);
+  const [deletingItem, setDeletingItem] = React.useState(false);
+  const [itemToEdit, setItemToEdit] = React.useState<ScheduleItem | null>(null);
 
   const fetchItems = React.useCallback(async () => {
     setLoading(true);
@@ -75,16 +80,20 @@ export function TalibScheduleScreen() {
     fetchItems();
   }, [fetchItems]);
 
-  async function handleDelete(id: number) {
-    if (!confirm("هل تريد حذف هذه الحصة؟")) return;
+  async function handleDelete() {
+    if (!itemToDelete) return;
+    setDeletingItem(true);
     try {
-      const res = await fetch(`/api/schedule?id=${id}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success("تم حذف الحصة");
-        fetchItems();
-      }
+      const res = await fetch(`/api/schedule?id=${itemToDelete.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
+      toast.success("تم حذف الحصة");
+      setItemToDelete(null);
+      fetchItems();
     } catch {
       toast.error("فشل الحذف");
+    } finally {
+      setDeletingItem(false);
     }
   }
 
@@ -170,15 +179,26 @@ export function TalibScheduleScreen() {
                             )}
                           </div>
                           {canManage && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-muted-foreground hover:text-destructive shrink-0 h-7 w-7"
-                              onClick={() => handleDelete(item.id)}
-                              aria-label="حذف الحصة"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
+                            <div className="flex flex-col gap-1 shrink-0">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-muted-foreground hover:text-primary h-7 w-7"
+                                onClick={() => setItemToEdit(item)}
+                                aria-label="تعديل الحصة"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-muted-foreground hover:text-destructive h-7 w-7"
+                                onClick={() => setItemToDelete(item)}
+                                aria-label="حذف الحصة"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
                           )}
                         </div>
                       ))}
@@ -193,6 +213,26 @@ export function TalibScheduleScreen() {
           <ImageSchedule />
         </TabsContent>
       </Tabs>
+      {itemToEdit && (
+        <EditSlotDialog
+          item={itemToEdit}
+          onClose={() => setItemToEdit(null)}
+          onSaved={() => { setItemToEdit(null); fetchItems(); }}
+        />
+      )}
+
+      {itemToDelete && (
+        <Dialog open onOpenChange={() => setItemToDelete(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف حصة</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف حصة <strong>{itemToDelete.moduleName}</strong> ({itemToDelete.startTime})؟</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setItemToDelete(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deletingItem}>{deletingItem && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -412,5 +452,122 @@ function ImageSchedule() {
         )}
       </div>
     </Card>
+  );
+}
+
+// round 5: edit an existing schedule slot (fix a typo / move a slot
+// without delete + retype). Mirrors AddSlotDialog but pre-filled.
+function EditSlotDialog({ item, onClose, onSaved }: { item: ScheduleItem; onClose: () => void; onSaved: () => void }) {
+  const [dayOfWeek, setDayOfWeek] = React.useState(String(item.dayOfWeek));
+  const [startTime, setStartTime] = React.useState(item.startTime);
+  const [endTime, setEndTime] = React.useState(item.endTime);
+  const [moduleName, setModuleName] = React.useState(item.moduleName);
+  const [type, setType] = React.useState(item.type || "محاضرة");
+  const [room, setRoom] = React.useState(item.room);
+  const [professor, setProfessor] = React.useState(item.professor);
+  const [saving, setSaving] = React.useState(false);
+
+  async function handleSave() {
+    if (!startTime.trim() || !moduleName.trim()) {
+      toast.error("وقت البداية واسم المقياس مطلوبان");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/schedule", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          dayOfWeek: parseInt(dayOfWeek),
+          startTime: startTime.trim(),
+          endTime: endTime.trim(),
+          moduleName: moduleName.trim(),
+          type,
+          room: room.trim(),
+          professor: professor.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "فشل الحفظ");
+        return;
+      }
+      toast.success("تم تعديل الحصة ✅");
+      onSaved();
+    } catch {
+      toast.error("فشل الاتصال");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5" />تعديل الحصة</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>اليوم</Label>
+            <select
+              value={dayOfWeek}
+              onChange={(e) => setDayOfWeek(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+            >
+              <option value="1">الأحد</option>
+              <option value="2">الإثنين</option>
+              <option value="3">الثلاثاء</option>
+              <option value="4">الأربعاء</option>
+              <option value="5">الخميس</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label>وقت البداية</Label>
+              <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>وقت النهاية</Label>
+              <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>اسم المقياس</Label>
+            <Input value={moduleName} onChange={(e) => setModuleName(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>النوع</Label>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+            >
+              <option value="محاضرة">محاضرة</option>
+              <option value="أعمال موجهة TD">أعمال موجهة (TD)</option>
+              <option value="أعمال تطبيقية TP">أعمال تطبيقية (TP)</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label>القاعة</Label>
+              <Input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="مثال: A12" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>الأستاذ</Label>
+              <Input value={professor} onChange={(e) => setProfessor(e.target.value)} placeholder="اسم الأستاذ" />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
+            حفظ التعديل
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

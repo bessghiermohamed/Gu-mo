@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Megaphone, AlertCircle, Info, Calendar, Plus, Loader2 } from "lucide-react";
+import { Megaphone, AlertCircle, Info, Calendar, Plus, Loader2, Pencil, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,12 +29,27 @@ interface Announcement {
   specialtyId: number | null;
 }
 
+// round 5: mirrors the server-side eligibility rule in /api/announcements —
+// OWNER: any / SPECIALTY_ADMIN: own specialty / REPRESENTATIVE: own authorship.
+function canManageAnnouncement(user: { role: string; assignedSpecialtyId: number; fullName: string } | null, ann: Announcement): boolean {
+  if (!user) return false;
+  if (user.role === "OWNER") return true;
+  if (ann.specialtyId !== user.assignedSpecialtyId) return false;
+  if (user.role === "SPECIALTY_ADMIN") return true;
+  if (user.role === "REPRESENTATIVE") return ann.author === user.fullName;
+  return false;
+}
+
 export function TalibAnnouncementsScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
   const [announcements, setAnnouncements] = React.useState<Announcement[]>([]);
   const [loading, setLoading] = React.useState(true);
   const canPublish = canManageRoles(user ?? null);
+  // round 5: edit + delete state (previously a published mistake was permanent)
+  const [editAnn, setEditAnn] = React.useState<Announcement | null>(null);
+  const [annToDelete, setAnnToDelete] = React.useState<Announcement | null>(null);
+  const [deletingAnn, setDeletingAnn] = React.useState(false);
 
   const fetchAnnouncements = React.useCallback(async () => {
     setLoading(true);
@@ -54,6 +69,20 @@ export function TalibAnnouncementsScreen() {
     "عام": { label: t("announcements.urgencyNormal"), color: "bg-primary", icon: <Megaphone className="w-3 h-3" /> },
   };
 
+  async function handleDelete() {
+    if (!annToDelete) return;
+    setDeletingAnn(true);
+    try {
+      const res = await fetch(`/api/announcements?id=${annToDelete.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success("تم حذف الإعلان");
+      setAnnToDelete(null);
+      fetchAnnouncements();
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeletingAnn(false); }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
@@ -65,6 +94,27 @@ export function TalibAnnouncementsScreen() {
         </div>
         {canPublish && <AddAnnouncementDialog onCreated={fetchAnnouncements} />}
       </div>
+
+      {editAnn && (
+        <EditAnnouncementDialog
+          announcement={editAnn}
+          onClose={() => setEditAnn(null)}
+          onSaved={() => { setEditAnn(null); fetchAnnouncements(); }}
+        />
+      )}
+
+      {annToDelete && (
+        <Dialog open onOpenChange={() => setAnnToDelete(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف إعلان</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف إعلان <strong>{annToDelete.title}</strong>؟ لا يمكن التراجع.</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAnnToDelete(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deletingAnn}>{deletingAnn && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {loading ? (
         <Card className="p-8 text-center">
@@ -84,6 +134,7 @@ export function TalibAnnouncementsScreen() {
         <div className="space-y-3">
           {announcements.map((ann) => {
             const cfg = urgencyConfig[ann.urgency] ?? urgencyConfig["عام"];
+            const manage = canManageAnnouncement(user ?? null, ann);
             return (
               <Card key={ann.id} className="p-4 space-y-2">
                 <div className="flex items-center justify-between">
@@ -91,10 +142,22 @@ export function TalibAnnouncementsScreen() {
                     {cfg.icon}
                     {cfg.label}
                   </Badge>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
-                    {ann.date}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    {manage && (
+                      <>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditAnn(ann)} aria-label="تعديل الإعلان">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setAnnToDelete(ann)} aria-label="حذف الإعلان">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </>
+                    )}
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {ann.date}
+                    </span>
+                  </div>
                 </div>
                 <h3 className="font-bold text-sm">{ann.title}</h3>
                 <p className="text-sm text-muted-foreground whitespace-pre-wrap">
@@ -166,6 +229,66 @@ function AddAnnouncementDialog({ onCreated }: { onCreated: () => void }) {
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
           <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}نشر</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// round 5: edit an existing announcement (title / content / urgency).
+// Only shown to users the server-side rule also allows.
+function EditAnnouncementDialog({ announcement, onClose, onSaved }: {
+  announcement: Announcement; onClose: () => void; onSaved: () => void;
+}) {
+  const [title, setTitle] = React.useState(announcement.title);
+  const [content, setContent] = React.useState(announcement.content);
+  const [urgency, setUrgency] = React.useState(announcement.urgency);
+  const [saving, setSaving] = React.useState(false);
+
+  async function handleSave() {
+    if (!title.trim() || !content.trim()) { toast.error("العنوان والمحتوى مطلوبان"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/announcements", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: announcement.id, title: title.trim(), content: content.trim(), urgency }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+      toast.success("تم تعديل الإعلان ✅");
+      onSaved();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent>
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5" />تعديل الإعلان</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="editAnnTitle">العنوان</Label>
+            <Input id="editAnnTitle" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="editAnnContent">المحتوى</Label>
+            <Textarea id="editAnnContent" value={content} onChange={(e) => setContent(e.target.value)} rows={4} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>الأهمية</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {[{ k: "عام", l: "عام" }, { k: "هام", l: "هام" }, { k: "عاجل", l: "عاجل 🔴" }].map((o) => (
+                <button key={o.k} type="button" onClick={() => setUrgency(o.k)}
+                  className={`py-2 rounded-lg text-xs font-bold border-2 ${urgency === o.k ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}>
+                  {o.l}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديل</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

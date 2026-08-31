@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FlaskConical, Calendar, Clock, MapPin, Plus, Loader2, Trash2, BookOpen } from "lucide-react";
+import { FlaskConical, Calendar, Clock, MapPin, Plus, Loader2, Trash2, BookOpen, Pencil } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,10 @@ export function TalibExamsScreen() {
   const [exams, setExams] = React.useState<Exam[]>([]);
   const [loading, setLoading] = React.useState(true);
   const canManage = canManageRoles(user ?? null);
+  // round 5: dialog-based delete (replaced native confirm) + edit dialog
+  const [examToDelete, setExamToDelete] = React.useState<Exam | null>(null);
+  const [deletingExam, setDeletingExam] = React.useState(false);
+  const [examToEdit, setExamToEdit] = React.useState<Exam | null>(null);
 
   const fetchExams = React.useCallback(async () => {
     setLoading(true);
@@ -61,15 +65,18 @@ export function TalibExamsScreen() {
   const upcoming = exams.filter((e) => !e.isFinished && e.examDate >= today);
   const finished = exams.filter((e) => e.isFinished || e.examDate < today);
 
-  async function handleDelete(id: number) {
-    if (!confirm("هل تريد حذف هذا الاختبار؟")) return;
+  async function handleDelete() {
+    if (!examToDelete) return;
+    setDeletingExam(true);
     try {
-      const res = await fetch(`/api/exams?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/exams?id=${examToDelete.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
       toast.success("تم حذف الاختبار");
+      setExamToDelete(null);
       fetchExams();
     } catch { toast.error("فشل الحذف"); }
+    finally { setDeletingExam(false); }
   }
 
   return (
@@ -84,24 +91,39 @@ export function TalibExamsScreen() {
         {canManage && <AddExamDialog onCreated={fetchExams} />}
       </div>
 
+      {examToEdit && <EditExamDialog exam={examToEdit} onClose={() => setExamToEdit(null)} onSaved={() => { setExamToEdit(null); fetchExams(); }} />}
+
+      {examToDelete && (
+        <Dialog open onOpenChange={() => setExamToDelete(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف اختبار</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف <strong>{examToDelete.title}</strong>؟ لا يمكن التراجع.</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setExamToDelete(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deletingExam}>{deletingExam && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       <Tabs defaultValue="upcoming">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="upcoming">{t("exams.upcoming")} ({upcoming.length})</TabsTrigger>
           <TabsTrigger value="finished">{t("exams.finished")} ({finished.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="upcoming" className="mt-4">
-          <ExamsList exams={upcoming} loading={loading} canManage={canManage} onDelete={handleDelete} emptyText={t("exams.noExams")} />
+          <ExamsList exams={upcoming} loading={loading} canManage={canManage} onDelete={setExamToDelete} onEdit={setExamToEdit} emptyText={t("exams.noExams")} />
         </TabsContent>
         <TabsContent value="finished" className="mt-4">
-          <ExamsList exams={finished} loading={loading} canManage={canManage} onDelete={handleDelete} emptyText="لا توجد اختبارات منتهية" />
+          <ExamsList exams={finished} loading={loading} canManage={canManage} onDelete={setExamToDelete} onEdit={setExamToEdit} emptyText="لا توجد اختبارات منتهية" />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function ExamsList({ exams, loading, canManage, onDelete, emptyText }: {
-  exams: Exam[]; loading: boolean; canManage: boolean; onDelete: (id: number) => void; emptyText: string;
+function ExamsList({ exams, loading, canManage, onDelete, onEdit, emptyText }: {
+  exams: Exam[]; loading: boolean; canManage: boolean; onDelete: (exam: Exam) => void; onEdit: (exam: Exam) => void; emptyText: string;
 }) {
   const { t } = useI18n();
   if (loading) {
@@ -141,9 +163,14 @@ function ExamsList({ exams, loading, canManage, onDelete, emptyText }: {
               </div>
             </div>
             {canManage && (
-              <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 shrink-0" onClick={() => onDelete(exam.id)} aria-label="حذف">
-                <Trash2 className="w-4 h-4" />
-              </Button>
+              <div className="flex flex-col gap-1 shrink-0">
+                <Button variant="ghost" size="icon" className="shrink-0 h-7 w-7" onClick={() => onEdit(exam)} aria-label="تعديل">
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 shrink-0 h-7 w-7" onClick={() => onDelete(exam)} aria-label="حذف">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
             )}
           </div>
         </Card>
@@ -242,6 +269,92 @@ function AddExamDialog({ onCreated }: { onCreated: () => void }) {
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
           <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// round 5: edit an existing exam (reschedule/fix without delete + retype).
+function EditExamDialog({ exam, onClose, onSaved }: { exam: Exam; onClose: () => void; onSaved: () => void }) {
+  const [courses, setCourses] = React.useState<Course[]>([]);
+  const [moduleId, setModuleId] = React.useState(String(exam.moduleId));
+  const [title, setTitle] = React.useState(exam.title);
+  const [examDate, setExamDate] = React.useState(exam.examDate);
+  const [time, setTime] = React.useState(exam.time === "—" ? "09:00" : exam.time);
+  const [room, setRoom] = React.useState(exam.room === "—" ? "" : exam.room);
+  const [coefficient, setCoefficient] = React.useState(String(exam.coefficient));
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    fetch("/api/courses", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => setCourses(data.courses ?? []))
+      .catch(() => setCourses([]));
+  }, []);
+
+  async function handleSave() {
+    if (!title.trim()) { toast.error("اكتب عنوان الاختبار"); return; }
+    if (!examDate) { toast.error("اختر التاريخ"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/exams", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: exam.id,
+          moduleId: moduleId ? parseInt(moduleId) : exam.moduleId,
+          title: title.trim(), examDate, time,
+          room: room.trim(), coefficient: parseFloat(coefficient) || 2,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+      toast.success("تم تعديل الاختبار ✅");
+      onSaved();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent>
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5" />تعديل الاختبار</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>المقياس</Label>
+            <select value={moduleId} onChange={(e) => setModuleId(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+              <option value={String(exam.moduleId)}>{exam.moduleName} (الحالي)</option>
+              {courses.filter((c) => c.id !== exam.moduleId).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="editExamTitle">عنوان الاختبار</Label>
+            <Input id="editExamTitle" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="editExamDate">التاريخ</Label>
+              <Input id="editExamDate" type="date" value={examDate} onChange={(e) => setExamDate(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="editExamTime">الوقت</Label>
+              <Input id="editExamTime" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="editExamRoom">القاعة</Label>
+              <Input id="editExamRoom" value={room} onChange={(e) => setRoom(e.target.value)} placeholder="مثال: قاعة 12" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="editExamCoef">المعامل</Label>
+              <Input id="editExamCoef" type="number" value={coefficient} onChange={(e) => setCoefficient(e.target.value)} />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديل</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

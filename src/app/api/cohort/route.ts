@@ -4,6 +4,18 @@ import { getCurrentUser } from "@/lib/auth/service";
 import { canCreateCohorts } from "@/lib/auth/permissions";
 import { fetchCohorts } from "@/lib/data-layer";
 
+/**
+ * Cohorts (أفواج) API
+ *
+ * GET    → cohorts of a scope (specialty / year / track / group)
+ * POST   → create a cohort (supervisors)
+ * PATCH  → rename a cohort (round 5 — previously impossible: delete was
+ *          blocked while students attached, and no edit existed at all)
+ * DELETE → delete a cohort (blocked while users attached)
+ *
+ * Round 5: non-OWNER callers may only touch cohorts of their OWN specialty
+ * on PATCH and DELETE (previously the role alone was checked).
+ */
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export async function GET(req: NextRequest) {
@@ -95,6 +107,76 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canCreateCohorts(user)) {
+    return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
+  }
+  try {
+    const body = await req.json();
+    const { id, groupName, subGroup } = body;
+    if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+    const name = groupName?.trim();
+    if (groupName !== undefined && !name) {
+      return NextResponse.json({ error: "اسم الفوج لا يمكن أن يكون فارغاً" }, { status: 400 });
+    }
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data: cohort } = await supabase
+        .from("cohort_groups")
+        .select("id, specialty_id, academic_year_id, group_name, sub_group")
+        .eq("id", Number(id))
+        .maybeSingle();
+      if (!cohort) return NextResponse.json({ error: "الفوج غير موجود" }, { status: 404 });
+      // round 5: scope check
+      if (user.role !== "OWNER" && Number(cohort.specialty_id) !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا الفوج خارج نطاق تخصصك" }, { status: 403 });
+      }
+      // duplicate guard (same specialty + same name, excluding this row)
+      if (name && name !== cohort.group_name) {
+        let dupQuery = supabase.from("cohort_groups").select("id").eq("specialty_id", cohort.specialty_id).eq("group_name", name).neq("id", Number(id));
+        if (cohort.academic_year_id) dupQuery = dupQuery.eq("academic_year_id", cohort.academic_year_id);
+        const { data: dup } = await dupQuery.maybeSingle();
+        if (dup) return NextResponse.json({ error: `يوجد فوج بنفس الاسم "${name}"` }, { status: 409 });
+      }
+      const patch: Record<string, unknown> = {};
+      if (name) patch.group_name = name;
+      if (subGroup !== undefined) patch.sub_group = subGroup.trim();
+      const { data, error } = await supabase
+        .from("cohort_groups")
+        .update(patch)
+        .eq("id", Number(id))
+        .select()
+        .single();
+      if (error || !data) {
+        return NextResponse.json({ error: `فشل التحديث: ${error?.message ?? "خطأ"}` }, { status: 500 });
+      }
+      return NextResponse.json({
+        cohort: { id: data.id, specialtyId: data.specialty_id, academicYearId: data.academic_year_id, trackId: data.track_id ?? null, groupId: data.group_id ?? null, groupName: data.group_name, subGroup: data.sub_group ?? "" },
+      });
+    }
+    const { db } = await import("@/lib/db");
+    const cohort = await db.cohortGroup.findUnique({ where: { id: Number(id) } });
+    if (!cohort) return NextResponse.json({ error: "الفوج غير موجود" }, { status: 404 });
+    if (user.role !== "OWNER" && cohort.specialtyId !== user.assignedSpecialtyId) {
+      return NextResponse.json({ error: "هذا الفوج خارج نطاق تخصصك" }, { status: 403 });
+    }
+    if (name && name !== cohort.groupName) {
+      const dup = await db.cohortGroup.findFirst({
+        where: { specialtyId: cohort.specialtyId, academicYearId: cohort.academicYearId, groupName: name, id: { not: Number(id) } },
+      });
+      if (dup) return NextResponse.json({ error: `يوجد فوج بنفس الاسم "${name}"` }, { status: 409 });
+    }
+    const updated = await db.cohortGroup.update({
+      where: { id: Number(id) },
+      data: { ...(name ? { groupName: name } : {}), ...(subGroup !== undefined ? { subGroup: subGroup.trim() } : {}) },
+    });
+    return NextResponse.json({ cohort: updated });
+  } catch (e) {
+    return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user || !canCreateCohorts(user)) {
@@ -106,6 +188,12 @@ export async function DELETE(req: NextRequest) {
   try {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
+      // round 5: scope check — non-OWNER may only delete their own specialty's cohorts
+      const { data: ch } = await supabase.from("cohort_groups").select("specialty_id").eq("id", parseInt(id)).maybeSingle();
+      if (!ch) return NextResponse.json({ error: "الفوج غير موجود" }, { status: 404 });
+      if (user.role !== "OWNER" && Number(ch.specialty_id) !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا الفوج خارج نطاق تخصصك" }, { status: 403 });
+      }
       const { data: usersInCohort } = await supabase.from("app_users").select("id").eq("scope_cohort_group_id", parseInt(id));
       if (usersInCohort && usersInCohort.length > 0) return NextResponse.json({ error: `لا يمكن حذف الفوج: ${usersInCohort.length} مستخدم مُلحق به.` }, { status: 400 });
       // round 3: clean dangling profile references so deleted regiments
@@ -117,6 +205,12 @@ export async function DELETE(req: NextRequest) {
       const { db } = await import("@/lib/db");
       // round 3: same protection as the Supabase branch — the local branch used
       // to delete straight away, silently detaching (SetNull) every student.
+      // round 5: scope check parity + cohort guard was missing here too.
+      const target = await db.cohortGroup.findUnique({ where: { id: parseInt(id) }, select: { specialtyId: true } });
+      if (!target) return NextResponse.json({ error: "الفوج غير موجود" }, { status: 404 });
+      if (user.role !== "OWNER" && target.specialtyId !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا الفوج خارج نطاق تخصصك" }, { status: 403 });
+      }
       const attached = await db.appUser.count({ where: { scopeCohortGroupId: parseInt(id) } });
       if (attached > 0) return NextResponse.json({ error: `لا يمكن حذف الفوج: ${attached} مستخدم مُلحق به.` }, { status: 400 });
       await db.studentProfile.updateMany({ where: { selectedCohortId: parseInt(id) } as never, data: { selectedCohortId: null, groupNumber: "" } });

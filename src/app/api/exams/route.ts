@@ -3,7 +3,12 @@
  *
  * GET    → exams of the caller's scope (specialty + year), split-ready
  * POST   → create an exam (supervisors only), tied to a module of the scope
+ * PATCH  → edit an exam (round 5 — reschedule/fix without delete+retype)
  * DELETE → remove an exam (supervisors only)
+ *
+ * Round 5: PATCH and DELETE now verify the exam's module belongs to the
+ * caller's specialty (the previous DELETE only checked the role, so any
+ * supervisor could delete another specialty's exams by forging the id).
  *
  * Scope filtering uses a two-step query (module ids of the user's scope, then
  * exams in those modules) so it works regardless of live FK constraint names.
@@ -129,6 +134,99 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canUploadContent(user)) {
+    return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
+  }
+  try {
+    const body = await req.json();
+    const { id, moduleId, title, examDate, time, room, coefficient } = body;
+    if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      // round 5: load the exam and verify its module is inside the caller's specialty
+      const { data: exam } = await supabase
+        .from("exams")
+        .select("id, module_id, module_name, title, exam_date, time, room, coefficient")
+        .eq("id", Number(id))
+        .maybeSingle();
+      if (!exam) return NextResponse.json({ error: "الاختبار غير موجود" }, { status: 404 });
+      const { data: mod } = await supabase
+        .from("module_courses")
+        .select("id, name, specialty_id")
+        .eq("id", Number(exam.module_id))
+        .maybeSingle();
+      if (!mod || (user.role !== "OWNER" && Number(mod.specialty_id) !== user.assignedSpecialtyId)) {
+        return NextResponse.json({ error: "هذا الاختبار خارج نطاق تخصصك" }, { status: 403 });
+      }
+      // optional module move: validate the new module too
+      let newModuleName: string | null = null;
+      if (moduleId !== undefined && Number(moduleId) !== Number(exam.module_id)) {
+        const { data: newMod } = await supabase
+          .from("module_courses")
+          .select("id, name, specialty_id")
+          .eq("id", Number(moduleId))
+          .maybeSingle();
+        if (!newMod) return NextResponse.json({ error: "المقياس الجديد غير موجود" }, { status: 400 });
+        if (user.role !== "OWNER" && Number(newMod.specialty_id) !== user.assignedSpecialtyId) {
+          return NextResponse.json({ error: "المقياس الجديد خارج نطاق تخصصك" }, { status: 403 });
+        }
+        newModuleName = String(newMod.name ?? "");
+      }
+      const t = title?.trim();
+      if (title !== undefined && !t) return NextResponse.json({ error: "العنوان مطلوب" }, { status: 400 });
+      const d = examDate?.trim();
+      if (examDate !== undefined && !d) return NextResponse.json({ error: "التاريخ مطلوب" }, { status: 400 });
+      const patch: Record<string, unknown> = {};
+      if (moduleId !== undefined && newModuleName !== null) { patch.module_id = Number(moduleId); patch.module_name = newModuleName; }
+      if (t) patch.title = t;
+      if (d) patch.exam_date = d;
+      if (time !== undefined) patch.time = time?.trim() || "—";
+      if (room !== undefined) patch.room = room?.trim() || "—";
+      if (coefficient !== undefined) patch.coefficient = coefficient ?? 2;
+      if (Object.keys(patch).length === 0) return NextResponse.json({ error: "لا توجد تغييرات" }, { status: 400 });
+      const { data, error } = await supabase.from("exams").update(patch).eq("id", Number(id)).select().single();
+      if (error || !data) return NextResponse.json({ error: `فشل التحديث: ${error?.message ?? "خطأ"}` }, { status: 500 });
+      return NextResponse.json({ exam: data });
+    }
+    const exam = await db.exam.findUnique({ where: { id: Number(id) } });
+    if (!exam) return NextResponse.json({ error: "الاختبار غير موجود" }, { status: 404 });
+    const mod = await db.moduleCourse.findUnique({ where: { id: exam.moduleId } });
+    if (!mod || (user.role !== "OWNER" && mod.specialtyId !== user.assignedSpecialtyId)) {
+      return NextResponse.json({ error: "هذا الاختبار خارج نطاق تخصصك" }, { status: 403 });
+    }
+    let newModuleName: string | null = null;
+    if (moduleId !== undefined && Number(moduleId) !== exam.moduleId) {
+      const newMod = await db.moduleCourse.findUnique({ where: { id: Number(moduleId) } });
+      if (!newMod) return NextResponse.json({ error: "المقياس الجديد غير موجود" }, { status: 400 });
+      if (user.role !== "OWNER" && newMod.specialtyId !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "المقياس الجديد خارج نطاق تخصصك" }, { status: 403 });
+      }
+      newModuleName = newMod.name;
+    }
+    const t = title?.trim();
+    if (title !== undefined && !t) return NextResponse.json({ error: "العنوان مطلوب" }, { status: 400 });
+    const d = examDate?.trim();
+    if (examDate !== undefined && !d) return NextResponse.json({ error: "التاريخ مطلوب" }, { status: 400 });
+    const updated = await db.exam.update({
+      where: { id: Number(id) },
+      data: {
+        ...(newModuleName !== null ? { moduleId: Number(moduleId), moduleName: newModuleName } : {}),
+        ...(t ? { title: t } : {}),
+        ...(d ? { examDate: d } : {}),
+        ...(time !== undefined ? { time: time?.trim() || "—" } : {}),
+        ...(room !== undefined ? { room: room?.trim() || "—" } : {}),
+        ...(coefficient !== undefined ? { coefficient: coefficient ?? 2 } : {}),
+      },
+    });
+    return NextResponse.json({ exam: updated });
+  } catch (e) {
+    return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user || !canUploadContent(user)) {
@@ -140,9 +238,23 @@ export async function DELETE(req: NextRequest) {
   try {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
+      // round 5: ownership check — the exam's module must be inside the caller's
+      // specialty (previously ANY supervisor could delete ANY specialty's exam).
+      const { data: exam } = await supabase.from("exams").select("module_id").eq("id", parseInt(id)).maybeSingle();
+      if (!exam) return NextResponse.json({ error: "الاختبار غير موجود" }, { status: 404 });
+      const { data: mod } = await supabase.from("module_courses").select("specialty_id").eq("id", Number(exam.module_id)).maybeSingle();
+      if (!mod || (user.role !== "OWNER" && Number(mod.specialty_id) !== user.assignedSpecialtyId)) {
+        return NextResponse.json({ error: "هذا الاختبار خارج نطاق تخصصك" }, { status: 403 });
+      }
       const { error } = await supabase.from("exams").delete().eq("id", parseInt(id));
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     } else {
+      const exam = await db.exam.findUnique({ where: { id: parseInt(id) } });
+      if (!exam) return NextResponse.json({ error: "الاختبار غير موجود" }, { status: 404 });
+      const mod = await db.moduleCourse.findUnique({ where: { id: exam.moduleId }, select: { specialtyId: true } });
+      if (!mod || (user.role !== "OWNER" && mod.specialtyId !== user.assignedSpecialtyId)) {
+        return NextResponse.json({ error: "هذا الاختبار خارج نطاق تخصصك" }, { status: 403 });
+      }
       await db.exam.delete({ where: { id: parseInt(id) } });
     }
     return NextResponse.json({ ok: true, message: "تم حذف الاختبار" });
