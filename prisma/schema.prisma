@@ -20,10 +20,10 @@ datasource db {
 // 0. المؤسسات الجامعية
 // =====================================================
 model Institution {
-  id          Int         @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   nameAr      String
-  type        String      @default("المدرسة العليا للأساتذة")
-  city        String      @default("الجزائر")
+  type        String   @default("المدرسة العليا للأساتذة")
+  city        String   @default("الجزائر")
   specialties Specialty[]
 
   createdAt DateTime @default(now())
@@ -31,22 +31,21 @@ model Institution {
 }
 
 model Specialty {
-  id             Int             @id @default(autoincrement())
+  id             Int            @id @default(autoincrement())
   institutionId  Int
   nameAr         String
   code           String
-  iconName       String          @default("book")
-  description    String          @default("")
-  institution    String          @default("المدرسة العليا للأساتذة - بوزريعة")
-  faculty        String          @default("قسم اللغة والأدب العربي")
-  institutionRef Institution     @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  iconName       String         @default("book")
+  description    String         @default("")
+  institution    String         @default("المدرسة العليا للأساتذة - بوزريعة")
+  faculty        String         @default("قسم اللغة والأدب العربي")
+  institutionRef Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   academicYears  AcademicYear[]
   cohortGroups   CohortGroup[]
   modules        ModuleCourse[]
   appUsers       AppUser[]
-  announcements  Announcement[]
+  announcements Announcement[]
   academicTracks AcademicTrack[] // NEW: relation back to AcademicTrack
-  studyGroups    StudyGroup[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -60,7 +59,6 @@ model AcademicYear {
   specialty    Specialty      @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
   cohortGroups CohortGroup[]
   modules      ModuleCourse[]
-  studyGroups  StudyGroup[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -71,20 +69,17 @@ model AcademicYear {
 // + trackId لربط الفوج بالملمح الأكاديمي (matching new Android source)
 // =====================================================
 model CohortGroup {
-  id             Int            @id @default(autoincrement())
-  specialtyId    Int
-  academicYearId Int
-  trackId        Int? // link to academic track (PEP/PEM/PES/etc.)
-  groupId        Int? // fix ب: cohort belongs to a StudyGroup (المجموعة)
-  groupName      String // "الفوج 01", "الفوج 02"...
-  subGroup       String         @default("")
-  createdAt      DateTime       @default(now())
-  specialty      Specialty      @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
-  academicYear   AcademicYear   @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
-  track          AcademicTrack? @relation(fields: [trackId], references: [id], onDelete: SetNull)
-  group          StudyGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  appUsers       AppUser[]
-  joinRequests   JoinRequest[]
+  id              Int           @id @default(autoincrement())
+  specialtyId     Int
+  academicYearId  Int
+  trackId         Int?          // NEW: link to academic track (PEP/PEM/PES/etc.)
+  groupName       String // "الفوج 01", "الفوج 02"...
+  subGroup        String        @default("")
+  createdAt       DateTime      @default(now())
+  specialty       Specialty     @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  academicYear    AcademicYear  @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  track           AcademicTrack? @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  appUsers        AppUser[]
 
   updatedAt DateTime @updatedAt
 
@@ -92,59 +87,17 @@ model CohortGroup {
 }
 
 // =====================================================
-// 0.3 المجموعات الدراسية (Study Groups) — fix ب
-// الفوج ينتمي لمجموعة، والمجموعة تنتمي لمؤسسة+تخصص+سنة
-// =====================================================
-model StudyGroup {
-  id             Int            @id @default(autoincrement())
-  specialtyId    Int
-  academicYearId Int
-  trackId        Int?
-  groupName      String
-  description    String         @default("")
-  createdAt      DateTime       @default(now())
-  specialty      Specialty      @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
-  academicYear   AcademicYear   @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
-  track          AcademicTrack? @relation(fields: [trackId], references: [id], onDelete: SetNull)
-  cohorts        CohortGroup[]
-  appUsers       AppUser[]
-
-  updatedAt DateTime @updatedAt
-}
-
-// =====================================================
-// 19. طلبات الانضمام للأفواج (Join Requests)
-// الطلب يرسله الطالب ويوافق عليه الممثل/المشرف
-// =====================================================
-model JoinRequest {
-  id           Int         @id @default(autoincrement())
-  requesterId  Int
-  cohortId     Int
-  groupId      Int?
-  status       String      @default("pending") // pending | approved | rejected
-  message      String      @default("")
-  reviewerId   Int?
-  reviewerNote String      @default("")
-  requester    AppUser     @relation(fields: [requesterId], references: [id], onDelete: Cascade)
-  cohort       CohortGroup @relation(fields: [cohortId], references: [id], onDelete: Cascade)
-
-  createdAt  DateTime  @default(now())
-  reviewedAt DateTime?
-}
-
-// =====================================================
 // 0.2 الملامح الأكاديمية (Academic Tracks) — NEW from updated Android source
 // Represents tracks like PEP (primary), PEM (middle), PES (secondary), etc.
 // =====================================================
 model AcademicTrack {
-  id          Int           @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   specialtyId Int
-  trackNameAr String // "أستاذ التعليم الابتدائي (PEP)" etc.
-  code        String // "PEP", "PEM", "PES", "INF-GEN", "ISIL"
-  specialty   Specialty     @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  trackNameAr String    // "أستاذ التعليم الابتدائي (PEP)" etc.
+  code        String    // "PEP", "PEM", "PES", "INF-GEN", "ISIL"
+  specialty   Specialty @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
   cohorts     CohortGroup[]
   appUsers    AppUser[]
-  studyGroups StudyGroup[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -156,29 +109,29 @@ model AcademicTrack {
 // 1. المقررات
 // =====================================================
 model ModuleCourse {
-  id                  Int                    @id @default(autoincrement())
-  specialtyId         Int
-  academicYearId      Int
-  semester            Int                    @default(1) // fix B.3: 1 | 2
-  name                String
-  code                String
-  coefficient         Float                  @default(2.0)
-  credits             Int                    @default(4)
-  professorName       String                 @default("")
-  professorEmail      String                 @default("")
-  category            String                 @default("أساسي")
-  description         String                 @default("")
-  syllabusTopics      String                 @default("")
-  visibilityScope     String                 @default("تخصص كامل")
-  targetGroup         String                 @default("الكل")
-  specialty           Specialty              @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
-  academicYear        AcademicYear           @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
-  lectures            Lecture[]
+  id                   Int              @id @default(autoincrement())
+  specialtyId          Int
+  academicYearId       Int
+  semester             Int              @default(1) // fix B.3: 1 | 2
+  name                 String
+  code                 String
+  coefficient          Float            @default(2.0)
+  credits              Int              @default(4)
+  professorName        String           @default("")
+  professorEmail       String           @default("")
+  category             String           @default("أساسي")
+  description          String           @default("")
+  syllabusTopics       String           @default("")
+  visibilityScope      String           @default("تخصص كامل")
+  targetGroup          String           @default("الكل")
+  specialty            Specialty        @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  academicYear         AcademicYear     @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  lectures             Lecture[]
   assignments         Assignment[]
-  exams               Exam[]
-  grades              StudentGrade[]
-  cachedMaterials     CachedCourseMaterial[]
-  lastViewedTimestamp Int                    @default(0)
+  exams                Exam[]
+  grades               StudentGrade[]
+  cachedMaterials      CachedCourseMaterial[]
+  lastViewedTimestamp  Int              @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -188,25 +141,25 @@ model ModuleCourse {
 // 2. المحاضرات
 // =====================================================
 model Lecture {
-  id                  Int          @id @default(autoincrement())
+  id                  Int      @id @default(autoincrement())
   moduleId            Int
   weekNumber          Int
   title               String
   summary             String
-  pdfFileName         String       @default("lecture_notes.pdf")
-  pdfUrl              String       @default("")
-  pdfStoragePath      String       @default("") // Supabase Storage path (fix A.5)
-  durationMinutes     Int          @default(90)
-  date                String       @default("")
-  isBookmarked        Boolean      @default(false)
-  isDownloaded        Boolean      @default(false)
-  isCachedOffline     Boolean      @default(true)
-  isRead              Boolean      @default(false)
-  lastViewedTimestamp Int          @default(0)
-  cachedContentText   String       @default("")
-  visibilityScope     String       @default("تخصص كامل")
-  targetGroup         String       @default("الكل")
-  authorName          String       @default("الممثل")
+  pdfFileName         String   @default("lecture_notes.pdf")
+  pdfUrl              String   @default("")
+  pdfStoragePath      String   @default("") // Supabase Storage path (fix A.5)
+  durationMinutes     Int      @default(90)
+  date                String   @default("")
+  isBookmarked        Boolean  @default(false)
+  isDownloaded        Boolean  @default(false)
+  isCachedOffline     Boolean  @default(true)
+  isRead              Boolean  @default(false)
+  lastViewedTimestamp Int      @default(0)
+  cachedContentText   String   @default("")
+  visibilityScope     String   @default("تخصص كامل")
+  targetGroup         String   @default("الكل")
+  authorName          String   @default("الممثل")
   module              ModuleCourse @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
@@ -214,18 +167,18 @@ model Lecture {
 }
 
 model CachedCourseMaterial {
-  id                  Int          @id @default(autoincrement())
+  id                  Int      @id @default(autoincrement())
   moduleId            Int
   moduleName          String
   title               String
-  materialType        String       @default("محاضرة")
+  materialType        String   @default("محاضرة")
   summary             String
   fullText            String
-  keyConcepts         String       @default("")
-  weekNumber          Int          @default(1)
-  cachedDate          String       @default("مخزن محلياً")
-  lastViewedTimestamp Int          @default(0)
-  isOfflineAvailable  Boolean      @default(true)
+  keyConcepts         String   @default("")
+  weekNumber          Int      @default(1)
+  cachedDate          String   @default("مخزن محلياً")
+  lastViewedTimestamp Int      @default(0)
+  isOfflineAvailable  Boolean  @default(true)
   module              ModuleCourse @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
@@ -236,15 +189,15 @@ model CachedCourseMaterial {
 // 3. الواجبات (مع isCompleted محلي لكل طالب - fix B.6)
 // =====================================================
 model Assignment {
-  id                 Int          @id @default(autoincrement())
-  moduleId           Int
-  title              String
-  dueDate            String
-  description        String
-  maxScore           Float        @default(20.0)
-  visibilityScope    String       @default("تخصص كامل")
-  targetGroup        String       @default("الكل")
-  module             ModuleCourse @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  id              Int           @id @default(autoincrement())
+  moduleId        Int
+  title           String
+  dueDate         String
+  description     String
+  maxScore        Float         @default(20.0)
+  visibilityScope String        @default("تخصص كامل")
+  targetGroup     String        @default("الكل")
+  module          ModuleCourse  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   // Local per-student completion status (stored as JSON string: {"studentId": true})
   studentCompletions String?
 
@@ -256,19 +209,19 @@ model Assignment {
 // 4. الجدول الأسبوعي
 // =====================================================
 model ScheduleItem {
-  id              Int    @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   specialtyId     Int
   academicYearId  Int
-  cohortId        Int? // fix A.2: link to real cohort, not hardcoded "3"
-  dayOfWeek       Int // 1: Sun, 2: Mon, 3: Tue, 4: Wed, 5: Thu
+  cohortId        Int?     // fix A.2: link to real cohort, not hardcoded "3"
+  dayOfWeek       Int     // 1: Sun, 2: Mon, 3: Tue, 4: Wed, 5: Thu
   startTime       String
   endTime         String
   moduleName      String
-  type            String // محاضرة / TD / TP
+  type            String  // محاضرة / TD / TP
   room            String
   professor       String
-  visibilityScope String @default("تخصص كامل")
-  targetGroup     String @default("الكل")
+  visibilityScope String  @default("تخصص كامل")
+  targetGroup     String  @default("الكل")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -278,18 +231,18 @@ model ScheduleItem {
 // 5. الامتحانات
 // =====================================================
 model Exam {
-  id              Int          @id @default(autoincrement())
+  id              Int           @id @default(autoincrement())
   moduleId        Int
-  moduleName      String
-  title           String
-  examDate        String
-  time            String
-  room            String
-  coefficient     Float        @default(2.0)
-  isFinished      Boolean      @default(false)
-  visibilityScope String       @default("تخصص كامل")
-  targetGroup     String       @default("الكل")
-  module          ModuleCourse @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  moduleName     String
+  title          String
+  examDate       String
+  time           String
+  room           String
+  coefficient     Float         @default(2.0)
+  isFinished     Boolean       @default(false)
+  visibilityScope String        @default("تخصص كامل")
+  targetGroup     String        @default("الكل")
+  module          ModuleCourse  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -299,17 +252,17 @@ model Exam {
 // 6. العلامات
 // =====================================================
 model StudentGrade {
-  id              Int          @id @default(autoincrement())
+  id              Int           @id @default(autoincrement())
   moduleId        Int
   moduleName      String
-  continuousScore Float        @default(14.0)
-  examScore       Float        @default(15.0)
-  coefficient     Float        @default(2.0)
-  credits         Int          @default(4)
-  isOfficial      Boolean      @default(false)
-  targetScore     Float        @default(10.0)
-  module          ModuleCourse @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  ownerId         String       @default("local")
+  continuousScore Float         @default(14.0)
+  examScore       Float         @default(15.0)
+  coefficient      Float         @default(2.0)
+  credits          Int           @default(4)
+  isOfficial      Boolean       @default(false)
+  targetScore     Float         @default(10.0)
+  module          ModuleCourse  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  ownerId         String        @default("local")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -319,16 +272,16 @@ model StudentGrade {
 // 7. الإعلانات
 // =====================================================
 model Announcement {
-  id              Int        @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   title           String
   content         String
   author          String
   date            String
-  urgency         String     @default("عام")
+  urgency         String   @default("عام")
   specialtyId     Int?
-  isRead          Boolean    @default(false)
-  visibilityScope String     @default("تخصص كامل")
-  targetGroups    String     @default("الكل")
+  isRead          Boolean  @default(false)
+  visibilityScope String   @default("تخصص كامل")
+  targetGroups    String   @default("الكل")
   specialty       Specialty? @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
@@ -341,31 +294,31 @@ model Announcement {
 // - includes scheduleImage for fix B.4
 // =====================================================
 model StudentProfile {
-  id                  Int     @id @default(autoincrement()) // fix: one profile PER USER (id = user id), not a shared singleton row
-  userId              String  @unique
-  fullName            String
-  email               String
-  studentId           String  @default("") // auto-generated (fix B.1)
-  institution         String  @default("")
-  university          String  @default("")
-  faculty             String  @default("")
-  specialtyName       String  @default("")
-  profileTrack        String  @default("")
-  trackId             Int? // NEW: link to AcademicTrack
-  selectedSpecialtyId Int     @default(1)
-  selectedYearId      Int     @default(1)
-  selectedCohortId    Int? // fix A.2: link to real cohort
-  academicYearName    String  @default("")
-  semesterName        String  @default("")
-  groupNumber         String  @default("")
-  subGroup            String  @default("")
-  isAdminMode         Boolean @default(false)
-  userRole            String  @default("STUDENT")
-  themePalette        String  @default("ACADEMIC")
-  isConfigured        Boolean @default(false)
+  id                Int      @id @default(1) // singleton per device
+  userId            String   @default("local")
+  fullName          String
+  email             String
+  studentId         String   @default("") // auto-generated (fix B.1)
+  institution       String   @default("")
+  university        String   @default("")
+  faculty           String   @default("")
+  specialtyName     String   @default("")
+  profileTrack      String   @default("")
+  trackId           Int?     // NEW: link to AcademicTrack
+  selectedSpecialtyId Int   @default(1)
+  selectedYearId    Int      @default(1)
+  selectedCohortId  Int?     // fix A.2: link to real cohort
+  academicYearName  String   @default("")
+  semesterName      String   @default("")
+  groupNumber       String   @default("")
+  subGroup          String   @default("")
+  isAdminMode       Boolean  @default(false)
+  userRole          String   @default("STUDENT")
+  themePalette      String   @default("ACADEMIC")
+  isConfigured      Boolean  @default(false)
   // fix B.4: per-student schedule image
-  scheduleImageMode   String  @default("manual") // "manual" | "image"
-  scheduleImagePath   String  @default("")
+  scheduleImageMode String   @default("manual") // "manual" | "image"
+  scheduleImagePath String   @default("")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -375,33 +328,33 @@ model StudentProfile {
 // 9. ملاحظات الطالب
 // =====================================================
 model StudentNote {
-  id         Int    @id @default(autoincrement())
-  ownerId    String @default("local")
+  id         Int      @id @default(autoincrement())
+  ownerId    String   @default("local")
   title      String
   content    String
-  moduleName String @default("عام")
-  createdAt  String @default("اليوم")
-  colorHex   String @default("#1B5E4B")
+  moduleName String   @default("عام")
+  createdAt  String   @default("اليوم")
+  colorHex   String   @default("#1B5E4B")
 
   createdDateTime DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 }
 
 // =====================================================
 // 10. كتب ومراجع المكتبة
 // =====================================================
 model LibraryReference {
-  id              Int     @id @default(autoincrement())
-  specialtyId     Int     @default(1)
+  id              Int      @id @default(autoincrement())
+  specialtyId     Int      @default(1)
   title           String
   author          String
-  category        String  @default("كتاب مرجعي")
+  category        String   @default("كتاب مرجعي")
   description     String
-  fileFormat      String  @default("PDF")
-  pageCount       Int     @default(250)
-  downloadUrl     String  @default("")
-  isSavedOffline  Boolean @default(true)
-  visibilityScope String  @default("تخصص كامل")
+  fileFormat      String   @default("PDF")
+  pageCount       Int      @default(250)
+  downloadUrl     String   @default("")
+  isSavedOffline  Boolean  @default(true)
+  visibilityScope String   @default("تخصص كامل")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -411,13 +364,13 @@ model LibraryReference {
 // 11. التقويم الأكاديمي
 // =====================================================
 model AcademicCalendarEvent {
-  id          Int     @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   title       String
-  eventType   String  @default("محطة رسمية")
+  eventType   String   @default("محطة رسمية")
   startDate   String
-  endDate     String  @default("")
-  description String  @default("")
-  isCurrent   Boolean @default(false)
+  endDate     String   @default("")
+  description String   @default("")
+  isCurrent   Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -427,14 +380,14 @@ model AcademicCalendarEvent {
 // 12. سجل الحضور والغيابات
 // =====================================================
 model AttendanceRecord {
-  id                 Int    @id @default(autoincrement())
-  ownerId            String @default("local")
-  moduleName         String
-  sessionType        String @default("أعمال موجهة TD")
-  date               String
-  status             String @default("غائب")
-  reason             String @default("")
-  maxAllowedAbsences Int    @default(3)
+  id                Int      @id @default(autoincrement())
+  ownerId           String   @default("local")
+  moduleName        String
+  sessionType       String   @default("أعمال موجهة TD")
+  date              String
+  status            String   @default("غائب")
+  reason            String   @default("")
+  maxAllowedAbsences Int     @default(3)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -444,14 +397,14 @@ model AttendanceRecord {
 // 13. تبليغات الطلاب
 // =====================================================
 model StudentIssueReport {
-  id                 Int    @id @default(autoincrement())
-  studentName        String
-  studentGroup       String
-  itemType           String
-  itemTitle          String
-  description        String
-  date               String
-  status             String @default("قيد المراجعة")
+  id               Int      @id @default(autoincrement())
+  studentName      String
+  studentGroup     String
+  itemType         String
+  itemTitle        String
+  description      String
+  date             String
+  status           String   @default("قيد المراجعة")
   representativeNote String @default("")
 
   createdAt DateTime @default(now())
@@ -462,22 +415,22 @@ model StudentIssueReport {
 // 14. استطلاعات الرأي
 // =====================================================
 model ClassPoll {
-  id              Int     @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   creatorName     String
   question        String
   optionA         String
-  votesA          Int     @default(0)
+  votesA          Int      @default(0)
   optionB         String
-  votesB          Int     @default(0)
-  optionC         String  @default("")
-  votesC          Int     @default(0)
-  userVotedOption String? // null = not voted
-  targetGroup     String  @default("الكل")
-  isClosed        Boolean @default(false)
-  createdAt       String  @default("اليوم")
+  votesB          Int      @default(0)
+  optionC         String   @default("")
+  votesC          Int      @default(0)
+  userVotedOption String?  // null = not voted
+  targetGroup     String   @default("الكل")
+  isClosed        Boolean  @default(false)
+  createdAt       String   @default("اليوم")
 
   createdDateTime DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 }
 
 // =====================================================
@@ -485,34 +438,30 @@ model ClassPoll {
 // fix A.1: introduce supervisoryScopeEnforced flag
 // =====================================================
 model AppUser {
-  id                  Int                     @id @default(autoincrement())
-  supabaseUserId      String?                 @unique // link to Supabase auth
-  fullName            String
-  email               String                  @unique
-  studentId           String
-  passwordHash        String                  @default("") // empty = no password (fix B.1)
-  specialtyName       String
-  yearName            String
-  groupNumber         String
-  role                String                  @default("STUDENT") // STUDENT | REPRESENTATIVE | SPECIALTY_ADMIN | OWNER
+  id                    Int      @id @default(autoincrement())
+  supabaseUserId        String?  @unique // link to Supabase auth
+  fullName              String
+  email                 String   @unique
+  studentId             String
+  passwordHash          String   @default("") // empty = no password (fix B.1)
+  specialtyName         String
+  yearName              String
+  groupNumber           String
+  role                  String   @default("STUDENT") // STUDENT | REPRESENTATIVE | SPECIALTY_ADMIN | OWNER
   // Supervisory scope — if role is REPRESENTATIVE/SPECIALTY_ADMIN, MUST be non-empty
-  representativeScope String                  @default("فوج واحد") // فوج واحد | سنة كاملة | تخصص كامل
-  assignedSpecialtyId Int                     @default(1)
-  scopeInstitutionId  Int?
-  scopeSpecialtyId    Int?
-  scopeAcademicYearId Int?
-  scopeCohortGroupId  Int?
-  scopeTrackId        Int? // track-level scope (PEP/PEM/PES)
-  scopeGroupId        Int? // study-group-level scope
-  specialty           Specialty?              @relation(fields: [assignedSpecialtyId], references: [id])
-  cohortGroup         CohortGroup?            @relation(fields: [scopeCohortGroupId], references: [id])
-  track               AcademicTrack?          @relation(fields: [scopeTrackId], references: [id], onDelete: SetNull)
-  scopeGroup          StudyGroup?             @relation(fields: [scopeGroupId], references: [id], onDelete: SetNull)
-  deviceSessions      DeviceSession[]
-  contentUploads      ContentUploadLog[]
-  notificationReads   NotificationReadState[]
-  aiConversations     AiConversation[]
-  joinRequestsMade    JoinRequest[]
+  representativeScope   String   @default("فوج واحد") // فوج واحد | سنة كاملة | تخصص كامل
+  assignedSpecialtyId   Int      @default(1)
+  scopeInstitutionId    Int?
+  scopeSpecialtyId      Int?
+  scopeAcademicYearId   Int?
+  scopeCohortGroupId    Int?
+  scopeTrackId          Int?     // NEW: track-level scope (PEP/PEM/PES)
+  specialty             Specialty? @relation(fields: [assignedSpecialtyId], references: [id])
+  cohortGroup           CohortGroup? @relation(fields: [scopeCohortGroupId], references: [id])
+  track                 AcademicTrack? @relation(fields: [scopeTrackId], references: [id], onDelete: SetNull)
+  deviceSessions        DeviceSession[]
+  contentUploads        ContentUploadLog[]
+  notificationReads    NotificationReadState[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -522,13 +471,13 @@ model AppUser {
 // 16. جلسات الأجهزة (Device Sessions) - fix B.1: "remember device"
 // =====================================================
 model DeviceSession {
-  id          Int      @id @default(autoincrement())
-  userId      Int
-  deviceToken String   @unique // random secure token
-  userAgent   String   @default("")
-  createdAt   DateTime @default(now())
-  expiresAt   DateTime
-  user        AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  deviceToken  String   @unique // random secure token
+  userAgent    String   @default("")
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+  user         AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -538,16 +487,16 @@ model DeviceSession {
 // Tracks where content was saved + cloud upload status
 // =====================================================
 model ContentUploadLog {
-  id           Int     @id @default(autoincrement())
-  contentType  String // "lecture" | "exam" | "announcement" | "assignment"
-  targetTable  String // "lectures" | "exams" | "announcements" | "assignments"
-  title        String
-  uploadedById Int
-  cloudStatus  String  @default("pending") // "pending" | "uploaded" | "failed"
-  cloudUrl     String  @default("")
-  errorMessage String  @default("")
-  payload      String  @default("{}") // JSON snapshot of saved data
-  uploadedBy   AppUser @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  id             Int      @id @default(autoincrement())
+  contentType    String   // "lecture" | "exam" | "announcement" | "assignment"
+  targetTable    String   // "lectures" | "exams" | "announcements" | "assignments"
+  title          String
+  uploadedById   Int
+  cloudStatus    String   @default("pending") // "pending" | "uploaded" | "failed"
+  cloudUrl       String   @default("")
+  errorMessage   String   @default("")
+  payload        String   @default("{}") // JSON snapshot of saved data
+  uploadedBy     AppUser  @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 }
@@ -556,39 +505,11 @@ model ContentUploadLog {
 // 18. عداد الإشعارات (NotificationReadState) - fix B.8
 // =====================================================
 model NotificationReadState {
-  id             Int      @id @default(autoincrement())
-  userId         Int
-  announcementId Int
-  readAt         DateTime @default(now())
-  user           AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  announcementId  Int
+  readAt          DateTime @default(now())
+  user            AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, announcementId])
-}
-
-// =====================================================
-// 19. AI Conversations — GLM 5.3 assistant (Task 1)
-// =====================================================
-model AiConversation {
-  id        Int         @id @default(autoincrement())
-  userId    Int
-  title     String      @default("محادثة جديدة")
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  user      AppUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages  AiMessage[]
-
-  @@index([userId])
-}
-
-model AiMessage {
-  id             Int            @id @default(autoincrement())
-  conversationId Int
-  role           String // 'user' | 'assistant' | 'system'
-  content        String
-  imageUrl       String?
-  hasWebSearch   Boolean        @default(false)
-  createdAt      DateTime       @default(now())
-  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@index([conversationId])
 }
