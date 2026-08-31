@@ -33,16 +33,16 @@ export async function POST(
       await supabase.from("app_users").update({ scope_cohort_group_id: request.cohort_id }).eq("id", request.requester_id);
       return NextResponse.json({ ok: true, message: "تم قبول الطلب وإلحاق الطالب بالفوج" });
     }
-    const request = await (db as never).joinRequest.findUnique({ where: { id: parseInt(id) } as never });
+    const request = await db.joinRequest.findUnique({ where: { id: parseInt(id) } as never });
     if (!request) return NextResponse.json({ error: "الطلب غير موجود" }, { status: 404 });
     if (request.status !== "pending") return NextResponse.json({ error: "تمت معالجة الطلب" }, { status: 400 });
-    await (db as never).joinRequest.update({
+    await db.joinRequest.update({
       where: { id: parseInt(id) } as never,
       data: { status: "approved", reviewerId: user.id, reviewerNote, reviewedAt: new Date() } as never,
     });
-    await (db as never).appUser.update({
-      where: { id: request.requesterId } as never,
-      data: { scopeCohortGroupId: request.cohortId } as never,
+    await db.appUser.update({
+      where: { id: request.requesterId },
+      data: { scopeCohortGroupId: request.cohortId },
     });
     return NextResponse.json({ ok: true, message: "تم قبول الطلب" });
   } catch (e) {

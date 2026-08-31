@@ -27,13 +27,13 @@ export async function GET() {
       });
       return NextResponse.json({ requests });
     }
-    const items = await (db as never).joinRequest.findMany({
-      where: { requesterId: user.id } as never,
-      include: { cohort: { select: { groupName: true } } } as never,
-      orderBy: { createdAt: "desc" } as never,
+    const items = await db.joinRequest.findMany({
+      where: { requesterId: user.id },
+      include: { cohort: { select: { groupName: true } } },
+      orderBy: { createdAt: "desc" },
     });
     return NextResponse.json({
-      requests: items.map((r: never) => ({
+      requests: items.map((r) => ({
         id: r.id, cohortId: r.cohortId, status: r.status, cohortName: r.cohort?.groupName ?? "",
       })),
     });

@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ group: data });
     }
-    const group = await (db as never).studyGroup.create({
+    const group = await db.studyGroup.create({
       data: {
         specialtyId, academicYearId, trackId: trackId ?? null,
         groupName: groupName.trim(), description: description?.trim() ?? "",
@@ -76,7 +76,7 @@ export async function DELETE(req: NextRequest) {
       const { error } = await supabase.from("study_groups").delete().eq("id", parseInt(id));
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     } else {
-      await (db as never).studyGroup.delete({ where: { id: parseInt(id) } } as never);
+      await db.studyGroup.delete({ where: { id: parseInt(id) } } as never);
     }
     return NextResponse.json({ ok: true, message: "تم حذف المجموعة" });
   } catch (e) {

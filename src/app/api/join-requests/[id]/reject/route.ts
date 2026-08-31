@@ -31,10 +31,10 @@ export async function POST(
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true, message: "تم رفض الطلب. يعود الطالب لحالة 'بلا فوج'." });
     }
-    const request = await (db as never).joinRequest.findUnique({ where: { id: parseInt(id) } as never });
+    const request = await db.joinRequest.findUnique({ where: { id: parseInt(id) } as never });
     if (!request) return NextResponse.json({ error: "الطلب غير موجود" }, { status: 404 });
     if (request.status !== "pending") return NextResponse.json({ error: "تمت المعالجة" }, { status: 400 });
-    await (db as never).joinRequest.update({
+    await db.joinRequest.update({
       where: { id: parseInt(id) } as never,
       data: { status: "rejected", reviewerId: user.id, reviewerNote, reviewedAt: new Date() } as never,
     });

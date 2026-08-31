@@ -47,11 +47,11 @@ export async function POST(req: NextRequest) {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ request: data });
     }
-    const existing = await (db as never).joinRequest.findFirst({
+    const existing = await db.joinRequest.findFirst({
       where: { requesterId: user.id, cohortId, status: "pending" } as never,
     });
     if (existing) return NextResponse.json({ error: "لديك طلب معلّق" }, { status: 409 });
-    const request = await (db as never).joinRequest.create({
+    const request = await db.joinRequest.create({
       data: { requesterId: user.id, cohortId, groupId: groupId ?? null, status: "pending", message: message?.trim() ?? "" } as never,
     });
     return NextResponse.json({ request });
