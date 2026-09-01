@@ -1,5 +1,11 @@
-@import "tailwindcss";
+/* Tailwind v4: restrict source scanning to src/.
+   Automatic detection was scanning the whole repo (skills/, upload/, report
+   md files — 1400+ tracked files) and emitting junk utilities like
+   .text-\[10px\] from an unrelated Python file. Scoping to src/ keeps the
+   compiled CSS limited to classes the app actually uses. */
+@import "tailwindcss" source(none);
 @import "tw-animate-css";
+@source "../";
 
 @custom-variant dark (&:is(.dark *));
 
