@@ -10,8 +10,8 @@
  * Design constraints:
  *  - Uses the REST API (no SDK dependency), env-driven:
  *      GEMINI_API_KEY  (required to enable AI classification)
- *      GEMINI_MODEL    (optional — إن لم يُضبط نجرب سلسلة:
- *                       gemini-3.6-flash → 3.7-flash → flash-latest → 2.5-flash)
+ *      GEMINI_MODEL    (optional — إن لم يُضبط نجرب سلسلة تبدأ بالنماذج
+ *                       المُثبتة عملياً: 3.5-flash ← 3.1-flash-lite ← ...)
  *  - Falls back to local Arabic keyword heuristics when the key is
  *    missing or the call fails — the pipeline NEVER breaks.
  *  - Images are downloaded transiently for vision, passed inline to
@@ -40,26 +40,38 @@ export interface ClassifyResult {
 }
 
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_TIMEOUT_MS = 35_000; // نماذج 3.x قد تتأخر تحت الضغط — رأينا 3.6-flash يستغرق أكثر من 15 ثانية
+/** مهلة النموذج الأول (قد يحمل صورة كبيرة لقراءة نصّها — OCR) */
+const PRIMARY_MODEL_TIMEOUT_MS = 25_000;
+/** مهلة بدائل السلسلة — أقصر حتى لا يتجاوز الإجمالي نافذة الويبهوك */
+const FALLBACK_MODEL_TIMEOUT_MS = 10_000;
 /** أقصى حجم صورة نُرسله للتصنيف (الألبومات المضغوطة أصغر بكثير من هذا) */
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 /**
- * سلسلة النماذج الافتراضية — تُجرَّب بالترتيب حتى ينجح أحدها.
- * الدافع: غوغل يحصر نماذج 2.5 وأقدم في «المستخدمين القدامى» فقط (خطأ
- * 404 فعلي للمفاتيح الجديدة) ويوصي بـ gemini-3.6-flash — لذا تتقدمها
- * السلسلة، ويُترك 2.5-flash آخراً للمفاتيح القديمة.
+ * سلسلة النماذج الافتراضية — مبنية على قياس فعلي (مسبار probe-models):
+ * غوغل يحصر 2.5 وأقدم في المفاتيح القديمة (404) ويوصي بـ 3.6-flash، لكن
+ * 3.6/3.7/latest تحت ضغط شديد حالياً (تعليق/503)، بينما 3.5-flash
+ * و 3.1-flash-lite استجابا 200 بسرعة — لذا تتقدمان السلسلة، والأحدث
+ * تُترك لتتحسن، و 2.5-flash أخيراً للمفاتيح القديمة.
  */
-const DEFAULT_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+const DEFAULT_MODEL_CHAIN = [
+  "gemini-3.5-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-3.6-flash",
+  "gemini-3.7-flash",
+  "gemini-flash-latest",
+  "gemini-2.5-flash",
+];
 
 /** أقصى زمن إجمالي لتجربة السلسلة — هامش أمان تحت maxDuration=60 للويبهوك */
-const CHAIN_DEADLINE_MS = 50_000;
+const CHAIN_DEADLINE_MS = 45_000;
 
 /**
- * نماذج «التفكير» الموثقة مع thinkingBudget: 0 — عائلة 2.5 والاسم المستعار
- * latest. عائلة 3.x لا نرسل لها الحقل (قد يُرفض)، ونعوّضه بهامش رموز أوسع.
+ * عائلة 2.5 فقط: نوقف «التفكير» بـ thinkingBudget: 0 (موثقة لها) — وإلا
+ * استهلكت رموز التفكير الحد وعادت استجابة فارغة. عائلات 3.x لا نرسل لها
+ * الحقل (قد يُرفض 400) ونعوّضه بهامش رموز أوسع (8192).
  */
-const THINKING_MODEL_RE = /(^gemini-2\.5)|(^gemini-flash-latest)/;
+const THINKING_MODEL_RE = /^gemini-2\.5/;
 
 function generationConfigFor(model: string): Record<string, unknown> {
   const cfg: Record<string, unknown> = {
@@ -166,11 +178,14 @@ export async function classifyWithGemini(input: ClassifyInput): Promise<Classify
   const contents = [{ role: "user", parts }];
   const deadline = Date.now() + CHAIN_DEADLINE_MS;
 
+  let attempt = 0;
   for (const model of modelCandidates()) {
     if (Date.now() > deadline) break; // لا نتجاوز نافذة الويبهوك
+    const timeoutMs = attempt === 0 ? PRIMARY_MODEL_TIMEOUT_MS : FALLBACK_MODEL_TIMEOUT_MS;
     const requestBody = JSON.stringify({ contents, generationConfig: generationConfigFor(model) });
-    const result = await callGeminiModel(model, apiKey, requestBody, input);
+    const result = await callGeminiModel(model, apiKey, requestBody, input, timeoutMs);
     if (result) return result;
+    attempt++;
   }
   return null;
 }
@@ -179,10 +194,11 @@ async function callGeminiModel(
   model: string,
   apiKey: string,
   requestBody: string,
-  input: ClassifyInput
+  input: ClassifyInput,
+  timeoutMs: number
 ): Promise<ClassifyResult | null> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(
       `${GEMINI_ENDPOINT}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,

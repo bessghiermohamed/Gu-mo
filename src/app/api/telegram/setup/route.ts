@@ -170,7 +170,7 @@ async function testGemini() {
   if (cls.aiClassified) {
     message = `Gemini يعمل ✅ — صنّف العيّنة كـ «${cls.itemType}» عبر ${geminiModel()} في ${Math.round(elapsedMs / 1000)} ثانية. التصنيف الذكي وقراءة نص الصور مفعّلان للمنشورات الجديدة.`;
   } else if (configured && elapsedMs >= 25_000) {
-    message = `المفتاح مضبوط والنموذج ${geminiModel()} مقبول، لكن خوادم غوغل بطيئة حالياً (انتظرنا ${Math.round(elapsedMs / 1000)} ثانية دون رد — ضغط مؤقت غالباً). استُعمل التصنيف المحلي للعيّنة، والذكاء الاصطناعي سيحاول تلقائياً مع المنشورات القادمة. أعد الفحص بعد قليل، وإن استمر الأمر اضبط GEMINI_MODEL=gemini-3.7-flash.`;
+    message = `المفتاح مضبوط والنموذج ${geminiModel()} مقبول، لكن خوادم غوغل بطيئة حالياً (انتظرنا ${Math.round(elapsedMs / 1000)} ثانية دون رد — ضغط مؤقت غالباً). استُعمل التصنيف المحلي للعيّنة، والذكاء الاصطناعي سيحاول تلقائياً مع المنشورات القادمة. أعد الفحص بعد قليل — أو استعمل فحص النماذج لترى أيها يستجيب الآن.`;
   } else if (configured) {
     const first = probe && probe.length > 0 ? probe[0] : null;
     const probeInfo = first
