@@ -17,7 +17,7 @@ import { motion } from "framer-motion";
 import {
   Send, Search, Loader2, FileText, ImageIcon, Video, Headphones, File,
   MessageSquare, Link as LinkIcon, Star, Plus, Trash2, Users, ExternalLink,
-  FolderOpen, Sparkles, Info, UserPlus,
+  FolderOpen, Sparkles, Info, UserPlus, Settings,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/components/talib/auth-provider";
+import { useShell } from "@/app/page";
 import { canManageRoles } from "@/lib/auth/permissions";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -137,10 +138,12 @@ function groupAlbums(items: TgItem[]): Array<{ key: string; item: TgItem; images
 // =====================================================
 export function TalibTelegramScreen() {
   const { user } = useAuth();
+  const { navigate } = useShell();
   const [tab, setTab] = React.useState<string>("library");
   const [loading, setLoading] = React.useState(true);
   const [items, setItems] = React.useState<TgItem[]>([]);
   const [setup, setSetup] = React.useState<{ bot: boolean; activeSources: number } | null>(null);
+  const [tablesReady, setTablesReady] = React.useState(true);
   const [myCohortId, setMyCohortId] = React.useState<number | null>(null);
 
   // filters
@@ -175,6 +178,7 @@ export function TalibTelegramScreen() {
       setItems(data.items ?? []);
       setMyCohortId(data.myCohortId ?? null);
       setSetup(data.setup ?? null);
+      if (data.tablesReady === false) setTablesReady(false);
     } catch {
       setItems([]);
     } finally {
@@ -186,15 +190,42 @@ export function TalibTelegramScreen() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-black mb-1 flex items-center gap-2">
-          <Send className="w-6 h-6 text-primary" />
-          دروس تيليجرام
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          محاضرات وواجبات وتمارين قنوات تيليجرام — منظمة حسب المقياس، والوصول للأصل برابط مباشر
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-black mb-1 flex items-center gap-2">
+            <Send className="w-6 h-6 text-primary" />
+            دروس تيليجرام
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            محاضرات وواجبات وتمارين قنوات تيليجرام — منظمة حسب المقياس، والوصول للأصل برابط مباشر
+          </p>
+        </div>
+        {canManageRoles(user ?? null) && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => {
+              try { sessionStorage.setItem("talib-admin-tab", "telegram"); } catch { /* غير حرج */ }
+              navigate("ADMIN");
+            }}
+            aria-label="إعدادات تيليجرام"
+            title="ربط القنوات وتفعيل الاستيراد — من لوحة الإشراف"
+          >
+            <Settings className="w-4 h-4" />
+            إعدادات
+          </Button>
+        )}
       </div>
+
+      {/* الجداول غير منشأة — أقرب عطل للمشرفين مع الحل */}
+      {!tablesReady && canManageRoles(user ?? null) && (
+        <Card className="p-3 border-amber-500/40 bg-amber-500/10">
+          <p className="text-xs text-amber-700 leading-relaxed">
+            جداول تيليجرام غير منشأة في قاعدة البيانات — نفّذ ملف <span dir="ltr" className="font-mono">supabase_telegram.sql</span> في محرر SQL داخل Supabase، ثم أعد تحميل الصفحة. المحتوى سيظهر بعدها تلقائياً.
+          </p>
+        </Card>
+      )}
 
       <Tabs value={tab} onValueChange={(v) => { setTab(v); setTypeFilter(""); }}>
         <TabsList className="grid w-full grid-cols-2">
@@ -281,6 +312,7 @@ function LibraryList({ items, loading, setup, canManage, onRefresh }: {
   canManage: boolean;
   onRefresh: () => void;
 }) {
+  const { navigate } = useShell();
   const groups = React.useMemo(() => groupAlbums(items), [items]);
 
   if (loading) {
@@ -306,9 +338,21 @@ function LibraryList({ items, loading, setup, canManage, onRefresh }: {
             : "جرّب تغيير كلمة البحث أو النوع — تُستورد المنشورات الجديدة لحظة نشرها في القنوات."}
         </p>
         {canManage && noSources && (
-          <p className="text-[11px] text-primary mt-2 font-medium">
-            الربط يتم من لوحة التحكم ← تبويب «تيليجرام»
-          </p>
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => {
+                try { sessionStorage.setItem("talib-admin-tab", "telegram"); } catch { /* غير حرج */ }
+                navigate("ADMIN");
+              }}
+            >
+              <Send className="w-4 h-4 ml-1" />
+              الانتقال إلى إعدادات تيليجرام
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              من لوحة الإشراف ← تبويب «تيليجرام»: ربط القنوات، تفعيل الاستيراد، واختبار الخط كاملاً
+            </p>
+          </div>
         )}
       </Card>
     );

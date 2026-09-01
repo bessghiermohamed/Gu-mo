@@ -23,7 +23,8 @@ import { canUploadContent } from "@/lib/auth/permissions";
 import { TG_ITEM_TYPES } from "@/lib/telegram/types";
 import { buildSearchText } from "@/lib/telegram/normalize";
 import { kindFromDocument } from "@/lib/telegram/ingest";
-import { isBotConfigured } from "@/lib/telegram/ingest";
+import { isBotConfigured, downloadFileBase64 } from "@/lib/telegram/ingest";
+import { classifyItem, isGeminiConfigured } from "@/lib/telegram/classify";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -430,6 +431,58 @@ export async function PATCH(req: NextRequest) {
     if (!item) return NextResponse.json({ error: "المنشور غير موجود" }, { status: 404 });
     if (!(await canCurateItem(user, item))) {
       return NextResponse.json({ error: "هذا المنشور خارج نطاقك" }, { status: 403 });
+    }
+
+    // ---------- إعادة تصنيف (Gemini عند إضافة المفتاح لاحقاً) ----------
+    if (body.action === "reclassify") {
+      if (!isGeminiConfigured()) {
+        return NextResponse.json(
+          { error: "GEMINI_API_KEY غير مضبوط — أضفه في Vercel ثم أعد المحاولة. التصنيف المحلي متاح دائماً من تعديل المنشور." },
+          { status: 400 }
+        );
+      }
+      // صور: نُنزّلها مؤقتاً للتحليل البصري (لا تُخزَّن)
+      let imageBase64: string | undefined;
+      let imageMime: string | undefined;
+      if (item.kind === "image" && item.fileId && isBotConfigured()) {
+        const dl = await downloadFileBase64(item.fileId);
+        if (dl) { imageBase64 = dl.base64; imageMime = dl.mime; }
+      }
+      const cls = await classifyItem({
+        kind: item.kind,
+        caption: item.captionText,
+        fileName: item.fileName,
+        ...(imageBase64 ? { imageBase64, imageMimeType: imageMime } : {}),
+      });
+      if (!cls.aiClassified) {
+        return NextResponse.json(
+          { error: "تعذّر التصنيف عبر Gemini (مهلة/مفتاح). جرّب لاحقاً — أو عدّل النوع يدوياً من تعديل المنشور." },
+          { status: 502 }
+        );
+      }
+      const newTitle = cls.title.trim() || item.titleAr;
+      const newSearch = buildSearchText(newTitle, cls.extractedText || item.captionText, item.fileName);
+      if (isVercel) {
+        const supabase = await createSupabaseServerClient();
+        const { error } = await supabase
+          .from("telegram_items")
+          .update({ title_ar: newTitle, item_type: cls.itemType, search_text: newSearch, ai_classified: true })
+          .eq("id", id);
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      } else {
+        await db.telegramItem.update({
+          where: { id },
+          data: { titleAr: newTitle, itemType: cls.itemType, searchText: newSearch, aiClassified: true },
+        });
+      }
+      return NextResponse.json({
+        ok: true,
+        reclassified: true,
+        aiClassified: true,
+        itemType: cls.itemType,
+        title: newTitle,
+        message: `أُعيد التصنيف عبر Gemini: النوع «${cls.itemType}»${cls.extractedText ? " — واستُخرج نص الصورة للبحث" : ""}`,
+      });
     }
 
     const patch: Record<string, unknown> = {};

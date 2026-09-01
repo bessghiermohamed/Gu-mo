@@ -65,6 +65,13 @@ export async function resolveChat(chatIdOrUsername: string): Promise<{ chat?: Tg
   return { chat: r.result };
 }
 
+/** معلومات البوت نفسه (getMe) — يتحقق أن التوكن مقبول ويظهر @اسم البوت */
+export async function getBotInfo(): Promise<{ username: string; firstName: string } | null> {
+  const r = await botApi<{ username?: string; first_name?: string }>("getMe", {});
+  if (!r.ok) return null;
+  return { username: r.result.username ?? "", firstName: r.result.first_name ?? "" };
+}
+
 /** معلومات الويبهوك الحالية (للعرض في لوحة الإدارة) */
 export async function getWebhookInfo(): Promise<{ url: string; pendingUpdateCount: number; lastErrorMessage: string } | null> {
   const r = await botApi<{ url?: string; pending_update_count?: number; last_error_message?: string }>("getWebhookInfo", {});
@@ -90,8 +97,9 @@ export async function setWebhook(origin: string): Promise<{ ok: boolean; message
   return { ok: true, message: "تم تفعيل الربط — سيتم استيراد المنشورات الجديدة تلقائياً" };
 }
 
-/** تنزيل مؤقت لملف (لتحليل الصور فقط — لا يُخزَّن) */
-async function downloadFileBase64(fileId: string): Promise<{ base64: string; mime: string } | null> {
+/** تنزيل مؤقت لملف (لتحليل الصور فقط — لا يُخزَّن). عام: يستعمله
+ *  الاستيراد وكذلك «إعادة التصنيف» الإدارية لاحقاً. */
+export async function downloadFileBase64(fileId: string): Promise<{ base64: string; mime: string } | null> {
   const token = BOT_TOKEN();
   if (!token) return null;
   const info = await botApi<{ file_path?: string }>("getFile", { file_id: fileId });
@@ -192,7 +200,7 @@ export function parseChannelHandle(input: string): { username?: string; chatId?:
 // Main ingest
 // =============================================================
 
-interface SourceLite {
+export interface SourceLite {
   id: number;
   tgChannelId: string;
   tgUsername: string;
@@ -205,6 +213,95 @@ interface SourceLite {
   cohortId: number | null;
   isActive: boolean;
   lastUpdateId: number;
+}
+
+export interface TelegramItemProbe {
+  id: number;
+  titleAr: string;
+  itemType: string;
+  kind: string;
+  aiClassified: boolean;
+  captionText: string;
+  link: string;
+  origin: string;
+}
+
+/** يقرأ عنصراً مستورداً (لعرض نتيجة فحص الاستيراد) */
+export async function findTelegramItem(sourceId: number, tgMessageId: number): Promise<TelegramItemProbe | null> {
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data } = await supabase
+        .from("telegram_items")
+        .select("id, title_ar, item_type, kind, ai_classified, caption_text, link, origin")
+        .eq("source_id", sourceId)
+        .eq("tg_message_id", tgMessageId)
+        .maybeSingle();
+      if (!data) return null;
+      return {
+        id: Number(data.id), titleAr: String(data.title_ar ?? ""), itemType: String(data.item_type ?? ""),
+        kind: String(data.kind ?? ""), aiClassified: !!data.ai_classified,
+        captionText: String(data.caption_text ?? ""), link: String(data.link ?? ""), origin: String(data.origin ?? "telegram"),
+      };
+    }
+    const it = await db.telegramItem.findUnique({
+      where: { sourceId_tgMessageId: { sourceId, tgMessageId } },
+    });
+    if (!it) return null;
+    return {
+      id: it.id, titleAr: it.titleAr, itemType: it.itemType, kind: it.kind, aiClassified: it.aiClassified,
+      captionText: it.captionText, link: it.link, origin: it.origin,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** يحذف عنصراً مستورداً — يستعمله «فحص الاستيراد» لتنظيف منشوره التجريبي */
+export async function deleteTelegramItemById(id: number): Promise<boolean> {
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { error } = await supabase.from("telegram_items").delete().eq("id", id);
+      return !error;
+    }
+    await db.telegramItem.delete({ where: { id } });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** يقرأ مصدراً بمعرّفه الداخلي (للفحص والاختبار) */
+export async function loadSourceById(id: number): Promise<SourceLite | null> {
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data } = await supabase
+        .from("telegram_sources")
+        .select("id, tg_channel_id, tg_username, title_ar, source_type, specialty_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (!data) return null;
+      return {
+        id: Number(data.id), tgChannelId: String(data.tg_channel_id), tgUsername: String(data.tg_username ?? ""),
+        titleAr: String(data.title_ar ?? ""), sourceType: String(data.source_type ?? "channel"),
+        specialtyId: Number(data.specialty_id ?? 1), yearId: data.year_id == null ? null : Number(data.year_id),
+        semester: data.semester == null ? null : Number(data.semester), moduleId: data.module_id == null ? null : Number(data.module_id),
+        cohortId: data.cohort_id == null ? null : Number(data.cohort_id),
+        isActive: !!data.is_active, lastUpdateId: Number(data.last_update_id ?? 0),
+      };
+    }
+    const s = await db.telegramSource.findUnique({ where: { id } });
+    if (!s) return null;
+    return {
+      id: s.id, tgChannelId: s.tgChannelId, tgUsername: s.tgUsername, titleAr: s.titleAr,
+      sourceType: s.sourceType, specialtyId: s.specialtyId, yearId: s.yearId, semester: s.semester,
+      moduleId: s.moduleId, cohortId: s.cohortId, isActive: s.isActive, lastUpdateId: s.lastUpdateId,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function loadSourceByChatId(chatId: string): Promise<SourceLite | null> {

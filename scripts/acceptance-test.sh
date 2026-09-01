@@ -290,6 +290,66 @@ R=$(curl -s -b /tmp/owner.jar -X DELETE "$BASE/api/announcements?id=$ANN_B_ID")
 contains "owner deletes the spec A announcement" 'تم حذف الإعلان' "$R"
 
 echo ""
+echo "=== 12. Telegram module (round 7/8) — setup diagnostics + ingest + curation ==="
+# NOTE: run this suite with TELEGRAM_WEBHOOK_SECRET=acc-test-secret in the env
+TG_SECRET="${TELEGRAM_WEBHOOK_SECRET:-acc-test-secret}"
+# setup GET shows full diagnostics (owner)
+R=$(curl -s -b /tmp/owner.jar $BASE/api/telegram/setup)
+contains "setup GET: bot diagnostics fields" 'botConfigured' "$R"
+contains "setup GET: tables status" 'tablesReady' "$R"
+contains "setup GET: secret status" 'webhookSecretConfigured' "$R"
+# setup POST actions are role-guarded: students rejected
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud1.jar -X POST $BASE/api/telegram/setup -H "Content-Type: application/json" -d '{"action":"test-gemini"}')
+check "student cannot run setup actions (403)" "403" "$CODE"
+# gemini test action answers even without a key (graceful, never breaks)
+R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/telegram/setup -H "Content-Type: application/json" -d '{"action":"test-gemini"}')
+contains "gemini test action responds with guidance" 'message' "$R"
+# link a channel by raw numeric id (no bot token in CI — numeric path)
+R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/telegram/sources -H "Content-Type: application/json" -d "{\"handle\":\"-1009876543210\",\"title\":\"قناة الفحص الآلي\",\"sourceType\":\"channel\",\"yearId\":$YEAR1_A,\"semester\":1}")
+contains "source linked via numeric id" 'قناة الفحص الآلي' "$R"
+SRC_ID=$(curl -s -b /tmp/owner.jar $BASE/api/telegram/sources | python3 -c "import sys,json; print([s['id'] for s in json.load(sys.stdin)['sources'] if 'الفحص الآلي' in s['titleAr']][0])")
+# simulate action: full pipeline test with auto-cleanup
+R=$(curl -s -b /tmp/owner.jar -X POST $BASE/api/telegram/setup -H "Content-Type: application/json" -d "{\"action\":\"simulate\",\"sourceId\":$SRC_ID,\"text\":\"امتحان أدب عربي — الدورة العادية\"}")
+contains "simulate: full ingest pipeline works" 'نجح الاستيراد التجريبي' "$R"
+contains "simulate: heuristic classification assigns type" 'امتحان' "$R"
+# webhook rejects missing/wrong secret
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST $BASE/api/telegram/webhook -H "Content-Type: application/json" -d '{"update_id":1}')
+check "webhook without secret rejected (401)" "401" "$CODE"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST $BASE/api/telegram/webhook -H "Content-Type: application/json" -H "X-Telegram-Bot-Api-Secret-Token: nope" -d '{"update_id":1}')
+check "webhook with wrong secret rejected (401)" "401" "$CODE"
+# webhook ingests a real post for the linked channel (idempotent)
+R=$(curl -s -X POST $BASE/api/telegram/webhook -H "Content-Type: application/json" -H "X-Telegram-Bot-Api-Secret-Token: $TG_SECRET" -d '{"update_id":771001,"channel_post":{"message_id":888,"from":{"id":42,"is_bot":false,"first_name":"أستاذ"},"chat":{"id":-1009876543210,"type":"channel","title":"قناة الفحص الآلي"},"date":1756700000,"text":"سلسلة تمارين محلولة في النحو"}}')
+contains "webhook ingests new post" '"inserted"' "$R"
+R=$(curl -s -X POST $BASE/api/telegram/webhook -H "Content-Type: application/json" -H "X-Telegram-Bot-Api-Secret-Token: $TG_SECRET" -d '{"update_id":771001,"channel_post":{"message_id":888,"from":{"id":42,"is_bot":false,"first_name":"أستاذ"},"chat":{"id":-1009876543210,"type":"channel","title":"قناة الفحص الآلي"},"date":1756700000,"text":"سلسلة تمارين محلولة في النحو"}}')
+contains "webhook redelivery is idempotent" '"updated"' "$R"
+# bot posts are ignored (loop protection)
+R=$(curl -s -X POST $BASE/api/telegram/webhook -H "Content-Type: application/json" -H "X-Telegram-Bot-Api-Secret-Token: $TG_SECRET" -d '{"update_id":771002,"channel_post":{"message_id":889,"from":{"id":99,"is_bot":true,"first_name":"Bot"},"chat":{"id":-1009876543210,"type":"channel"},"date":1756700000,"text":"منشور بوت"}}')
+contains "bot-authored posts ignored" '"ignored"' "$R"
+# unknown chats ignored
+R=$(curl -s -X POST $BASE/api/telegram/webhook -H "Content-Type: application/json" -H "X-Telegram-Bot-Api-Secret-Token: $TG_SECRET" -d '{"update_id":771003,"channel_post":{"message_id":890,"from":{"id":43,"is_bot":false,"first_name":"X"},"chat":{"id":-1001111111111,"type":"channel"},"date":1756700000,"text":"قناة غير مربوطة"}}')
+contains "unlinked channel posts ignored" '"ignored"' "$R"
+# student library shows the ingested item, scoped to own specialty
+R=$(curl -s -b /tmp/stud1.jar "$BASE/api/telegram/items?mode=library")
+contains "student sees ingested item in library" 'سلسلة تمارين محلولة في النحو' "$R"
+# students cannot curate (PATCH rejected)
+TG_ITEM_ID=$(curl -s -b /tmp/owner.jar "$BASE/api/telegram/items?mode=admin" | python3 -c "import sys,json; print([i['id'] for i in json.load(sys.stdin)['items'] if 'النحو' in i['titleAr']][0])")
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/stud1.jar -X PATCH $BASE/api/telegram/items -H "Content-Type: application/json" -d "{\"id\":$TG_ITEM_ID,\"itemType\":\"محاضرة\"}")
+check "student cannot curate items (403)" "403" "$CODE"
+# owner curation: hide item -> disappears from library, stays in admin
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/telegram/items -H "Content-Type: application/json" -d "{\"id\":$TG_ITEM_ID,\"isHidden\":true}")
+contains "owner hides item (curation, no delete)" 'تم تحديث المنشور' "$R"
+R=$(curl -s -b /tmp/stud1.jar "$BASE/api/telegram/items?mode=library")
+not_contains "hidden item invisible to students" 'سلسلة تمارين محلولة في النحو' "$R"
+R=$(curl -s -b /tmp/owner.jar "$BASE/api/telegram/items?mode=admin")
+contains "hidden item still visible to admin curation" 'سلسلة تمارين' "$R"
+# reclassify without a key fails gracefully with guidance
+R=$(curl -s -b /tmp/owner.jar -X PATCH $BASE/api/telegram/items -H "Content-Type: application/json" -d "{\"id\":$TG_ITEM_ID,\"action\":\"reclassify\"}")
+contains "reclassify without key gives guidance" 'GEMINI_API_KEY' "$R"
+# cleanup: unlink the test channel (cascade removes its items)
+R=$(curl -s -b /tmp/owner.jar -X DELETE "$BASE/api/telegram/sources?id=$SRC_ID")
+contains "unlink test channel (cascade cleanup)" 'تم فك الربط' "$R"
+
+echo ""
 echo "=========================================="
 echo "RESULTS: $PASS passed, $FAIL failed"
 echo "=========================================="

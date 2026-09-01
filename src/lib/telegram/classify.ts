@@ -43,7 +43,7 @@ const GEMINI_TIMEOUT_MS = 15000;
 /** أقصى حجم صورة نُرسله للتصنيف (الألبومات المضغوطة أصغر بكثير من هذا) */
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
-function geminiModel(): string {
+export function geminiModel(): string {
   return process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash";
 }
 

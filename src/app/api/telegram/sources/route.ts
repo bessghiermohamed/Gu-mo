@@ -194,7 +194,8 @@ export async function GET() {
       })),
     });
   } catch (e) {
-    return NextResponse.json({ sources: [], error: "جدول تيليجرام غير منشأ بعد — نفّذ supabase_telegram.sql" });
+    // الجداول غير منشأة غالباً — العلامة تُظهر التحذير في الواجهة
+    return NextResponse.json({ sources: [], tablesReady: false, error: "جدول تيليجرام غير منشأ بعد — نفّذ supabase_telegram.sql" });
   }
 }
 

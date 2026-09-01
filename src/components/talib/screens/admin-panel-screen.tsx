@@ -6,6 +6,7 @@ import {
   CheckCircle2, XCircle, Loader2, FolderTree, UserPlus, Clock,
   Check, X, Building2, GraduationCap, Shield, Trash2, Route, CalendarDays, Pencil,
   Flag, AlertTriangle, CheckCheck, RotateCcw, Send, Eye, EyeOff, Star, Link2, Sparkles, Power,
+  FlaskConical, RefreshCw, Zap, Database, ExternalLink,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -110,6 +111,17 @@ export function TalibAdminPanelScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
 
+  // فتح التبويب المطلوب مباشرة (مثلاً «تيليجرام» من شاشة دروس تيليجرام)
+  const [adminTab, setAdminTab] = React.useState<string>(() => {
+    try {
+      const wanted = sessionStorage.getItem("talib-admin-tab");
+      sessionStorage.removeItem("talib-admin-tab");
+      return wanted ?? "users";
+    } catch {
+      return "users";
+    }
+  });
+
   return (
     <div className="space-y-4">
       <div>
@@ -119,7 +131,7 @@ export function TalibAdminPanelScreen() {
         </p>
       </div>
 
-      <Tabs defaultValue="users">
+      <Tabs value={adminTab} onValueChange={setAdminTab}>
         {/* fix أ.5: tabs used to squeeze into 4 columns on mobile, pushing
             "الطلبات" (join requests) off-screen. Now they wrap into rows so
             every tab is always visible and reachable. */}
@@ -2124,16 +2136,49 @@ function TelegramManager() {
 }
 
 // -----------------------------------------------------
-// حالة الربط (البوت/الويبهوك/Gemini) + زر التفعيل
+// حالة الربط (البوت/السر/الويبهوك/Gemini/الجداول) + فحص ذاتي
 // -----------------------------------------------------
+interface TgStatus {
+  botConfigured: boolean;
+  botTokenValid: boolean;
+  botUsername: string;
+  botFirstName: string;
+  webhookSecretConfigured: boolean;
+  geminiConfigured: boolean;
+  geminiModel: string;
+  tablesReady: boolean;
+  isVercel: boolean;
+  webhook: { url: string; pendingUpdateCount: number; lastErrorMessage: string } | null;
+}
+
+interface GeminiTestResult {
+  configured: boolean;
+  aiClassified: boolean;
+  itemType: string;
+  model: string;
+  models: string[];
+  message: string;
+}
+
+/** يحسب «الخطوة التالية» المطلوبة بالضبط من حالة الربط الحالية */
+function tgNextStep(s: TgStatus | null): string {
+  if (!s) return "جارٍ قراءة الحالة…";
+  if (!s.botConfigured) return "١) أضف TELEGRAM_BOT_TOKEN في Vercel (Settings ← Environment Variables) ثم Redeploy";
+  if (!s.botTokenValid) return "التوكن موجود لكن تيليجرام يرفضه — انسخه كاملاً من @BotFather، حدّثه في Vercel ثم Redeploy";
+  if (!s.webhookSecretConfigured) return "٢) أضف TELEGRAM_WEBHOOK_SECRET (أي نص عشوائي طويل) في Vercel ثم Redeploy";
+  if (!s.tablesReady) return "٣) نفّذ ملف download/supabase_telegram.sql في محرر SQL داخل Supabase";
+  if (!s.webhook?.url) return "٤) اضغط «تفعيل الربط» بالأسفل";
+  return "كل شيء مضبوط ✅ — انشر منشوراً جديداً في قناة مربوطة، أو جرّب «اختبار الاستيراد» من قائمة القنوات";
+}
+
+const GEMINI_SAMPLE_UI = "امتحان محلول في التحليل الرياضي — السنة الأولى جامعي";
+
 function TgStatusCard() {
-  const [status, setStatus] = React.useState<{
-    botConfigured: boolean;
-    geminiConfigured: boolean;
-    webhook: { url: string; pendingUpdateCount: number; lastErrorMessage: string } | null;
-  } | null>(null);
+  const [status, setStatus] = React.useState<TgStatus | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [activating, setActivating] = React.useState(false);
+  const [testing, setTesting] = React.useState(false);
+  const [geminiResult, setGeminiResult] = React.useState<GeminiTestResult | null>(null);
 
   const fetchStatus = React.useCallback(async () => {
     setLoading(true);
@@ -2148,7 +2193,9 @@ function TgStatusCard() {
   async function handleActivate() {
     setActivating(true);
     try {
-      const res = await fetch("/api/telegram/setup", { method: "POST" });
+      const res = await fetch("/api/telegram/setup", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
       toast.success(data.message);
@@ -2157,24 +2204,75 @@ function TgStatusCard() {
     finally { setActivating(false); }
   }
 
+  async function handleTestGemini() {
+    setTesting(true);
+    setGeminiResult(null);
+    try {
+      const res = await fetch("/api/telegram/setup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "test-gemini" }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      setGeminiResult(data as GeminiTestResult);
+      if (data.aiClassified) toast.success("Gemini يعمل ✅");
+      else toast.info(data.message);
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setTesting(false); }
+  }
+
   if (loading) {
     return <Card className="p-4"><div className="text-center py-2"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div></Card>;
   }
-  const botOk = status?.botConfigured ?? false;
+  const botOk = status?.botTokenValid ?? false;
+  const secretOk = status?.webhookSecretConfigured ?? false;
   const geminiOk = status?.geminiConfigured ?? false;
+  const tablesOk = status?.tablesReady ?? false;
   const webhookUrl = status?.webhook?.url ?? "";
+  const nextStep = tgNextStep(status);
 
   return (
     <Card className="p-4 space-y-3">
-      <div>
-        <h3 className="font-bold text-sm flex items-center gap-2"><Send className="w-4 h-4 text-primary" />حالة ربط تيليجرام</h3>
-        <p className="text-xs text-muted-foreground mt-1">استيراد تلقائي للمنشورات الجديدة من القنوات المرتبطة</p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="font-bold text-sm flex items-center gap-2"><Send className="w-4 h-4 text-primary" />حالة ربط تيليجرام</h3>
+          <p className="text-xs text-muted-foreground mt-1">استيراد تلقائي للمنشورات الجديدة من القنوات المرتبطة</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={fetchStatus} disabled={loading}>
+          <RotateCcw className="w-3.5 h-3.5" />تحديث
+        </Button>
       </div>
 
       <div className="grid gap-2">
-        <StatusLine ok={botOk} label="توكن البوت (TELEGRAM_BOT_TOKEN)" okText="مضبوط" badText="غير مضبوط — أنشئ بوتاً عبر BotFather وأضف التوكن في متغيرات البيئة على Vercel" />
-        <StatusLine ok={webhookUrl.length > 0} label="الويبهوك" okText={`مفعّل: ${webhookUrl}`} badText="غير مفعّل — اضغط «تفعيل الربط» بعد ضبط التوكن والسر" />
-        <StatusLine ok={geminiOk} label="التصنيف الذكي (GEMINI_API_KEY)" okText="التصنيف الآلي بالذكاء الاصطناعي مفعّل" badText="غير مضبوط — يُستعمل التصنيف المحلي بالكلمات المفتاحية (يعمل بشكل كامل)" />
+        <StatusLine
+          ok={botOk}
+          label="توكن البوت (TELEGRAM_BOT_TOKEN)"
+          okText={status?.botUsername ? `مضبوط — البوت: @${status.botUsername}` : "مضبوط ومقبول من تيليجرام"}
+          badText={
+            status?.botConfigured
+              ? "التوكن موجود لكن تيليجرام يرفضه — انسخه كاملاً من BotFather وحدّثه في Vercel ثم Redeploy"
+              : "غير مضبوط — أنشئ بوتاً عبر @BotFather ثم أضف TELEGRAM_BOT_TOKEN في Vercel"
+          }
+        />
+        <StatusLine ok={secretOk} label="سرّ الويبهوك (TELEGRAM_WEBHOOK_SECRET)" okText="مضبوط" badText="غير مضبوط — أضفه في Vercel (أي نص عشوائي طويل) — لا يعمل التفعيل بدونه" />
+        <StatusLine
+          ok={webhookUrl.length > 0}
+          label="الويبهوك (استقبال المنشورات)"
+          okText={`مفعّل: ${webhookUrl}`}
+          badText="غير مفعّل — اضغط «تفعيل الربط» بعد ضبط التوكن والسر"
+        />
+        <StatusLine
+          ok={geminiOk}
+          label="التصنيف الذكي (GEMINI_API_KEY)"
+          okText={`مضبوط — النموذج: ${status?.geminiModel ?? "gemini-2.0-flash"} (تصنيف + قراءة نص الصور)`}
+          badText="غير مضبوط — يُستعمل التصنيف المحلي بالكلمات المفتاحية (يعمل بشكل كامل)"
+        />
+        <StatusLine
+          ok={tablesOk}
+          label="جداول تيليجرام في قاعدة البيانات"
+          okText="منشأة وجاهزة"
+          badText="غير منشأة — نفّذ download/supabase_telegram.sql في محرر SQL داخل Supabase"
+        />
       </div>
 
       {status?.webhook?.lastErrorMessage ? (
@@ -2183,18 +2281,63 @@ function TgStatusCard() {
         </div>
       ) : null}
 
-      <Button onClick={handleActivate} disabled={activating || !botOk} className="w-full">
-        {activating ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Power className="w-4 h-4 ml-1" />}
-        تفعيل الربط
-      </Button>
+      {/* الخطوة التالية المطلوبة — أول ما يقرؤه المشرف */}
+      <div className={`rounded-lg p-3 text-xs leading-relaxed border ${webhookUrl ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700" : "bg-primary/10 border-primary/30 text-primary"}`}>
+        <span className="font-bold">الخطوة التالية: </span>{nextStep}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <Button onClick={handleActivate} disabled={activating || !botOk || !secretOk} className="w-full">
+          {activating ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Power className="w-4 h-4 ml-1" />}
+          تفعيل الربط
+        </Button>
+        <Button variant="outline" onClick={handleTestGemini} disabled={testing} className="w-full">
+          {testing ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <FlaskConical className="w-4 h-4 ml-1" />}
+          اختبار التصنيف الذكي
+        </Button>
+      </div>
+
+      {geminiResult ? (
+        <div className={`rounded-lg p-3 text-xs leading-relaxed border ${geminiResult.aiClassified ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700" : "bg-amber-500/10 border-amber-600/30 text-amber-700"}`}>
+          <p className="font-bold flex items-center gap-1.5">
+            {geminiResult.aiClassified ? <FlaskConical className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+            نتيجة فحص Gemini
+          </p>
+          <p className="mt-1">{geminiResult.message}</p>
+          {geminiResult.aiClassified ? (
+            <p className="mt-1">العيّنة: «{GEMINI_SAMPLE_UI}» ← النوع: <strong>{geminiResult.itemType}</strong></p>
+          ) : null}
+          {geminiResult.models.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-[10px] text-muted-foreground mb-1">
+                نماذج متاحة لمفتاحك (لتغيير النموذج: GEMINI_MODEL في Vercel):
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {geminiResult.models.slice(0, 10).map((m) => (
+                  <span
+                    key={m}
+                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${m === geminiResult.model ? "bg-primary/15 border-primary/40 text-primary font-bold" : "bg-muted/40 border-border/60"}`}
+                  >
+                    {m}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-lg leading-relaxed space-y-1">
-        <p className="font-bold text-foreground/80">خطوات الربط (مرة واحدة):</p>
-        <p>١. أنشئ بوتاً عبر @BotFather وانسخ التوكن → TELEGRAM_BOT_TOKEN على Vercel.</p>
-        <p>٢. اضبط TELEGRAM_WEBHOOK_SECRET (أي نص عشوائي طويل) على Vercel.</p>
-        <p>٣. أضف البوت «مشرفاً» في كل قناة/مجموعة تريد استيرادها.</p>
-        <p>٤. عد هنا ← أضف القناة ← ثم اضغط «تفعيل الربط».</p>
-        <p>٥. (اختياري) GEMINI_API_KEY لتصنيف المحتوى واستخراج نص الصور آلياً.</p>
+        <p className="font-bold text-foreground/80">خطوات الربط الكاملة (مرة واحدة):</p>
+        <p>١. في تيليجرام: كلم <span dir="ltr" className="font-mono">@BotFather</span> ← <span dir="ltr" className="font-mono">/newbot</span> ← انسخ التوكن (شكله <span dir="ltr" className="font-mono">123456:ABC-xyz…</span>).</p>
+        <p>٢. في <a href="https://vercel.com/bessghiermohamed/Gu-mo/settings/environment-variables" target="_blank" rel="noreferrer" className="text-primary underline inline-flex items-center gap-0.5">Vercel ← Environment Variables <ExternalLink className="w-3 h-3" /></a> أضف المتغيرات الثلاثة:
+          <span dir="ltr" className="font-mono">TELEGRAM_BOT_TOKEN</span> و <span dir="ltr" className="font-mono">TELEGRAM_WEBHOOK_SECRET</span> (أي نص عشوائي طويل) و <span dir="ltr" className="font-mono">GEMINI_API_KEY</span> (اختياري — للتصنيف الذكي وقراءة نص الصور).
+        </p>
+        <p>٣. مهم: بعد إضافة أي متغير ← Vercel ← Deployments ← آخر نشر ← <strong>Redeploy</strong> حتى يُحمَّل.</p>
+        <p>٤. في <strong>Supabase</strong> ← SQL Editor ← نفّذ محتوى ملف <span dir="ltr" className="font-mono">download/supabase_telegram.sql</span> (من مستودع GitHub).</p>
+        <p>٥. أضف البوت «مشرفاً» في كل قناة تريد استيرادها (تكفي صلاحية قراءة المنشورات).</p>
+        <p>٦. هنا: «ربط قناة» ← أدخل <span dir="ltr" className="font-mono">@اسم_القناة</span> ← «تفعيل الربط» ← «اختبار الاستيراد».</p>
+        <p className="text-[10px] pt-1 border-t border-border/60">تُستورد المنشورات <strong>الجديدة فقط</strong> بعد الربط (اتفاقنا) — والمنشورات القديمة تبقى في تيليجرام كمرجع. الروابط المحفوظة تفتح الأصل مباشرة.</p>
       </div>
     </Card>
   );
@@ -2244,6 +2387,17 @@ function TgSourcesManager() {
   const [deleteSource, setDeleteSource] = React.useState<TgSourceRow | null>(null);
   const [deleting, setDeleting] = React.useState(false);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
+
+  // import test dialog (محاكاة منشور جديد للتأكد أن الخط كامل يعمل)
+  const [testSource, setTestSource] = React.useState<TgSourceRow | null>(null);
+  const [testText, setTestText] = React.useState("");
+  const [testRunning, setTestRunning] = React.useState(false);
+  const [testResult, setTestResult] = React.useState<{
+    ok: boolean;
+    message: string;
+    aiClassified?: boolean;
+    item?: { title: string; itemType: string; kind: string; caption: string; link: string } | null;
+  } | null>(null);
 
   // cascade data
   const [years, setYears] = React.useState<Year[]>([]);
@@ -2355,6 +2509,29 @@ function TgSourcesManager() {
       fetchSources();
     } catch { toast.error("فشل الحذف"); }
     finally { setDeleting(false); }
+  }
+
+  async function handleRunTest() {
+    if (!testSource) return;
+    setTestRunning(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/telegram/setup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "simulate",
+          sourceId: testSource.id,
+          ...(testText.trim() ? { text: testText.trim() } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setTestResult({ ok: false, message: data.error ?? "فشل الفحص" }); return; }
+      setTestResult(data);
+      if (data.ok) toast.success("نجح الاستيراد التجريبي ✅");
+      else toast.error(data.message ?? "تعذّر الفحص");
+      fetchSources();
+    } catch { setTestResult({ ok: false, message: "فشل الاتصال" }); }
+    finally { setTestRunning(false); }
   }
 
   if (!tablesReady) {
@@ -2492,6 +2669,58 @@ function TgSourcesManager() {
         </Dialog>
       )}
 
+      {/* import test dialog — محاكاة منشور جديد كامل الخط دون نشر حقيقي */}
+      {testSource && (
+        <Dialog open onOpenChange={() => setTestSource(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><Zap className="w-5 h-5 text-amber-600" />اختبار الاستيراد — {testSource.titleAr}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                محاكاة منشور جديد كامل الخط (استقبال ← تصنيف ← قاعدة البيانات) دون الحاجة لنشر حقيقي في تيليجرام.
+                يُنشأ منشور تجريبي ثم يُحذف تلقائياً — لن يراه الطلبة.
+              </p>
+              <div className="space-y-1.5">
+                <Label>نص المنشور التجريبي (اختياري)</Label>
+                <Input
+                  value={testText}
+                  onChange={(e) => setTestText(e.target.value)}
+                  placeholder="افتراضياً: سلسلة تمارين محلولة رقم 3 — التحليل الرياضي"
+                />
+                <p className="text-[10px] text-muted-foreground">اكتب عيّنة مما تنشره عادة لترى كيف سيُصنّف (مثال: امتحان الفيزياء — الدورة العادية).</p>
+              </div>
+              {testResult ? (
+                <div className={`rounded-lg p-3 text-xs leading-relaxed border ${testResult.ok ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700" : "bg-destructive/10 border-destructive/30 text-destructive"}`}>
+                  <p className="font-bold flex items-center gap-1.5">
+                    {testResult.ok ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+                    {testResult.ok ? "نجح الاستيراد التجريبي" : "تعذّر الفحص"}
+                  </p>
+                  <p className="mt-1">{testResult.message}</p>
+                  {testResult.item ? (
+                    <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
+                      <p>العنوان المستخرج: <strong>{testResult.item.title || "—"}</strong></p>
+                      <p>
+                        النوع: <strong>{testResult.item.itemType}</strong> — التصنيف:{" "}
+                        <strong>{testResult.aiClassified ? "Gemini (ذكاء اصطناعي)" : "محلي بالكلمات المفتاحية"}</strong>
+                      </p>
+                      <p className="text-[10px] break-all" dir="ltr">{testResult.item.link}</p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTestSource(null)}>إغلاق</Button>
+              <Button onClick={handleRunTest} disabled={testRunning}>
+                {testRunning ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Zap className="w-4 h-4 ml-1" />}
+                تشغيل الفحص
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {loading ? (
         <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div>
       ) : sources.length === 0 ? (
@@ -2520,6 +2749,10 @@ function TgSourcesManager() {
                   </div>
                 </div>
                 <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setTestSource(s); setTestText(""); setTestResult(null); }}
+                    aria-label="اختبار الاستيراد" title="اختبار الاستيراد — محاكاة منشور جديد">
+                    <Zap className="w-3.5 h-3.5 text-amber-600" />
+                  </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleToggleActive(s)}
                     aria-label={s.isActive ? "إيقاف الاستيراد" : "استئناف الاستيراد"} title={s.isActive ? "إيقاف الاستيراد" : "استئناف الاستيراد"}>
                     <Power className={`w-3.5 h-3.5 ${s.isActive ? "text-emerald-600" : "text-muted-foreground"}`} />
@@ -2612,6 +2845,21 @@ function TgItemsManager() {
       fetchItems();
     } catch { toast.error("فشل الحذف"); }
     finally { setDeleting(false); }
+  }
+
+  async function handleReclassify(id: number) {
+    setBusyId(id);
+    try {
+      const res = await fetch("/api/telegram/items", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: "reclassify" }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success(data.message ?? "أُعيد التصنيف ✅");
+      fetchItems();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setBusyId(null); }
   }
 
   function openEdit(i: TgItemAdminRow) {
@@ -2730,6 +2978,11 @@ function TgItemsManager() {
                   </div>
                 </div>
                 <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" disabled={busyId === i.id}
+                    onClick={() => handleReclassify(i.id)}
+                    aria-label="إعادة تصنيف بالذكاء الاصطناعي" title="إعادة تصنيف بالذكاء الاصطناعي (Gemini) — يعيد العنوان والنوع ويستخرج نص الصورة">
+                    {busyId === i.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-violet-500" />}
+                  </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7" disabled={busyId === i.id}
                     onClick={() => patchItem(i.id, { isFeatured: !i.isFeatured }, i.isFeatured ? "أُلغى التثبيت" : "تم التثبيت في المقدمة ⭐")}
                     aria-label={i.isFeatured ? "إلغاء التثبيت" : "تثبيت في المقدمة"} title={i.isFeatured ? "إلغاء التثبيت" : "تثبيت في المقدمة"}>
