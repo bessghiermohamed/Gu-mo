@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canManageRoles } from "@/lib/auth/permissions";
-import { loadScopeContext, cohortAssignableBy, studentVisibleTo, loadPendingRequestIndex, type StudentRowLike } from "@/lib/auth/scope";
+import { loadScopeContext, cohortAssignableBy, cohortCompatibleWithStudent, studentVisibleTo, loadPendingRequestIndex, type StudentRowLike } from "@/lib/auth/scope";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -16,6 +16,9 @@ const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
  *   - target must be a STUDENT (supervisor scopes are never touched here)
  *   - caller must be able to MANAGE the target student (scope containment)
  *   - the destination sub-group must be inside the CALLER's scope
+ *   - the destination must match the STUDENT's own academic scope
+ *     (institution/specialty/track/year — system review §2, same rule
+ *     as student join requests, enforced data-layer side)
  *   - membership (scope_cohort_group_id + group_number) updates immediately
  *   - pending join requests of the student are resolved automatically:
  *     the one targeting the destination → approved; all others → rejected
@@ -53,7 +56,7 @@ export async function POST(req: NextRequest) {
       const supabase = await createSupabaseServerClient();
       const { data: target, error: tErr } = await supabase
         .from("app_users")
-        .select("id, full_name, role, assigned_specialty_id, scope_institution_id, scope_specialty_id, scope_academic_year_id, scope_group_id, scope_cohort_group_id")
+        .select("id, full_name, role, assigned_specialty_id, scope_institution_id, scope_specialty_id, scope_academic_year_id, scope_track_id, scope_group_id, scope_cohort_group_id")
         .eq("id", userId)
         .maybeSingle();
       if (tErr || !target) return NextResponse.json({ error: "الطالب غير موجود" }, { status: 404 });
@@ -76,6 +79,22 @@ export async function POST(req: NextRequest) {
       };
       if (!studentVisibleTo(caller, targetLike, ctx, pendingIdx.requesterIds, pendingIdx.byCohort)) {
         return NextResponse.json({ error: "هذا الطالب خارج نطاق إشرافك" }, { status: 403 });
+      }
+
+      // system review §2: the destination must match the STUDENT's own
+      // academic data (institution/specialty/track/year) — never offer or
+      // accept sub-groups outside it, even inside the caller's authority.
+      const studentAcademic = {
+        assignedSpecialtyId: Number(target.assigned_specialty_id ?? 1),
+        scopeInstitutionId: target.scope_institution_id != null ? Number(target.scope_institution_id) : null,
+        scopeAcademicYearId: target.scope_academic_year_id != null ? Number(target.scope_academic_year_id) : null,
+        scopeTrackId: target.scope_track_id != null ? Number(target.scope_track_id) : null,
+      };
+      if (!cohortCompatibleWithStudent(studentAcademic, cohortId, ctx)) {
+        return NextResponse.json(
+          { error: "هذا الفوج لا يطابق البيانات الأكاديمية للطالب (المؤسسة/التخصص/المسار/السنة) — اختر فوجاً يوافق تخصص الطالب وسنته الدراسية" },
+          { status: 409 }
+        );
       }
 
       // assign membership immediately
@@ -132,6 +151,21 @@ export async function POST(req: NextRequest) {
     };
     if (!studentVisibleTo(caller, targetLike, ctx, pendingIdx.requesterIds, pendingIdx.byCohort)) {
       return NextResponse.json({ error: "هذا الطالب خارج نطاق إشرافك" }, { status: 403 });
+    }
+
+    // system review §2 (local branch): destination must match the
+    // student's own academic scope — same rule as the Supabase branch.
+    const studentAcademicLocal = {
+      assignedSpecialtyId: target.assignedSpecialtyId,
+      scopeInstitutionId: target.scopeInstitutionId ?? null,
+      scopeAcademicYearId: target.scopeAcademicYearId ?? null,
+      scopeTrackId: target.scopeTrackId ?? null,
+    };
+    if (!cohortCompatibleWithStudent(studentAcademicLocal, cohortId, ctx)) {
+      return NextResponse.json(
+        { error: "هذا الفوج لا يطابق البيانات الأكاديمية للطالب (المؤسسة/التخصص/المسار/السنة) — اختر فوجاً يوافق تخصص الطالب وسنته الدراسية" },
+        { status: 409 }
+      );
     }
 
     await db.appUser.update({

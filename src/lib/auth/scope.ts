@@ -426,6 +426,54 @@ export function assignableCohortIds(
 }
 
 // =====================================================
+// Student ↔ cohort academic compatibility (system review §2)
+// A student may only JOIN / BE ASSIGNED TO sub-groups that
+// match their OWN academic identity:
+//   institution + specialty + year (+ track when cohort
+//   declares one). Single source of truth used by BOTH
+//   join requests (Method A) and direct assignment
+//   (Method B) — enforced at the data/API layer, never
+//   merely hidden in the UI.
+// =====================================================
+
+export interface StudentAcademicLike {
+  assignedSpecialtyId: number;
+  scopeInstitutionId?: number | null;
+  scopeAcademicYearId?: number | null;
+  scopeTrackId?: number | null;
+}
+
+/**
+ * True if `cohortId` matches the student's academic scope.
+ * A student without a year (scopeAcademicYearId == null) matches
+ * nothing — callers must surface a clear empty state for that case.
+ */
+export function cohortCompatibleWithStudent(
+  student: StudentAcademicLike,
+  cohortId: number,
+  ctx: ScopeContext
+): boolean {
+  const cohort = ctx.cohorts.get(cohortId);
+  if (!cohort) return false;
+  if (cohort.specialtyId !== student.assignedSpecialtyId) return false;
+  if (student.scopeAcademicYearId == null) return false;
+  if (cohort.yearId !== student.scopeAcademicYearId) return false;
+  // track compatibility: a cohort with no declared track is shared
+  // by all tracks of the (specialty, year) — strict equality only
+  // when the cohort declares a track.
+  if (cohort.trackId != null && student.scopeTrackId != null && cohort.trackId !== student.scopeTrackId) {
+    return false;
+  }
+  // institution: the cohort's specialty must belong to the student's
+  // institution (when the student has one).
+  if (student.scopeInstitutionId != null) {
+    const spec = ctx.specialties.get(cohort.specialtyId);
+    if (spec && spec.institutionId !== student.scopeInstitutionId) return false;
+  }
+  return true;
+}
+
+// =====================================================
 // Pending-request index (needed for §7.4 student visibility)
 // =====================================================
 export interface PendingRequestIndex {

@@ -3030,7 +3030,9 @@ function TgItemsManager() {
 // Both methods coexist: join requests (Method A) are never disabled
 // by this flow. The destination list comes from /api/group/assignable,
 // which is scope-filtered SERVER-SIDE (the rep only sees sub-groups
-// inside their own scope — §6).
+// inside their own scope — §6) AND student-filtered (system review
+// §2: only sub-groups matching the STUDENT's own specialty/year/track
+// are offered — enforced at the API layer, not hidden in the UI).
 // =====================================================
 interface AssignableCohort {
   id: number;
@@ -3044,23 +3046,29 @@ interface AssignableCohort {
 function AssignDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: () => void; onDone: () => void }) {
   const [cohorts, setCohorts] = React.useState<AssignableCohort[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState("");
   const [specialtyId, setSpecialtyId] = React.useState<string>("");
   const [groupId, setGroupId] = React.useState<string>("");
   const [cohortId, setCohortId] = React.useState<string>("");
   const [saving, setSaving] = React.useState(false);
 
+  // system review §2: the destination list is filtered server-side to
+  // the STUDENT's own academic scope (specialty/year/track) ∩ caller scope.
   React.useEffect(() => {
-    fetch("/api/group/assignable", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((data) => {
+    setLoading(true);
+    setLoadError("");
+    fetch(`/api/group/assignable?studentId=${user.id}`, { cache: "no-store" })
+      .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) { setLoadError(data.error ?? "فشل تحميل الأفواج"); setCohorts([]); setLoading(false); return; }
         const list: AssignableCohort[] = data.cohorts ?? [];
         setCohorts(list);
         const specs = new Set(list.map((c) => c.specialtyName));
         if (specs.size === 1) setSpecialtyId(String(list[0]?.specialtyName ?? ""));
         setLoading(false);
       })
-      .catch(() => setLoading(false));
-  }, []);
+      .catch(() => { setLoadError("فشل الاتصال"); setLoading(false); });
+  }, [user.id]);
 
   const specialtyOptions = React.useMemo(() => {
     const seen = new Map<string, AssignableCohort>();
@@ -3118,6 +3126,12 @@ function AssignDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: ()
               <Users className="w-3 h-3 shrink-0" />
               الفوج الحالي: {currentAssignment ?? "بلا فوج"}
             </div>
+            <div className="flex items-center gap-1.5">
+              <GraduationCap className="w-3 h-3 shrink-0" />
+              البيانات الأكاديمية: {user.specialtyName || "—"}
+              {user.yearName ? ` — ${user.yearName}` : ""}
+              <span className="text-muted-foreground">(الأفواج المعروضة مقيدة بها)</span>
+            </div>
           </div>
           {currentAssignment && (
             <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
@@ -3127,10 +3141,18 @@ function AssignDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: ()
           )}
           {loading ? (
             <div className="text-center py-6"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div>
+          ) : loadError ? (
+            <p className="text-xs text-destructive py-3 text-center">{loadError}</p>
           ) : cohorts.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-3 text-center">
-              لا توجد أفواج ضمن نطاق صلاحياتك — أنشئ أفواجاً أو توسّع نطاقك أولاً.
-            </p>
+            <div className="rounded-lg bg-muted/50 border border-border p-3 text-xs text-muted-foreground space-y-1">
+              <p className="font-bold text-foreground">لا توجد أفواج مطابقة لهذا الطالب</p>
+              <p>
+                الأفواج المعروضة مقيدة بالبيانات الأكاديمية للطالب
+                (المؤسسة/التخصص/المسار/السنة)
+                {user.yearName ? ` — ${user.specialtyName} / ${user.yearName}` : ""}.
+                {!user.yearName ? " الطالب لم يحدد سنة دراسية بعد — أكمل ملفه الأكاديمي أولاً." : " أنشئ أفواجاً لسنة الطالب أو تحقق من ملفه الأكاديمي."}
+              </p>
+            </div>
           ) : (
             <>
               {specialtyOptions.length > 1 && (

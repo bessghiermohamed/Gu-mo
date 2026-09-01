@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canManageRoles } from "@/lib/auth/permissions";
 import { fetchPendingJoinRequests } from "@/lib/data-layer";
-import { loadScopeContext, requestVisibleTo } from "@/lib/auth/scope";
+import { loadScopeContext, cohortCompatibleWithStudent } from "@/lib/auth/scope";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -50,10 +50,11 @@ export async function POST(req: NextRequest) {
 
     // Rule 2: the requested sub-group must be compatible with the user's
     // own scope (institution → specialty → track → year), enforced at the
-    // data/API level (spec §3.1/§6).
+    // data/API level (spec §3.1/§6, system review §2 — shared helper with
+    // direct assignment so both methods apply the same rule).
     if (user.role === "STUDENT") {
       const ctx = await loadScopeContext();
-      if (!requestCompatibleWithStudent(user, Number(cohortId), ctx)) {
+      if (!cohortCompatibleWithStudent(user, Number(cohortId), ctx)) {
         return NextResponse.json(
           { error: "هذا الفوج خارج نطاق مؤسستك/تخصصك/ملمحك/سنتك الدراسية" },
           { status: 403 }
@@ -86,39 +87,4 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
   }
-}
-
-/**
- * A student may only request sub-groups of their OWN institution +
- * specialty + year, and (when the cohort is track-bound) their own track.
- * Track-null cohorts are shared across tracks (round-3 rule).
- */
-function requestCompatibleWithStudent(
-  user: {
-    assignedSpecialtyId: number;
-    scopeInstitutionId: number | null;
-    scopeSpecialtyId: number | null;
-    scopeAcademicYearId: number | null;
-    scopeTrackId: number | null;
-  },
-  cohortId: number,
-  ctx: Awaited<ReturnType<typeof loadScopeContext>>
-): boolean {
-  const cohort = ctx.cohorts.get(cohortId);
-  if (!cohort) return false;
-  if (cohort.specialtyId !== user.assignedSpecialtyId) return false;
-  if (cohort.yearId !== user.scopeAcademicYearId) return false;
-  // track compatibility: a cohort/group with no track is shared by all
-  // tracks of the (specialty, year) — strict equality is only applied
-  // when the cohort declares a track.
-  if (cohort.trackId != null && user.scopeTrackId != null && cohort.trackId !== user.scopeTrackId) {
-    return false;
-  }
-  // institution: the cohort's specialty must belong to the student's
-  // institution (when the student has one).
-  if (user.scopeInstitutionId != null) {
-    const spec = ctx.specialties.get(cohort.specialtyId);
-    if (spec && spec.institutionId !== user.scopeInstitutionId) return false;
-  }
-  return true;
 }
