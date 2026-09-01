@@ -115,8 +115,8 @@ async function testGemini() {
   const configured = isGeminiConfigured();
   const cls = await classifyItem({ kind: "text", caption: GEMINI_SAMPLE, fileName: "" });
 
-  // عند الفشل: مسبار خام يكشف السبب الحقيقي (رمز حالة غوغل + نص الخطأ)
-  let probe: { model: string; status: number; body: string } | null = null;
+  // عند الفشل: مسبار خام يجرّب كل نموذج في السلسلة ويكشف السبب الحقيقي
+  let probe: Array<{ model: string; status: number; body: string }> | null = null;
   if (configured && !cls.aiClassified) {
     try {
       probe = await probeGeminiRaw();
@@ -156,10 +156,11 @@ async function testGemini() {
   if (cls.aiClassified) {
     message = `Gemini يعمل ✅ — صنّف العيّنة كـ «${cls.itemType}» عبر ${geminiModel()}. التصنيف الذكي وقراءة نص الصور مفعّلان للمنشورات الجديدة.`;
   } else if (configured) {
-    const probeInfo = probe
-      ? ` رمز الاستجابة من غوغل: ${probe.status}.${probe.status === 200 ? " (وصلت استجابة لكن بلا نص صالح — انظر «النتيجة الخام» أدناه)" : ` التفاصيل: ${probe.body.slice(0, 220)}`}`
+    const first = probe && probe.length > 0 ? probe[0] : null;
+    const probeInfo = first
+      ? ` جرّبنا السلسلة (${(probe ?? []).map((p) => `${p.model}:${p.status}`).join(" ثم ")}).${first.status === 200 ? " وصلت استجابة لكن بلا نص صالح — انظر «النتيجة الخام»" : ` أول خطأ من غوغل: ${first.body.slice(0, 200)}`}`
       : "";
-    message = `المفتاح مضبوط لكن الاستدعاء فشل (النموذج: ${geminiModel()}).${probeInfo} جرّب ضبط GEMINI_MODEL بنموذج من القائمة أدناه ثم أعد النشر — أو استعمل مفتاحاً آخر. التصنيف المحلي يعمل في هذه الأثناء.`;
+    message = `المفتاح مضبوط لكن الاستدعاء فشل.${probeInfo} جرّب ضبط GEMINI_MODEL بنموذج من القائمة أدناه ثم أعد النشر — أو استعمل مفتاحاً آخر. التصنيف المحلي يعمل في هذه الأثناء.`;
   } else {
     message = "GEMINI_API_KEY غير مضبوط — التصنيف المحلي بالكلمات المفتاحية يعمل الآن بشكل كامل. أضف المفتاح في Vercel لتفعيل الذكاء الاصطناعي.";
   }

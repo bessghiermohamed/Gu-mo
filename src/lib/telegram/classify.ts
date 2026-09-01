@@ -11,7 +11,7 @@
  *  - Uses the REST API (no SDK dependency), env-driven:
  *      GEMINI_API_KEY  (required to enable AI classification)
  *      GEMINI_MODEL    (optional — إن لم يُضبط نجرب سلسلة:
- *                       gemini-2.5-flash → gemini-flash-latest → gemini-2.0-flash)
+ *                       gemini-3.6-flash → 3.7-flash → flash-latest → 2.5-flash)
  *  - Falls back to local Arabic keyword heuristics when the key is
  *    missing or the call fails — the pipeline NEVER breaks.
  *  - Images are downloaded transiently for vision, passed inline to
@@ -46,23 +46,27 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 /**
  * سلسلة النماذج الافتراضية — تُجرَّب بالترتيب حتى ينجح أحدها.
- * الدافع: غوغل يوقف النماذج القديمة للمفاتيح الجديدة (حدث فعلاً مع
- * gemini-2.0-flash) — السلسلة تمنع توقف الاستيراد كلياً عند ذلك.
+ * الدافع: غوغل يحصر نماذج 2.5 وأقدم في «المستخدمين القدامى» فقط (خطأ
+ * 404 فعلي للمفاتيح الجديدة) ويوصي بـ gemini-3.6-flash — لذا تتقدمها
+ * السلسلة، ويُترك 2.5-flash آخراً للمفاتيح القديمة.
  */
-const DEFAULT_MODEL_CHAIN = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"];
+const DEFAULT_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+
+/** أقصى زمن إجمالي لتجربة السلسلة — هامش أمان تحت maxDuration=60 للويبهوك */
+const CHAIN_DEADLINE_MS = 45_000;
 
 /**
- * نماذج "التفكير" (gemini-2.5/3 + اللاحقة latest): إن لم يُوقف التفكير
- * استهلكت رموز التفكير الداخلية حد maxOutputTokens وعادت استجابة فارغة
- * (حدث فعلاً: MAX_TOKENS دون أي نص) — لذا نضبط thinkingBudget: 0 لها فقط،
- * لأن النماذج الأقدم (2.0/gemma) قد ترفض الحقل.
+ * نماذج «التفكير» الموثقة مع thinkingBudget: 0 — عائلة 2.5 والاسم المستعار
+ * latest. عائلة 3.x لا نرسل لها الحقل (قد يُرفض)، ونعوّضه بهامش رموز أوسع.
  */
-const THINKING_MODEL_RE = /(^gemini-(2\.5|3))|latest/;
+const THINKING_MODEL_RE = /(^gemini-2\.5)|(^gemini-flash-latest)/;
 
 function generationConfigFor(model: string): Record<string, unknown> {
   const cfg: Record<string, unknown> = {
     temperature: 0.1,
-    maxOutputTokens: 2048,
+    // هامش واسع: رموز التفكير الداخلية (للنماذج التي لا نوقف تفكيرها)
+    // تُحسب ضمن الحد، والنص المستخرج من الصور قد يكون طويلاً أيضاً
+    maxOutputTokens: 8192,
     responseMimeType: "application/json",
   };
   if (THINKING_MODEL_RE.test(model)) cfg.thinkingConfig = { thinkingBudget: 0 };
@@ -160,8 +164,10 @@ export async function classifyWithGemini(input: ClassifyInput): Promise<Classify
     });
   }
   const contents = [{ role: "user", parts }];
+  const deadline = Date.now() + CHAIN_DEADLINE_MS;
 
   for (const model of modelCandidates()) {
+    if (Date.now() > deadline) break; // لا نتجاوز نافذة الويبهوك
     const requestBody = JSON.stringify({ contents, generationConfig: generationConfigFor(model) });
     const result = await callGeminiModel(model, apiKey, requestBody, input);
     if (result) return result;
@@ -220,34 +226,38 @@ export async function classifyItem(input: ClassifyInput): Promise<ClassifyResult
 }
 
 /**
- * مسبار تشخيصي: استدعاء generateContent خام بأصغر حمولة — يعيد رمز
- * الحالة ونص الاستجابة من غوغل كما هو، حتى يرى المشرف السبب الحقيقي
- * لأي فشل (404 نموذج محذوف / 429 حصة / 400 حقل مرفوض / ...).
+ * مسبار تشخيصي: يجرّب كل نموذج في السلسلة بأصغر حمولة ويعيد رمز الحالة
+ * ونص الاستجابة من غوغل كما هو (حتى أول نجاح) — حتى يُرى السبب الحقيقي
+ * لأي فشل: 404 نموذج محجوز / 429 حصة / 400 حقل مرفوض / MAX_TOKENS ...
  */
-export async function probeGeminiRaw(): Promise<{ model: string; status: number; body: string } | null> {
+export async function probeGeminiRaw(): Promise<Array<{ model: string; status: number; body: string }>> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) return null;
-  const model = geminiModel();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
-  try {
-    const res = await fetch(
-      `${GEMINI_ENDPOINT}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: 'صنّف هذا: امتحان محلول. أعد JSON فقط: {"item_type":"امتحان","title":"فحص اتصال","text":""}' }] }],
-          generationConfig: generationConfigFor(model),
-        }),
-        signal: controller.signal,
-      }
-    );
-    const body = (await res.text()).slice(0, 600);
-    return { model, status: res.status, body };
-  } catch (e) {
-    return { model, status: 0, body: String(e).slice(0, 300) };
-  } finally {
-    clearTimeout(timer);
+  if (!apiKey) return [];
+  const attempts: Array<{ model: string; status: number; body: string }> = [];
+  for (const model of modelCandidates()) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const res = await fetch(
+        `${GEMINI_ENDPOINT}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: 'صنّف هذا: امتحان محلول. أعد JSON فقط: {"item_type":"امتحان","title":"فحص اتصال","text":""}' }] }],
+            generationConfig: generationConfigFor(model),
+          }),
+          signal: controller.signal,
+        }
+      );
+      const body = (await res.text()).slice(0, 300);
+      attempts.push({ model, status: res.status, body });
+      if (res.ok) break; // أول نموذج ناجح يكفي
+    } catch (e) {
+      attempts.push({ model, status: 0, body: String(e).slice(0, 200) });
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  return attempts;
 }
