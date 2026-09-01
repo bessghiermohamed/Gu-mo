@@ -101,6 +101,7 @@ export async function POST(req: NextRequest) {
 
   if (action === "test-gemini") return testGemini();
   if (action === "simulate") return simulateIngest(body, user);
+  if (action === "probe-models") return probeModels();
 
   // ---------- الوضع الافتراضي: تفعيل الويبهوك ----------
   if (!isBotConfigured()) {
@@ -191,6 +192,27 @@ async function testGemini() {
     elapsedMs,
     probe,
     message,
+  });
+}
+
+// ------------------------------------------------------------
+// مسبار واسع: أي نموذج يقبل هذا المفتاح فعلاً الآن؟
+// (لا يمر بالتصنيف — تشخيص مستقل سريع)
+// ------------------------------------------------------------
+async function probeModels() {
+  const configured = isGeminiConfigured();
+  if (!configured) {
+    return NextResponse.json({ ok: false, error: "GEMINI_API_KEY غير مضبوط" }, { status: 400 });
+  }
+  const attempts = await probeGeminiRaw(DIAGNOSTIC_MODELS, 7_000);
+  const working = attempts.filter((p) => p.status === 200);
+  return NextResponse.json({
+    ok: true,
+    attempts,
+    working: working.map((p) => p.model),
+    message: working.length
+      ? `نماذج تقبل المفتاح الآن: ${working.map((p) => p.model).join("، ")}`
+      : "لا نموذج من المسبار استجاب 200 الآن (ضغط/تقييد) — التفاصيل في «attempts»",
   });
 }
 
