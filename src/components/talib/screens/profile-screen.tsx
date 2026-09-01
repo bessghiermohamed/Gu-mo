@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import {
-  User, Mail, IdCard, Building, BookOpen, Users, Shield, LogOut,
+  Mail, IdCard, Building, BookOpen, Users, Shield, LogOut,
   ChevronLeft, Trash2, AlertTriangle, Loader2, UserPlus, Layers,
   Calendar, FolderTree,
 } from "lucide-react";
@@ -88,8 +88,18 @@ export function TalibProfileScreen({ onSignOut }: Props) {
 
       <Card className="p-5 space-y-4">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-            <User className="w-7 h-7" />
+          <div
+            className="w-16 h-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0 select-none"
+            aria-hidden="true"
+          >
+            <span className="text-2xl font-black leading-none">
+              {user.fullName
+                .trim()
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((w) => w.charAt(0))
+                .join(" ")}
+            </span>
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="font-black text-lg truncate">{user.fullName}</h2>
@@ -139,7 +149,7 @@ export function TalibProfileScreen({ onSignOut }: Props) {
           <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
         </Button>
 
-        <Button variant="destructive" className="w-full" onClick={onSignOut}>
+        <Button variant="outline" className="w-full" onClick={onSignOut}>
           <LogOut className="w-4 h-4 ml-2" />
           تسجيل الخروج
         </Button>
@@ -157,8 +167,8 @@ export function TalibProfileScreen({ onSignOut }: Props) {
               طلبات الانضمام، إشعاراتك المقروءة، سجلات رفع المحتوى).
             </p>
             {user.role === "OWNER" && (
-              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
-                ⚠️ المالك: لا يمكن حذف حسابك إلا إذا كان هناك مالك آخر.
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                المالك: لا يمكن حذف حسابك إلا إذا كان هناك مالك آخر.
               </p>
             )}
           </div>

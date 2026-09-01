@@ -6,7 +6,7 @@ import {
   CheckCircle2, XCircle, Loader2, FolderTree, UserPlus, Clock,
   Check, X, Building2, GraduationCap, Shield, Trash2, Route, CalendarDays, Pencil,
   Flag, AlertTriangle, CheckCheck, RotateCcw, Send, Eye, EyeOff, Star, Link2, Sparkles, Power,
-  FlaskConical, RefreshCw, Zap, Database, ExternalLink,
+  FlaskConical, RefreshCw, Zap, Database, ExternalLink, Mail, IdCard,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -255,7 +255,7 @@ function UsersManager() {
                     <span className="flex items-center gap-2 font-bold">
                       <Building2 className="w-4 h-4 text-primary" />
                       {inst}
-                      <Badge variant="secondary" className="text-[10px]">{instCount}</Badge>
+                      <Badge variant="secondary" className="text-xs">{instCount}</Badge>
                     </span>
                   </AccordionTrigger>
                   <AccordionContent>
@@ -266,7 +266,7 @@ function UsersManager() {
                             <span className="flex items-center gap-2 font-medium">
                               <GraduationCap className="w-3.5 h-3.5 text-muted-foreground" />
                               {spec}
-                              <Badge variant="outline" className="text-[10px]">{specUsers.length}</Badge>
+                              <Badge variant="outline" className="text-xs">{specUsers.length}</Badge>
                             </span>
                           </AccordionTrigger>
                           <AccordionContent className="space-y-2 pb-2">
@@ -277,12 +277,12 @@ function UsersManager() {
                                     <div className="flex items-center gap-2 flex-wrap">
                                       <span className="font-bold text-sm">{u.fullName}</span>
                                       <RoleBadge role={u.role} />
-                                      {u.yearName && <Badge variant="outline" className="text-[10px]">{u.yearName}</Badge>}
+                                      {u.yearName && <Badge variant="outline" className="text-xs">{u.yearName}</Badge>}
                                     </div>
-                                    <div className="text-[10px] text-muted-foreground mt-1 space-y-0.5">
-                                      <div>📧 {u.email}</div>
-                                      <div>🆔 {u.studentId}</div>
-                                      {u.groupNumber && <div>👥 {u.groupNumber}</div>}
+                                    <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                                      <div className="flex items-center gap-1.5"><Mail className="w-3 h-3 shrink-0" />{u.email}</div>
+                                      <div className="flex items-center gap-1.5"><IdCard className="w-3 h-3 shrink-0" />{u.studentId}</div>
+                                      {u.groupNumber && <div className="flex items-center gap-1.5"><Users className="w-3 h-3 shrink-0" />{u.groupNumber}</div>}
                                     </div>
                                   </div>
                                   <div className="flex gap-1 shrink-0">
@@ -334,7 +334,7 @@ function RoleBadge({ role }: { role: string }) {
     STUDENT: { label: "طالب", color: "bg-gray-500 text-white" },
   };
   const c = config[role] ?? config.STUDENT;
-  return <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${c.color}`}>{c.label}</span>;
+  return <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${c.color}`}>{c.label}</span>;
 }
 
 function PromoteDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: () => void; onDone: () => void }) {
@@ -375,7 +375,8 @@ function PromoteDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: (
         <DialogHeader><DialogTitle>تعديل دور: {user.fullName}</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
           <div className="rounded-lg bg-muted/50 p-2 text-xs space-y-0.5">
-            <div>📧 {user.email}</div><div>🆔 {user.studentId}</div>
+            <div className="flex items-center gap-1.5"><Mail className="w-3 h-3 shrink-0" />{user.email}</div>
+            <div className="flex items-center gap-1.5"><IdCard className="w-3 h-3 shrink-0" />{user.studentId}</div>
             <div>الدور الحالي: <RoleBadge role={user.role} /></div>
           </div>
           <div className="space-y-1.5">
@@ -446,7 +447,7 @@ function InstitutionsPanel() {
       const res = await fetch("/api/institutions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nameAr: name.trim(), type: type.trim(), city: city.trim() }) });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تمت إضافة المؤسسة ✅"); setOpen(false); setName(""); setType(""); setCity(""); fetchData();
+      toast.success("تمت إضافة المؤسسة"); setOpen(false); setName(""); setType(""); setCity(""); fetchData();
     } finally { setSaving(false); }
   }
   async function handleEditSave() {
@@ -460,7 +461,7 @@ function InstitutionsPanel() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم تعديل المؤسسة ✅");
+      toast.success("تم تعديل المؤسسة");
       setEditInst(null);
       fetchData();
     } catch { toast.error("فشل الاتصال"); }
@@ -539,10 +540,10 @@ function InstitutionsPanel() {
                 </div>
                 {isOwner && (
                   <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditName(inst.nameAr); setEditType(inst.type); setEditCity(inst.city); setEditInst(inst); }} aria-label="تعديل المؤسسة">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditName(inst.nameAr); setEditType(inst.type); setEditCity(inst.city); setEditInst(inst); }} aria-label="تعديل المؤسسة">
                       <Pencil className="w-3.5 h-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => { setDeleteInst(inst); setDeleteError(null); }} aria-label="حذف المؤسسة">
+                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => { setDeleteInst(inst); setDeleteError(null); }} aria-label="حذف المؤسسة">
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -597,7 +598,7 @@ function SpecialtiesPanel() {
       const res = await fetch("/api/specialties", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nameAr: name.trim(), code: code.trim(), institutionId: parseInt(cascade.instId), faculty: faculty.trim() }) });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تمت إضافة التخصص ✅ — أضف ملامحه من تبويب 'الملامح'");
+      toast.success("تمت إضافة التخصص — أضف ملامحه من تبويب 'الملامح'");
       setOpen(false); setName(""); setCode(""); setFaculty(""); fetchData(cascade.instId);
     } finally { setSaving(false); }
   }
@@ -613,7 +614,7 @@ function SpecialtiesPanel() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم تعديل التخصص ✅");
+      toast.success("تم تعديل التخصص");
       setEditSpec(null);
       fetchData(cascade.instId);
     } catch { toast.error("فشل الاتصال"); }
@@ -643,7 +644,7 @@ function SpecialtiesPanel() {
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm"><Plus className="w-4 h-4 ml-1" />تخصص</Button></DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>إضافة تخصص جديد 📚</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>إضافة تخصص جديد</DialogTitle></DialogHeader>
             <div className="space-y-3 py-2">
               <div className="space-y-1.5">
                 <Label>المؤسسة</Label>
@@ -677,14 +678,14 @@ function SpecialtiesPanel() {
                 <div className="min-w-0">
                   <div className="font-bold text-sm">{sp.nameAr}</div>
                   <div className="text-xs text-muted-foreground mt-1">{sp.code} {sp.faculty && `• ${sp.faculty}`}</div>
-                  <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1"><Building2 className="w-3 h-3" />{instName(sp.institutionId)}</div>
+                  <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Building2 className="w-3 h-3" />{instName(sp.institutionId)}</div>
                 </div>
                 {isOwner && (
                   <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditName(sp.nameAr); setEditCode(sp.code); setEditFaculty(sp.faculty); setEditSpec(sp); }} aria-label="تعديل التخصص">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditName(sp.nameAr); setEditCode(sp.code); setEditFaculty(sp.faculty); setEditSpec(sp); }} aria-label="تعديل التخصص">
                       <Pencil className="w-3.5 h-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => { setDeleteSpec(sp); setDeleteError(null); }} aria-label="حذف التخصص">
+                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => { setDeleteSpec(sp); setDeleteError(null); }} aria-label="حذف التخصص">
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -704,7 +705,7 @@ function SpecialtiesPanel() {
               <div className="space-y-1.5"><Label>اسم التخصص</Label><Input value={editName} onChange={(e) => setEditName(e.target.value)} /></div>
               <div className="space-y-1.5"><Label>الكود</Label><Input value={editCode} onChange={(e) => setEditCode(e.target.value)} /></div>
               <div className="space-y-1.5"><Label>القسم/الكلية</Label><Input value={editFaculty} onChange={(e) => setEditFaculty(e.target.value)} /></div>
-              <p className="text-[10px] text-muted-foreground">المؤسسة: {instName(editSpec.institutionId)} (لا يمكن تغييرها بعد الإنشاء)</p>
+              <p className="text-xs text-muted-foreground">المؤسسة: {instName(editSpec.institutionId)} (لا يمكن تغييرها بعد الإنشاء)</p>
             </div>
             <DialogFooter><Button variant="outline" onClick={() => setEditSpec(null)}>إلغاء</Button><Button onClick={handleEditSave} disabled={editSaving}>{editSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات</Button></DialogFooter>
           </DialogContent>
@@ -781,13 +782,13 @@ function TracksManager() {
 
   async function handlePreset(preset: { trackNameAr: string; code: string }) {
     const ok = await addTrack(preset.trackNameAr, preset.code);
-    if (ok) { toast.success(`تمت إضافة "${preset.code}" ✅`); fetchTracks(cascade.specId); }
+    if (ok) { toast.success(`تمت إضافة "${preset.code}"`); fetchTracks(cascade.specId); }
   }
 
   async function handleCustom() {
     if (!customName.trim() || !customCode.trim()) { toast.error("اسم الملمح والكود مطلوبان"); return; }
     const ok = await addTrack(customName.trim(), customCode.trim().toUpperCase());
-    if (ok) { toast.success("تمت إضافة الملمح ✅"); setCustomName(""); setCustomCode(""); setOpen(false); fetchTracks(cascade.specId); }
+    if (ok) { toast.success("تمت إضافة الملمح"); setCustomName(""); setCustomCode(""); setOpen(false); fetchTracks(cascade.specId); }
   }
 
   async function handleEditSave() {
@@ -801,7 +802,7 @@ function TracksManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم تعديل الملمح ✅");
+      toast.success("تم تعديل الملمح");
       setEditTrack(null);
       fetchTracks(cascade.specId);
     } catch { toast.error("فشل الاتصال"); }
@@ -855,7 +856,7 @@ function TracksManager() {
               const exists = tracks.some((t) => t.code === p.code);
               return (
                 <Button key={p.code} size="sm" variant={exists ? "outline" : "secondary"} disabled={saving || exists} onClick={() => handlePreset(p)}>
-                  <Plus className="w-3.5 h-3.5 ml-1" />{p.code}{exists ? " ✓" : ""}
+                  <Plus className="w-3.5 h-3.5 ml-1" />{p.code}{exists ? <Check className="w-3.5 h-3.5 ml-1" /> : null}
                 </Button>
               );
             })}
@@ -881,13 +882,13 @@ function TracksManager() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="font-bold text-sm">{tr.trackNameAr}</div>
-                      <div className="text-xs text-muted-foreground mt-1"><Badge variant="outline" className="text-[10px]">{tr.code}</Badge></div>
+                      <div className="text-xs text-muted-foreground mt-1"><Badge variant="outline" className="text-xs">{tr.code}</Badge></div>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditTrackName(tr.trackNameAr); setEditTrackCode(tr.code); setEditTrack(tr); }} aria-label="تعديل الملمح">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditTrackName(tr.trackNameAr); setEditTrackCode(tr.code); setEditTrack(tr); }} aria-label="تعديل الملمح">
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteTrack(tr)} aria-label="حذف الملمح">
+                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteTrack(tr)} aria-label="حذف الملمح">
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
@@ -989,14 +990,14 @@ function YearsManager() {
 
   async function handlePreset(name: string) {
     const ok = await addYear(name);
-    if (ok) { toast.success(`تمت إضافة "${name}" ✅`); fetchYears(cascade.specId); }
+    if (ok) { toast.success(`تمت إضافة "${name}"`); fetchYears(cascade.specId); }
   }
 
   async function handleCustom() {
     if (!customName.trim()) { toast.error("اكتب اسم السنة"); return; }
     const ok = await addYear(customName.trim(), parseInt(customSemester));
     if (ok) {
-      toast.success("تمت إضافة السنة ✅");
+      toast.success("تمت إضافة السنة");
       setCustomName(""); setCustomSemester("1"); setOpen(false);
       fetchYears(cascade.specId);
     }
@@ -1032,7 +1033,7 @@ function YearsManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم تعديل السنة ✅");
+      toast.success("تم تعديل السنة");
       setEditYear(null);
       fetchYears(cascade.specId);
     } catch { toast.error("فشل الاتصال"); }
@@ -1072,7 +1073,7 @@ function YearsManager() {
               const exists = years.some((y) => y.yearName === name);
               return (
                 <Button key={name} size="sm" variant={exists ? "outline" : "secondary"} disabled={saving || exists} onClick={() => handlePreset(name)}>
-                  <Plus className="w-3.5 h-3.5 ml-1" />{name}{exists ? " ✓" : ""}
+                  <Plus className="w-3.5 h-3.5 ml-1" />{name}{exists ? <Check className="w-3.5 h-3.5 ml-1" /> : null}
                 </Button>
               );
             })}
@@ -1104,13 +1105,13 @@ function YearsManager() {
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="font-bold text-sm">{y.yearName}</div>
-                      <Badge variant="outline" className="mt-2 text-[10px]">ID: {y.id}</Badge>
+                      <Badge variant="outline" className="mt-2 text-xs">ID: {y.id}</Badge>
                     </div>
                     <div className="flex flex-col gap-1 shrink-0">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditYear(y)} aria-label="تعديل السنة">
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEditYear(y)} aria-label="تعديل السنة">
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteYear(y)} aria-label="حذف السنة">
+                      <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteYear(y)} aria-label="حذف السنة">
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
@@ -1235,7 +1236,7 @@ function CohortsManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم إنشاء الفوج داخل المجموعة ✅");
+      toast.success("تم إنشاء الفوج داخل المجموعة");
       setNewName(""); setOpen(false); fetchCohorts();
     } finally { setCreating(false); }
   }
@@ -1270,7 +1271,7 @@ function CohortsManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم تعديل الفوج ✅");
+      toast.success("تم تعديل الفوج");
       setEditCohort(null);
       fetchCohorts();
     } catch { toast.error("فشل الاتصال"); }
@@ -1360,10 +1361,10 @@ function CohortsManager() {
           {cohorts.map((c) => (
             <Card key={c.id} className="p-3">
               <div className="flex items-start justify-between">
-                <div><div className="font-bold text-sm">{c.groupName}</div>{c.subGroup && <div className="text-xs text-muted-foreground mt-0.5">{c.subGroup}</div>}<Badge variant="outline" className="mt-2 text-[10px]">ID: {c.id}</Badge></div>
+                <div><div className="font-bold text-sm">{c.groupName}</div>{c.subGroup && <div className="text-xs text-muted-foreground mt-0.5">{c.subGroup}</div>}<Badge variant="outline" className="mt-2 text-xs">ID: {c.id}</Badge></div>
                 <div className="flex flex-col gap-1 shrink-0">
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditCohort(c)} aria-label="تعديل الفوج"><Pencil className="w-3.5 h-3.5" /></Button>
-                  <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteCohort(c)} aria-label="حذف الفوج"><Trash2 className="w-3.5 h-3.5" /></Button>
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEditCohort(c)} aria-label="تعديل الفوج"><Pencil className="w-3.5 h-3.5" /></Button>
+                  <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteCohort(c)} aria-label="حذف الفوج"><Trash2 className="w-3.5 h-3.5" /></Button>
                 </div>
               </div>
             </Card>
@@ -1487,7 +1488,7 @@ function GroupsManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم تعديل المجموعة ✅");
+      toast.success("تم تعديل المجموعة");
       setEditGroup(null);
       fetchGroups();
     } catch { toast.error("فشل الاتصال"); }
@@ -1573,8 +1574,8 @@ function GroupsManager() {
               <div className="flex items-start justify-between">
                 <div><div className="font-bold text-sm flex items-center gap-1"><FolderTree className="w-3.5 h-3.5 text-primary" />{g.groupName}</div>{g.description && <div className="text-xs text-muted-foreground mt-1">{g.description}</div>}</div>
                 <div className="flex flex-col gap-1 shrink-0">
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditGroup(g)} aria-label="تعديل المجموعة"><Pencil className="w-3.5 h-3.5" /></Button>
-                  <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteGroup(g)} aria-label="حذف المجموعة"><Trash2 className="w-3.5 h-3.5" /></Button>
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEditGroup(g)} aria-label="تعديل المجموعة"><Pencil className="w-3.5 h-3.5" /></Button>
+                  <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteGroup(g)} aria-label="حذف المجموعة"><Trash2 className="w-3.5 h-3.5" /></Button>
                 </div>
               </div>
             </Card>
@@ -1651,7 +1652,7 @@ function JoinRequestsManager() {
                   <div className="font-bold text-sm">{req.requesterName}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">يريد الانضمام لـ: <strong>{req.cohortName}</strong></div>
                   {req.message && <div className="text-xs text-muted-foreground mt-1 italic">"{req.message}"</div>}
-                  <div className="text-[10px] text-muted-foreground mt-1">{new Date(req.createdAt).toLocaleString("ar")}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{new Date(req.createdAt).toLocaleString("ar")}</div>
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <Button size="sm" className="h-8 bg-emerald-600 hover:bg-emerald-700" onClick={() => handleAction(req.id, "approve")} disabled={actioning === req.id}>{actioning === req.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}</Button>
@@ -1742,7 +1743,7 @@ function ModulesManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تمت إضافة المقياس ✅"); setOpen(false); setName(""); setCode(""); setProfessor(""); fetchData();
+      toast.success("تمت إضافة المقياس"); setOpen(false); setName(""); setCode(""); setProfessor(""); fetchData();
     } finally { setSaving(false); }
   }
 
@@ -1771,7 +1772,7 @@ function ModulesManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم تعديل المقياس ✅");
+      toast.success("تم تعديل المقياس");
       setEditCourse(null);
       fetchData();
     } catch { toast.error("فشل الاتصال"); }
@@ -1801,7 +1802,7 @@ function ModulesManager() {
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm"><Plus className="w-4 h-4 ml-1" />مقياس</Button></DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>إضافة مقياس جديد 📚</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>إضافة مقياس جديد</DialogTitle></DialogHeader>
             <div className="space-y-3 py-2">
               <div className="space-y-1.5"><Label>السنة الدراسية</Label>
                 <select value={selYear} onChange={(e) => setSelYear(e.target.value)} className={selectCls}>
@@ -1885,10 +1886,10 @@ function ModulesManager() {
                   <div className="text-xs text-muted-foreground mt-1">{c.code} • الأستاذ: {c.professorName || "—"} • المعامل: {c.coefficient} • {c.semester === 2 ? "السداسي الثاني" : "السداسي الأول"}{yearName(c.academicYearId) ? ` • ${yearName(c.academicYearId)}` : ""}</div>
                 </div>
                 <div className="flex gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditCourse(c)} aria-label="تعديل المقياس">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditCourse(c)} aria-label="تعديل المقياس">
                     <Pencil className="w-3.5 h-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => { setDeleteCourse(c); setDeleteError(null); }} aria-label="حذف المقياس">
+                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => { setDeleteCourse(c); setDeleteError(null); }} aria-label="حذف المقياس">
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -1944,7 +1945,7 @@ function IssuesManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success(next === "تم الحل" ? "تم حل التبليغ ✅" : "أُعيد فتح التبليغ");
+      toast.success(next === "تم الحل" ? "تم حل التبليغ" : "أُعيد فتح التبليغ");
       fetchReports();
     } catch { toast.error("فشل الاتصال"); }
     finally { setBusyId(null); }
@@ -2006,24 +2007,24 @@ function IssuesManager() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <AlertTriangle className={`w-4 h-4 shrink-0 ${resolved ? "text-muted-foreground" : "text-amber-500"}`} />
                       <span className="font-bold text-sm">{r.itemTitle}</span>
-                      <Badge variant={resolved ? "secondary" : "outline"} className={`text-[10px] ${resolved ? "" : "border-amber-500/50 text-amber-600"}`}>
+                      <Badge variant={resolved ? "secondary" : "outline"} className={`text-xs ${resolved ? "" : "border-amber-500/50 text-amber-600"}`}>
                         {resolved ? "تم الحل" : "قيد المراجعة"}
                       </Badge>
-                      <Badge variant="outline" className="text-[10px]">{r.itemType}</Badge>
+                      <Badge variant="outline" className="text-xs">{r.itemType}</Badge>
                     </div>
                     {r.description && <p className="text-xs text-muted-foreground mt-1.5 whitespace-pre-wrap">{r.description}</p>}
-                    <p className="text-[10px] text-muted-foreground mt-2">{r.studentName} • {r.date}</p>
+                    <p className="text-xs text-muted-foreground mt-2">{r.studentName} • {r.date}</p>
                   </div>
                   <div className="flex flex-col gap-1 shrink-0">
                     <Button
-                      variant="ghost" size="icon" className="h-7 w-7 text-emerald-600 hover:bg-emerald-500/10"
+                      variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:bg-emerald-500/10"
                       onClick={() => toggleStatus(r)} disabled={busyId === r.id}
                       aria-label={resolved ? "إعادة فتح التبليغ" : "وضع علامة تم الحل"}
                       title={resolved ? "إعادة فتح التبليغ" : "وضع علامة تم الحل"}
                     >
                       {busyId === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : resolved ? <RotateCcw className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteReport(r)} aria-label="حذف التبليغ">
+                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteReport(r)} aria-label="حذف التبليغ">
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -2168,7 +2169,7 @@ function tgNextStep(s: TgStatus | null): string {
   if (!s.webhookSecretConfigured) return "٢) أضف TELEGRAM_WEBHOOK_SECRET (أي نص عشوائي طويل) في Vercel ثم Redeploy";
   if (!s.tablesReady) return "٣) نفّذ ملف download/supabase_telegram.sql في محرر SQL داخل Supabase";
   if (!s.webhook?.url) return "٤) اضغط «تفعيل الربط» بالأسفل";
-  return "كل شيء مضبوط ✅ — انشر منشوراً جديداً في قناة مربوطة، أو جرّب «اختبار الاستيراد» من قائمة القنوات";
+  return "كل شيء مضبوط — انشر منشوراً جديداً في قناة مربوطة، أو جرّب «اختبار الاستيراد» من قائمة القنوات";
 }
 
 const GEMINI_SAMPLE_UI = "امتحان محلول في التحليل الرياضي — السنة الأولى جامعي";
@@ -2215,7 +2216,7 @@ function TgStatusCard() {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
       setGeminiResult(data as GeminiTestResult);
-      if (data.aiClassified) toast.success("Gemini يعمل ✅");
+      if (data.aiClassified) toast.success("Gemini يعمل");
       else toast.info(data.message);
     } catch { toast.error("فشل الاتصال"); }
     finally { setTesting(false); }
@@ -2282,7 +2283,7 @@ function TgStatusCard() {
       ) : null}
 
       {/* الخطوة التالية المطلوبة — أول ما يقرؤه المشرف */}
-      <div className={`rounded-lg p-3 text-xs leading-relaxed border ${webhookUrl ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700" : "bg-primary/10 border-primary/30 text-primary"}`}>
+      <div className={`rounded-lg p-3 text-xs leading-relaxed border ${webhookUrl ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700 dark:text-emerald-300" : "bg-primary/10 border-primary/30 text-primary"}`}>
         <span className="font-bold">الخطوة التالية: </span>{nextStep}
       </div>
 
@@ -2298,7 +2299,7 @@ function TgStatusCard() {
       </div>
 
       {geminiResult ? (
-        <div className={`rounded-lg p-3 text-xs leading-relaxed border ${geminiResult.aiClassified ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700" : "bg-amber-500/10 border-amber-600/30 text-amber-700"}`}>
+        <div className={`rounded-lg p-3 text-xs leading-relaxed border ${geminiResult.aiClassified ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700 dark:text-emerald-300" : "bg-amber-500/10 border-amber-600/30 text-amber-700 dark:text-amber-300"}`}>
           <p className="font-bold flex items-center gap-1.5">
             {geminiResult.aiClassified ? <FlaskConical className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
             نتيجة فحص Gemini
@@ -2309,14 +2310,14 @@ function TgStatusCard() {
           ) : null}
           {geminiResult.models.length > 0 ? (
             <div className="mt-2">
-              <p className="text-[10px] text-muted-foreground mb-1">
+              <p className="text-xs text-muted-foreground mb-1">
                 نماذج متاحة لمفتاحك (لتغيير النموذج: GEMINI_MODEL في Vercel):
               </p>
               <div className="flex flex-wrap gap-1">
                 {geminiResult.models.slice(0, 10).map((m) => (
                   <span
                     key={m}
-                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${m === geminiResult.model ? "bg-primary/15 border-primary/40 text-primary font-bold" : "bg-muted/40 border-border/60"}`}
+                    className={`text-xs font-mono px-1.5 py-0.5 rounded border ${m === geminiResult.model ? "bg-primary/15 border-primary/40 text-primary font-bold" : "bg-muted/40 border-border/60"}`}
                   >
                     {m}
                   </span>
@@ -2337,7 +2338,7 @@ function TgStatusCard() {
         <p>٤. في <strong>Supabase</strong> ← SQL Editor ← نفّذ محتوى ملف <span dir="ltr" className="font-mono">download/supabase_telegram.sql</span> (من مستودع GitHub).</p>
         <p>٥. أضف البوت «مشرفاً» في كل قناة تريد استيرادها (تكفي صلاحية قراءة المنشورات).</p>
         <p>٦. هنا: «ربط قناة» ← أدخل <span dir="ltr" className="font-mono">@اسم_القناة</span> ← «تفعيل الربط» ← «اختبار الاستيراد».</p>
-        <p className="text-[10px] pt-1 border-t border-border/60">تُستورد المنشورات <strong>الجديدة فقط</strong> بعد الربط (اتفاقنا) — والمنشورات القديمة تبقى في تيليجرام كمرجع. الروابط المحفوظة تفتح الأصل مباشرة.</p>
+        <p className="text-xs pt-1 border-t border-border/60">تُستورد المنشورات <strong>الجديدة فقط</strong> بعد الربط (اتفاقنا) — والمنشورات القديمة تبقى في تيليجرام كمرجع. الروابط المحفوظة تفتح الأصل مباشرة.</p>
       </div>
     </Card>
   );
@@ -2349,7 +2350,7 @@ function StatusLine({ ok, label, okText, badText }: { ok: boolean; label: string
       {ok ? <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" /> : <XCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />}
       <div className="min-w-0">
         <p className="text-xs font-bold">{label}</p>
-        <p className={cn("text-[11px] mt-0.5 leading-relaxed break-all", ok ? "text-emerald-700" : "text-muted-foreground")}>{ok ? okText : badText}</p>
+        <p className={cn("text-xs mt-0.5 leading-relaxed break-all", ok ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground")}>{ok ? okText : badText}</p>
       </div>
     </div>
   );
@@ -2448,7 +2449,7 @@ function TgSourcesManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم ربط القناة ✅ — تأكد أن البوت مشرف فيها ليستورد المنشورات الجديدة");
+      toast.success("تم ربط القناة — تأكد أن البوت مشرف فيها ليستورد المنشورات الجديدة");
       setOpen(false); setHandle(""); setTitle(""); setModuleId(""); setCohortId(""); setSemester("");
       fetchSources();
     } catch { toast.error("فشل الاتصال"); }
@@ -2479,7 +2480,7 @@ function TgSourcesManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم تعديل المصدر ✅");
+      toast.success("تم تعديل المصدر");
       setEditSource(null);
       fetchSources();
     } catch { toast.error("فشل الاتصال"); }
@@ -2527,7 +2528,7 @@ function TgSourcesManager() {
       const data = await res.json();
       if (!res.ok) { setTestResult({ ok: false, message: data.error ?? "فشل الفحص" }); return; }
       setTestResult(data);
-      if (data.ok) toast.success("نجح الاستيراد التجريبي ✅");
+      if (data.ok) toast.success("نجح الاستيراد التجريبي");
       else toast.error(data.message ?? "تعذّر الفحص");
       fetchSources();
     } catch { setTestResult({ ok: false, message: "فشل الاتصال" }); }
@@ -2553,12 +2554,12 @@ function TgSourcesManager() {
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm" shrink-0><Plus className="w-4 h-4 ml-1" />ربط قناة</Button></DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>ربط قناة/مجموعة تيليجرام 🔗</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>ربط قناة/مجموعة تيليجرام</DialogTitle></DialogHeader>
             <div className="space-y-3 py-2">
               <div className="space-y-1.5">
                 <Label>رابط القناة أو @اسمها</Label>
                 <Input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="https://t.me/channel_name أو @channel_name" dir="ltr" />
-                <p className="text-[10px] text-muted-foreground">البوت يجب أن يكون مشرفاً في القناة قبل الربط.</p>
+                <p className="text-xs text-muted-foreground">البوت يجب أن يكون مشرفاً في القناة قبل الربط.</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1.5">
@@ -2688,10 +2689,10 @@ function TgSourcesManager() {
                   onChange={(e) => setTestText(e.target.value)}
                   placeholder="افتراضياً: سلسلة تمارين محلولة رقم 3 — التحليل الرياضي"
                 />
-                <p className="text-[10px] text-muted-foreground">اكتب عيّنة مما تنشره عادة لترى كيف سيُصنّف (مثال: امتحان الفيزياء — الدورة العادية).</p>
+                <p className="text-xs text-muted-foreground">اكتب عيّنة مما تنشره عادة لترى كيف سيُصنّف (مثال: امتحان الفيزياء — الدورة العادية).</p>
               </div>
               {testResult ? (
-                <div className={`rounded-lg p-3 text-xs leading-relaxed border ${testResult.ok ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700" : "bg-destructive/10 border-destructive/30 text-destructive"}`}>
+                <div className={`rounded-lg p-3 text-xs leading-relaxed border ${testResult.ok ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700 dark:text-emerald-300" : "bg-destructive/10 border-destructive/30 text-destructive"}`}>
                   <p className="font-bold flex items-center gap-1.5">
                     {testResult.ok ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
                     {testResult.ok ? "نجح الاستيراد التجريبي" : "تعذّر الفحص"}
@@ -2704,7 +2705,7 @@ function TgSourcesManager() {
                         النوع: <strong>{testResult.item.itemType}</strong> — التصنيف:{" "}
                         <strong>{testResult.aiClassified ? "Gemini (ذكاء اصطناعي)" : "محلي بالكلمات المفتاحية"}</strong>
                       </p>
-                      <p className="text-[10px] break-all" dir="ltr">{testResult.item.link}</p>
+                      <p className="text-xs break-all" dir="ltr">{testResult.item.link}</p>
                     </div>
                   ) : null}
                 </div>
@@ -2736,10 +2737,10 @@ function TgSourcesManager() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-sm">{s.titleAr}</span>
-                    <Badge variant="outline" className={`text-[10px] ${s.sourceType === "group" ? "border-teal-500/50 text-teal-700" : ""}`}>
+                    <Badge variant="outline" className={`text-xs ${s.sourceType === "group" ? "border-teal-500/50 text-teal-700" : ""}`}>
                       {s.sourceType === "group" ? "مجموعة فوج" : s.kind === "private" ? "قناة خاصة" : "قناة عامة"}
                     </Badge>
-                    {!s.isActive && <Badge variant="secondary" className="text-[10px]">الاستيراد موقوف</Badge>}
+                    {!s.isActive && <Badge variant="secondary" className="text-xs">الاستيراد موقوف</Badge>}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
                     {s.tgUsername ? <span dir="ltr" className="font-mono">@{s.tgUsername}</span> : <span dir="ltr" className="font-mono">{s.tgChannelId}</span>}
@@ -2749,18 +2750,18 @@ function TgSourcesManager() {
                   </div>
                 </div>
                 <div className="flex gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setTestSource(s); setTestText(""); setTestResult(null); }}
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setTestSource(s); setTestText(""); setTestResult(null); }}
                     aria-label="اختبار الاستيراد" title="اختبار الاستيراد — محاكاة منشور جديد">
                     <Zap className="w-3.5 h-3.5 text-amber-600" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleToggleActive(s)}
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleToggleActive(s)}
                     aria-label={s.isActive ? "إيقاف الاستيراد" : "استئناف الاستيراد"} title={s.isActive ? "إيقاف الاستيراد" : "استئناف الاستيراد"}>
                     <Power className={`w-3.5 h-3.5 ${s.isActive ? "text-emerald-600" : "text-muted-foreground"}`} />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(s)} aria-label="تعديل الربط">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(s)} aria-label="تعديل الربط">
                     <Pencil className="w-3.5 h-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => { setDeleteSource(s); setDeleteError(null); }} aria-label="فك الربط">
+                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => { setDeleteSource(s); setDeleteError(null); }} aria-label="فك الربط">
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -2856,7 +2857,7 @@ function TgItemsManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success(data.message ?? "أُعيد التصنيف ✅");
+      toast.success(data.message ?? "أُعيد التصنيف");
       fetchItems();
     } catch { toast.error("فشل الاتصال"); }
     finally { setBusyId(null); }
@@ -2878,7 +2879,7 @@ function TgItemsManager() {
         titleAr: editTitle.trim(),
         itemType: editType,
         moduleId: editModuleId ? parseInt(editModuleId) : null,
-      }, "تم تحديث المنشور ✅");
+      }, "تم تحديث المنشور");
       setEditItem(null);
     } finally { setEditSaving(false); }
   }
@@ -2927,7 +2928,7 @@ function TgItemsManager() {
                 </div>
               </div>
               {editItem.sourceTitle && (
-                <p className="text-[11px] text-muted-foreground">المصدر: {editItem.sourceTitle}</p>
+                <p className="text-xs text-muted-foreground">المصدر: {editItem.sourceTitle}</p>
               )}
             </div>
             <DialogFooter>
@@ -2964,10 +2965,10 @@ function TgItemsManager() {
                   <div className="flex items-center gap-2 flex-wrap">
                     {i.isFeatured && <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />}
                     <span className="font-bold text-sm">{i.titleAr || i.link}</span>
-                    <Badge variant="outline" className="text-[10px]">{i.itemType}</Badge>
-                    {i.aiClassified && <span title="صُنِّف آلياً" className="text-[10px] text-muted-foreground"><Sparkles className="w-3 h-3" /></span>}
-                    {i.isHidden && <Badge variant="secondary" className="text-[10px]">مخفي</Badge>}
-                    {i.origin === "manual" && <Badge variant="outline" className="text-[10px] border-teal-500/50 text-teal-700">يدوي</Badge>}
+                    <Badge variant="outline" className="text-xs">{i.itemType}</Badge>
+                    {i.aiClassified && <span title="صُنِّف آلياً" className="text-xs text-muted-foreground"><Sparkles className="w-3 h-3" /></span>}
+                    {i.isHidden && <Badge variant="secondary" className="text-xs">مخفي</Badge>}
+                    {i.origin === "manual" && <Badge variant="outline" className="text-xs border-teal-500/50 text-teal-700">يدوي</Badge>}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
                     {i.sourceTitle ? <span>{i.sourceTitle}</span> : <span>إضافة: {i.postedBy || "—"}</span>}
@@ -2978,25 +2979,25 @@ function TgItemsManager() {
                   </div>
                 </div>
                 <div className="flex gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" disabled={busyId === i.id}
+                  <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busyId === i.id}
                     onClick={() => handleReclassify(i.id)}
                     aria-label="إعادة تصنيف بالذكاء الاصطناعي" title="إعادة تصنيف بالذكاء الاصطناعي (Gemini) — يعيد العنوان والنوع ويستخرج نص الصورة">
                     {busyId === i.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-violet-500" />}
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" disabled={busyId === i.id}
+                  <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busyId === i.id}
                     onClick={() => patchItem(i.id, { isFeatured: !i.isFeatured }, i.isFeatured ? "أُلغى التثبيت" : "تم التثبيت في المقدمة ⭐")}
                     aria-label={i.isFeatured ? "إلغاء التثبيت" : "تثبيت في المقدمة"} title={i.isFeatured ? "إلغاء التثبيت" : "تثبيت في المقدمة"}>
                     <Star className={`w-3.5 h-3.5 ${i.isFeatured ? "text-amber-500 fill-amber-500" : ""}`} />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" disabled={busyId === i.id}
+                  <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busyId === i.id}
                     onClick={() => patchItem(i.id, { isHidden: !i.isHidden }, i.isHidden ? "أُظهر المنشور" : "أُخفي المنشور")}
                     aria-label={i.isHidden ? "إظهار" : "إخفاء"} title={i.isHidden ? "إظهار" : "إخفاء"}>
                     {i.isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(i)} aria-label="تنقيح">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(i)} aria-label="تنقيح">
                     <Pencil className="w-3.5 h-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteItem(i)} aria-label="حذف">
+                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteItem(i)} aria-label="حذف">
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>

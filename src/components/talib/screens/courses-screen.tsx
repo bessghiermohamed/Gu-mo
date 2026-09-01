@@ -76,7 +76,7 @@ export function TalibCoursesScreen() {
           <Send className="w-5 h-5" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-sm">دروس تيليجرام 📲</p>
+          <p className="font-bold text-sm">دروس تيليجرام</p>
           <p className="text-xs text-muted-foreground">محاضرات وتمارين القنوات مرتبة حسب المقياس — انقر للتصفّح</p>
         </div>
         <ChevronDown className="w-4 h-4 text-muted-foreground -rotate-90 shrink-0" />
@@ -174,13 +174,13 @@ function CoursesList({ courses, loading, onRefresh }: { courses: Course[]; loadi
                     <h3 className="font-bold text-sm">{course.name}</h3>
                     {/* fix M-5 (round 4): empty codes rendered empty pill badges */}
                     {course.code && (
-                      <Badge variant="outline" className="text-[10px]">{course.code}</Badge>
+                      <Badge variant="outline" className="text-xs">{course.code}</Badge>
                     )}
                   </div>
                   {course.professorName && <p className="text-xs text-muted-foreground">الأستاذ: {course.professorName}</p>}
-                  <div className="flex items-center gap-3 mt-2 text-[10px]">
+                  <div className="flex items-center gap-3 mt-2 text-xs">
                     <span className="text-muted-foreground">{t("courses.coefficient")}: {course.coefficient}</span>
-                    {course.category && <Badge variant="secondary" className="text-[10px]">{course.category}</Badge>}
+                    {course.category && <Badge variant="secondary" className="text-xs">{course.category}</Badge>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -197,7 +197,7 @@ function CoursesList({ courses, loading, onRefresh }: { courses: Course[]; loadi
                       </Button>
                     </DialogTrigger>
                     <DialogContent>
-                      <DialogHeader><DialogTitle>تبليغ عن خطأ في المقياس 🚩</DialogTitle></DialogHeader>
+                      <DialogHeader><DialogTitle>تبليغ عن خطأ في المقياس</DialogTitle></DialogHeader>
                       <div className="space-y-3 py-2">
                         <p className="text-xs text-muted-foreground">المقياس: <span className="font-bold">{course.name}</span></p>
                         <div className="space-y-1.5"><Label htmlFor="reason">وصف المشكلة</Label><Input id="reason" value={reportReason} onChange={(e) => setReportReason(e.target.value)} placeholder="مثال: معلومات الأستاذ غير صحيحة..." /></div>
@@ -228,13 +228,13 @@ function CoursesList({ courses, loading, onRefresh }: { courses: Course[]; loadi
                   >
                     <div className="mt-3 pt-3 border-t border-border/70 space-y-2">
                       <div>
-                        <p className="text-[10px] font-bold text-muted-foreground mb-1">وصف المقياس</p>
+                        <p className="text-xs font-bold text-muted-foreground mb-1">وصف المقياس</p>
                         <p className="text-xs text-foreground/90 leading-relaxed">
                           {course.description?.trim()
                             || "لا يوجد وصف متاح لهذا المقياس بعد — يمكن للمشرفين إضافته لاحقاً."}
                         </p>
                       </div>
-                      <Badge variant="outline" className="text-[10px]">
+                      <Badge variant="outline" className="text-xs">
                         السداسي: {course.semester === 2 ? "الثاني" : "الأول"}
                       </Badge>
                     </div>
@@ -289,7 +289,7 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
-      toast.success("تمت إضافة المقياس بنجاح ✅");
+      toast.success("تمت إضافة المقياس بنجاح");
       setOpen(false); setName(""); setCode(""); setProfessor(""); setCoefficient("2");
       onCreated();
     } finally { setSaving(false); }
@@ -301,7 +301,7 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
         <Button className="w-full mt-2"><Plus className="w-4 h-4 ml-2" />{t("courses.addCourse")}</Button>
       </DialogTrigger>
       <DialogContent>
-        <DialogHeader><DialogTitle>إضافة مقياس دراسي جديد 📚</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>إضافة مقياس دراسي جديد</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5"><Label htmlFor="year">السنة الدراسية</Label>
             <select id="year" value={yearId} onChange={(e) => setYearId(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
@@ -331,6 +331,6 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
 
 // Helper to avoid TypeScript error since we use t() in a nested component
 function t(key: string): string {
-  const map: Record<string, string> = { "courses.addCourse": "+ مقياس جديد", "courses.courseName": "اسم المقياس", "courses.courseCode": "رمز المقياس" };
+  const map: Record<string, string> = { "courses.addCourse": "مقياس جديد", "courses.courseName": "اسم المقياس", "courses.courseCode": "رمز المقياس" };
   return map[key] ?? key;
 }

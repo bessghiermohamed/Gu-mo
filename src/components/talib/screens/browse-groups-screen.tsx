@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import {
-  FolderTree, Users, Loader2, Send, CheckCircle2, Clock, XCircle, AlertCircle,
+  FolderTree, Users, Loader2, Send, CheckCircle2, Clock, XCircle, AlertCircle, Check,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -100,7 +100,7 @@ export function TalibBrowseGroupsScreen() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل إرسال الطلب"); return; }
-      toast.success("تم إرسال طلب الانضمام ✅ — بانتظار موافقة الممثل");
+      toast.success("تم إرسال طلب الانضمام — بانتظار موافقة الممثل");
       setMyRequests((prev) => [...prev, { id: data.request?.id ?? Date.now(), cohortId: requestCohort.id, status: "pending", cohortName: requestCohort.groupName }]);
       setRequestCohort(null); setRequestMessage("");
     } finally { setSending(false); }
@@ -164,7 +164,7 @@ export function TalibBrowseGroupsScreen() {
                     <h3 className="font-bold text-sm">{group.groupName}</h3>
                     {group.description && <p className="text-xs text-muted-foreground mt-0.5">{group.description}</p>}
                   </div>
-                  <Badge variant="outline" className="text-[10px]">{groupCohorts.length} أفواج</Badge>
+                  <Badge variant="outline" className="text-xs">{groupCohorts.length} أفواج</Badge>
                 </div>
                 {groupCohorts.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-3">لا توجد أفواج في هذه المجموعة بعد</p>
@@ -188,11 +188,11 @@ export function TalibBrowseGroupsScreen() {
                             <span>{cohort.groupName}</span>
                             {existingReq && <StatusIcon status={existingReq.status} />}
                           </div>
-                          {cohort.subGroup && <p className="text-[10px] text-muted-foreground mt-0.5">{cohort.subGroup}</p>}
-                          {existingReq?.status === "pending" && <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">قيد المراجعة</p>}
-                          {existingReq?.status === "approved" && <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">✓ تم القبول</p>}
-                          {existingReq?.status === "rejected" && <p className="text-[10px] text-muted-foreground mt-1">يمكنك إعادة الطلب</p>}
-                          {!existingReq && <p className="text-[10px] text-primary mt-1 flex items-center gap-1"><Send className="w-2.5 h-2.5" />إرسال طلب</p>}
+                          {cohort.subGroup && <p className="text-xs text-muted-foreground mt-0.5">{cohort.subGroup}</p>}
+                          {existingReq?.status === "pending" && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">قيد المراجعة</p>}
+                          {existingReq?.status === "approved" && <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1"><Check className="w-3 h-3" />تم القبول</p>}
+                          {existingReq?.status === "rejected" && <p className="text-xs text-muted-foreground mt-1">يمكنك إعادة الطلب</p>}
+                          {!existingReq && <p className="text-xs text-primary mt-1 flex items-center gap-1"><Send className="w-2.5 h-2.5" />إرسال طلب</p>}
                         </button>
                       );
                     })}
@@ -229,9 +229,9 @@ export function TalibBrowseGroupsScreen() {
 }
 
 function StatusBadge({ status }: { status: MyRequest["status"] }) {
-  if (status === "pending") return <Badge className="bg-amber-500 text-white text-[10px]"><Clock className="w-2.5 h-2.5 ml-1" />معلّق</Badge>;
-  if (status === "approved") return <Badge className="bg-emerald-500 text-white text-[10px]"><CheckCircle2 className="w-2.5 h-2.5 ml-1" />مقبول</Badge>;
-  if (status === "rejected") return <Badge variant="destructive" className="text-[10px]"><XCircle className="w-2.5 h-2.5 ml-1" />مرفوض</Badge>;
+  if (status === "pending") return <Badge className="bg-amber-500 text-white text-xs"><Clock className="w-2.5 h-2.5 ml-1" />معلّق</Badge>;
+  if (status === "approved") return <Badge className="bg-emerald-500 text-white text-xs"><CheckCircle2 className="w-2.5 h-2.5 ml-1" />مقبول</Badge>;
+  if (status === "rejected") return <Badge variant="destructive" className="text-xs"><XCircle className="w-2.5 h-2.5 ml-1" />مرفوض</Badge>;
   return null;
 }
 

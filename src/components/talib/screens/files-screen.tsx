@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { StickyNote, Download, Save, Plus, Trash2, FileText, BookMarked, ExternalLink, Loader2, Pencil } from "lucide-react";
+import { StickyNote, Plus, Trash2, BookMarked, ExternalLink, Loader2, Pencil } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -126,18 +126,10 @@ export function TalibFilesScreen() {
       </div>
 
       <Tabs defaultValue="library">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="library">
             <BookMarked className="w-3.5 h-3.5 ml-1.5" />
             المكتبة
-          </TabsTrigger>
-          <TabsTrigger value="saved">
-            <Save className="w-3.5 h-3.5 ml-1.5" />
-            {t("files.tabSaved")}
-          </TabsTrigger>
-          <TabsTrigger value="downloads">
-            <Download className="w-3.5 h-3.5 ml-1.5" />
-            {t("files.tabDownloads")}
           </TabsTrigger>
           <TabsTrigger value="notes">
             <StickyNote className="w-3.5 h-3.5 ml-1.5" />
@@ -176,7 +168,7 @@ export function TalibFilesScreen() {
               <h3 className="font-bold text-sm mb-1">المكتبة فارغة</h3>
               <p className="text-xs text-muted-foreground">
                 {canManage
-                  ? "أضف ملفات ومراجع لتخصصك بزر \"+ إضافة ملف\"."
+                  ? "أضف ملفات ومراجع لتخصصك بزر «إضافة ملف»."
                   : "ستظهر الكتب والملفات المرجعية هنا عند إضافتها من طرف الممثل أو الإدارة."}
               </p>
             </Card>
@@ -188,13 +180,13 @@ export function TalibFilesScreen() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-bold text-sm">{item.title}</h3>
-                        <Badge variant="outline" className="text-[10px]">{item.fileFormat}</Badge>
-                        <Badge variant="secondary" className="text-[10px]">{item.category}</Badge>
+                        <Badge variant="outline" className="text-xs">{item.fileFormat}</Badge>
+                        <Badge variant="secondary" className="text-xs">{item.category}</Badge>
                       </div>
                       {item.description && (
                         <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{item.description}</p>
                       )}
-                      <p className="text-[10px] text-muted-foreground mt-2">بواسطة: {item.author}</p>
+                      <p className="text-xs text-muted-foreground mt-2">بواسطة: {item.author}</p>
                     </div>
                     {item.downloadUrl && (
                       <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
@@ -203,10 +195,10 @@ export function TalibFilesScreen() {
                     )}
                     {canManage && (
                       <div className="flex flex-col gap-1 shrink-0">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditItem(item)} aria-label="تعديل الملف">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditItem(item)} aria-label="تعديل الملف">
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setDeleteItem(item)} aria-label="حذف الملف">
+                        <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteItem(item)} aria-label="حذف الملف">
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
@@ -216,26 +208,6 @@ export function TalibFilesScreen() {
               ))}
             </div>
           )}
-        </TabsContent>
-
-        <TabsContent value="saved" className="mt-4">
-          <Card className="p-8 text-center bg-muted/30 border-dashed">
-            <FileText className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <h3 className="font-bold text-sm mb-1">{t("files.noFiles")}</h3>
-            <p className="text-xs text-muted-foreground">
-              المحاضرات التي تقرؤها ستحفظ هنا تلقائياً للوصول دون اتصال.
-            </p>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="downloads" className="mt-4">
-          <Card className="p-8 text-center bg-muted/30 border-dashed">
-            <Download className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <h3 className="font-bold text-sm mb-1">لا توجد تحميلات</h3>
-            <p className="text-xs text-muted-foreground">
-              ملفات PDF التي تحمّلها ستظهر هنا.
-            </p>
-          </Card>
         </TabsContent>
 
         <TabsContent value="notes" className="mt-4 space-y-4">
@@ -277,8 +249,8 @@ export function TalibFilesScreen() {
               {notes.map((note) => (
                 <Card
                   key={note.id}
-                  className="p-4 border-l-4"
-                  style={{ borderLeftColor: note.color }}
+                  className="p-4 border-s-4"
+                  style={{ borderInlineStartColor: "var(--primary)" }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -332,7 +304,7 @@ function AddLibraryItemDialog({ onCreated }: { onCreated: () => void }) {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
-      toast.success("تمت إضافة الملف للمكتبة ✅");
+      toast.success("تمت إضافة الملف للمكتبة");
       setOpen(false); setTitle(""); setAuthor(""); setDownloadUrl(""); setDescription("");
       onCreated();
     } finally { setSaving(false); }
@@ -344,7 +316,7 @@ function AddLibraryItemDialog({ onCreated }: { onCreated: () => void }) {
         <Button className="w-full"><Plus className="w-4 h-4 ml-1" />إضافة ملف</Button>
       </DialogTrigger>
       <DialogContent>
-        <DialogHeader><DialogTitle>إضافة ملف/مرجع للمكتبة 📚</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>إضافة ملف/مرجع للمكتبة</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
             <Label htmlFor="libTitle">العنوان</Label>
@@ -420,7 +392,7 @@ function EditLibraryItemDialog({ item, onClose, onSaved }: { item: LibraryItem; 
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
-      toast.success("تم تعديل الملف ✅");
+      toast.success("تم تعديل الملف");
       onSaved();
     } finally { setSaving(false); }
   }

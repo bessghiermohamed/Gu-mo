@@ -73,13 +73,13 @@ const TYPE_FILTERS = [
 ];
 
 const TYPE_COLORS: Record<string, string> = {
-  "محاضرة": "bg-emerald-500/10 text-emerald-700 border-emerald-500/30",
-  "أعمال موجهة TD": "bg-amber-500/10 text-amber-700 border-amber-500/30",
-  "تمارين": "bg-teal-500/10 text-teal-700 border-teal-500/30",
-  "امتحان": "bg-rose-500/10 text-rose-700 border-rose-500/30",
-  "ملخص": "bg-violet-500/10 text-violet-700 border-violet-500/30",
-  "كتاب": "bg-cyan-500/10 text-cyan-700 border-cyan-500/30",
-  "إعلان": "bg-orange-500/10 text-orange-700 border-orange-500/30",
+  "محاضرة": "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+  "أعمال موجهة TD": "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30",
+  "تمارين": "bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30",
+  "امتحان": "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30",
+  "ملخص": "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30",
+  "كتاب": "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/30",
+  "إعلان": "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/30",
   "عام": "bg-muted text-muted-foreground border-border",
 };
 
@@ -238,7 +238,7 @@ export function TalibTelegramScreen() {
         </TabsList>
 
         <TabsContent value="library" className="mt-4 space-y-3">
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 right-3 text-muted-foreground" />
               <Input
@@ -252,7 +252,7 @@ export function TalibTelegramScreen() {
             <select
               value={courseId}
               onChange={(e) => setCourseId(e.target.value)}
-              className={cn(selectCls, "w-40 shrink-0")}
+              className={cn(selectCls, "w-full sm:w-40 shrink-0")}
               aria-label="تصفية حسب المقياس"
             >
               <option value="">كل المقاييس</option>
@@ -349,7 +349,7 @@ function LibraryList({ items, loading, setup, canManage, onRefresh }: {
               <Send className="w-4 h-4 ml-1" />
               الانتقال إلى إعدادات تيليجرام
             </Button>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               من لوحة الإشراف ← تبويب «تيليجرام»: ربط القنوات، تفعيل الاستيراد، واختبار الخط كاملاً
             </p>
           </div>
@@ -421,21 +421,21 @@ function ItemCard({ item, images, showCourse, currentUserName, onRefresh }: {
               <h3 className="font-bold text-sm leading-snug">{item.titleAr || item.fileName || "منشور"}</h3>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <Badge variant="outline" className={cn("text-[10px] border", TYPE_COLORS[item.itemType] ?? TYPE_COLORS["عام"])}>
+              <Badge variant="outline" className={cn("text-xs border", TYPE_COLORS[item.itemType] ?? TYPE_COLORS["عام"])}>
                 {item.itemType}
               </Badge>
-              <Badge variant="outline" className="text-[10px] gap-1">
+              <Badge variant="outline" className="text-xs gap-1">
                 {kindIcon(item.kind, "w-3 h-3")}
                 {kindLabel(item.kind)}
               </Badge>
               {images.length > 1 && (
-                <Badge variant="outline" className="text-[10px]">ألبوم • {images.length} صور</Badge>
+                <Badge variant="outline" className="text-xs">ألبوم • {images.length} صور</Badge>
               )}
               {showCourse && item.moduleName && (
-                <Badge variant="secondary" className="text-[10px]">{item.moduleName}</Badge>
+                <Badge variant="secondary" className="text-xs">{item.moduleName}</Badge>
               )}
               {item.aiClassified && (
-                <span className="text-[10px] text-muted-foreground flex items-center gap-0.5" title="صُنِّف آلياً عبر Gemini">
+                <span className="text-xs text-muted-foreground flex items-center gap-0.5" title="صُنِّف آلياً عبر Gemini" role="img" aria-label="صُنِّف آلياً عبر Gemini">
                   <Sparkles className="w-3 h-3" />
                 </span>
               )}
@@ -443,7 +443,7 @@ function ItemCard({ item, images, showCourse, currentUserName, onRefresh }: {
             {item.captionText && (
               <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2 leading-relaxed">{item.captionText}</p>
             )}
-            <p className="text-[10px] text-muted-foreground mt-2 flex items-center gap-2 flex-wrap">
+            <p className="text-xs text-muted-foreground mt-2 flex items-center gap-2 flex-wrap">
               {item.sourceTitle && <span>{item.sourceTitle}</span>}
               {item.postedBy && <span>• {item.postedBy}</span>}
               {item.postedAt && <span>• {formatDate(item.postedAt)}</span>}
@@ -630,7 +630,7 @@ function AddManualItemDialog({ open, setOpen, courses, onCreated }: {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشلت المشاركة"); return; }
-      toast.success("تمت المشاركة مع الفوج ✅");
+      toast.success("تمت المشاركة مع الفوج");
       setOpen(false);
       setTitle(""); setLink(""); setItemType("عام"); setModuleId("");
       onCreated();
@@ -644,7 +644,7 @@ function AddManualItemDialog({ open, setOpen, courses, onCreated }: {
         <Button className="w-full"><Plus className="w-4 h-4 ml-2" />مشاركة محتوى مع الفوج</Button>
       </DialogTrigger>
       <DialogContent>
-        <DialogHeader><DialogTitle>مشاركة محتوى في مساحة الفوج 📤</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>مشاركة محتوى في مساحة الفوج</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
             <Label htmlFor="tg-title">العنوان</Label>
@@ -653,7 +653,7 @@ function AddManualItemDialog({ open, setOpen, courses, onCreated }: {
           <div className="space-y-1.5">
             <Label htmlFor="tg-link">الرابط</Label>
             <Input id="tg-link" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://t.me/… (رابط المنشور أو الملف)" dir="ltr" />
-            <p className="text-[10px] text-muted-foreground">الرابط يفتح الأصل في تيليجرام أو أي مصدر آخر.</p>
+            <p className="text-xs text-muted-foreground">الرابط يفتح الأصل في تيليجرام أو أي مصدر آخر.</p>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">

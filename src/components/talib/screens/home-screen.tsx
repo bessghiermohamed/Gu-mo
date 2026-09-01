@@ -10,12 +10,11 @@ import {
   FolderOpen,
   Megaphone,
   Users,
-  FileText,
   TrendingUp,
-  Clock,
   BookMarked,
   CheckSquare,
   Send,
+  ChevronLeft,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +22,6 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type ScreenRoute } from "@/app/page";
-import { cn } from "@/lib/utils";
 
 interface QuickAction {
   title: string;
@@ -40,6 +38,15 @@ export function TalibHomeScreen() {
   const { navigate } = useShell();
 
   const greeting = user?.fullName || t("home.greetingGuest");
+
+  // Real module count for the hero stats (critique: hardcoded "0")
+  const [moduleCount, setModuleCount] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    fetch("/api/courses", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setModuleCount((d.courses ?? []).length))
+      .catch(() => setModuleCount(null));
+  }, []);
 
   // Compute quick actions (with shortened names per fix "ج")
   const actions: QuickAction[] = [
@@ -99,13 +106,6 @@ export function TalibHomeScreen() {
       route: "GROUP",
       delay: 0.35,
     },
-    {
-      title: "دروس تيليجرام",
-      subtitle: "قنوات ومساحة الفوج",
-      icon: <Send className="w-6 h-6" />,
-      route: "TELEGRAM",
-      delay: 0.4,
-    },
   ];
 
   return (
@@ -148,7 +148,8 @@ export function TalibHomeScreen() {
             </div>
             <div className="flex items-center gap-1.5">
               <BookOpen className="w-3.5 h-3.5" />
-              <span className="font-bold">0 {t("home.modulesCount")}</span>
+              <span className="opacity-90">{t("home.modulesCount")}:</span>
+              <span className="font-bold">{moduleCount ?? "…"}</span>
             </div>
           </div>
         </div>
@@ -172,7 +173,7 @@ export function TalibHomeScreen() {
                   <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
                     {action.icon}
                   </div>
-                  <ChevronLeftIcon />
+                  <ChevronLeft className="w-4 h-4 text-muted-foreground/40 group-hover:text-primary transition-colors" />
                 </div>
                 <h3 className="font-bold text-sm">{action.title}</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -184,7 +185,29 @@ export function TalibHomeScreen() {
         </div>
       </section>
 
-      {/* Empty state hint */}
+      {/* Featured: Telegram lessons — full-width card (fixes the orphan 9th tile) */}
+      <motion.button
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.3, delay: 0.4 }}
+        onClick={() => navigate("TELEGRAM")}
+        className="group w-full text-right"
+        aria-label="دروس تيليجرام"
+      >
+        <Card className="p-4 flex items-center gap-3 bg-primary/5 border-primary/20 hover:border-primary/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+          <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0 group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+            <Send className="w-6 h-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-sm">دروس تيليجرام</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">قنوات ومساحة الفوج — محاضرات وتمارين مرتبة حسب المقياس</p>
+          </div>
+          <ChevronLeft className="w-4 h-4 text-muted-foreground/40 group-hover:text-primary transition-colors shrink-0" />
+        </Card>
+      </motion.button>
+
+      {/* Onboarding hint — only for users whose profile is not yet linked (was permanent) */}
+      {user?.assignedSpecialtyId == null && (
       <Card className="p-5 bg-muted/30 border-dashed">
         <div className="flex items-start gap-3">
           <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -207,20 +230,7 @@ export function TalibHomeScreen() {
           </div>
         </div>
       </Card>
+      )}
     </div>
-  );
-}
-
-function ChevronLeftIcon() {
-  return (
-    <svg
-      className="w-4 h-4 text-muted-foreground/40 group-hover:text-primary transition-colors"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <path d="M15 18l-6-6 6-6" />
-    </svg>
   );
 }

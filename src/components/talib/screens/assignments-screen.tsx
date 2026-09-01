@@ -34,6 +34,16 @@ interface CourseOption {
   id: number; name: string; code: string;
 }
 
+// Arabic (Algerian) date display — was raw ISO (critique §6)
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("ar-DZ", { day: "numeric", month: "long", year: "numeric" });
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
 export function TalibAssignmentsScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
@@ -66,7 +76,7 @@ export function TalibAssignmentsScreen() {
     const stored = JSON.parse(localStorage.getItem("talib-assignments-completed") || "{}");
     const updated = { ...stored, [id]: !stored[id] };
     localStorage.setItem("talib-assignments-completed", JSON.stringify(updated));
-    toast.success(updated[id] ? "تم الإنجاز ✅" : "أُلغي الإنجاز");
+    toast.success(updated[id] ? "تم الإنجاز" : "أُلغي الإنجاز");
   }
 
   // round 6: delete an assignment (a wrong due date / title could never be
@@ -133,17 +143,17 @@ export function TalibAssignmentsScreen() {
                 <div className="flex-1 min-w-0">
                   <h3 className={`font-bold text-sm ${a.isCompleted ? "line-through text-muted-foreground" : ""}`}>{a.title}</h3>
                   {a.description && <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{a.description}</p>}
-                  <div className="flex items-center gap-2 mt-2 text-[10px] text-muted-foreground">
-                    <Calendar className="w-3 h-3" /><span>التسليم: {a.dueDate}</span>
+                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                    <Calendar className="w-3 h-3" /><span>التسليم: {formatDate(a.dueDate)}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   {canManage && (
                     <>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setEditAssignment(a)} aria-label="تعديل الواجب">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setEditAssignment(a)} aria-label="تعديل الواجب">
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-7 w-7 shrink-0" onClick={() => setDeleteAssignment(a)} aria-label="حذف الواجب">
+                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8 shrink-0" onClick={() => setDeleteAssignment(a)} aria-label="حذف الواجب">
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </>
@@ -195,7 +205,7 @@ function AddAssignmentDialog({ onCreated }: { onCreated: () => void }) {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
-      toast.success("تمت إضافة الواجب بنجاح ✅");
+      toast.success("تمت إضافة الواجب بنجاح");
       setOpen(false); setTitle(""); setDueDate(""); setDescription("");
       onCreated();
     } finally { setSaving(false); }
@@ -204,10 +214,10 @@ function AddAssignmentDialog({ onCreated }: { onCreated: () => void }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="w-full"><Plus className="w-4 h-4 ml-2" />+ واجب جديد</Button>
+        <Button className="w-full"><Plus className="w-4 h-4 ml-2" />واجب جديد</Button>
       </DialogTrigger>
       <DialogContent>
-        <DialogHeader><DialogTitle>إضافة واجب / تكليف جديد 📝</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>إضافة واجب / تكليف جديد</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
             <Label htmlFor="course">المقياس</Label>
@@ -252,7 +262,7 @@ function EditAssignmentDialog({ assignment, onClose, onSaved }: { assignment: As
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
-      toast.success("تم تعديل الواجب ✅");
+      toast.success("تم تعديل الواجب");
       onSaved();
     } finally { setSaving(false); }
   }
@@ -290,7 +300,7 @@ function ReportAssignmentDialog({ title }: { title: string }) {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الإرسال"); return; }
-      toast.success("تم إرسال التبليغ بنجاح 🚩");
+      toast.success("تم إرسال التبليغ بنجاح");
       setOpen(false); setReason("");
     } finally { setSaving(false); }
   }
@@ -303,7 +313,7 @@ function ReportAssignmentDialog({ title }: { title: string }) {
         </Button>
       </DialogTrigger>
       <DialogContent>
-        <DialogHeader><DialogTitle>تبليغ عن خطأ في التكليف 🚩</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>تبليغ عن خطأ في التكليف</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
           <p className="text-xs text-muted-foreground">الواجب: <span className="font-bold">{title}</span></p>
           <div className="space-y-1.5"><Label htmlFor="reason">وصف المشكلة</Label><Textarea id="reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="مثال: تاريخ التسليم غير صحيح..." rows={3} /></div>

@@ -38,6 +38,16 @@ interface Course {
   code: string;
 }
 
+// Arabic (Algerian) date display — was raw ISO "2026-01-15" (critique §6)
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("ar-DZ", { day: "numeric", month: "long", year: "numeric" });
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
 export function TalibExamsScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
@@ -153,10 +163,10 @@ function ExamsList({ exams, loading, canManage, onDelete, onEdit, emptyText }: {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <h3 className="font-bold text-sm">{exam.title}</h3>
-                <Badge variant="secondary" className="text-[10px]"><BookOpen className="w-3 h-3 ml-1" />{exam.moduleName}</Badge>
+                <Badge variant="secondary" className="text-xs"><BookOpen className="w-3 h-3 ml-1" />{exam.moduleName}</Badge>
               </div>
-              <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground flex-wrap">
-                <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{exam.examDate}</span>
+              <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
+                <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{formatDate(exam.examDate)}</span>
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{exam.time}</span>
                 <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{exam.room}</span>
                 <span>المعامل: {exam.coefficient}</span>
@@ -164,10 +174,10 @@ function ExamsList({ exams, loading, canManage, onDelete, onEdit, emptyText }: {
             </div>
             {canManage && (
               <div className="flex flex-col gap-1 shrink-0">
-                <Button variant="ghost" size="icon" className="shrink-0 h-7 w-7" onClick={() => onEdit(exam)} aria-label="تعديل">
+                <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8" onClick={() => onEdit(exam)} aria-label="تعديل">
                   <Pencil className="w-3.5 h-3.5" />
                 </Button>
-                <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 shrink-0 h-7 w-7" onClick={() => onDelete(exam)} aria-label="حذف">
+                <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 shrink-0 h-8 w-8" onClick={() => onDelete(exam)} aria-label="حذف">
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>
@@ -217,7 +227,7 @@ function AddExamDialog({ onCreated }: { onCreated: () => void }) {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
-      toast.success("تمت إضافة الاختبار ✅");
+      toast.success("تمت إضافة الاختبار");
       setOpen(false); setTitle(""); setExamDate(""); setTime("09:00"); setRoom("");
       onCreated();
     } finally { setSaving(false); }
@@ -229,7 +239,7 @@ function AddExamDialog({ onCreated }: { onCreated: () => void }) {
         <Button><Plus className="w-4 h-4 ml-1" />اختبار</Button>
       </DialogTrigger>
       <DialogContent>
-        <DialogHeader><DialogTitle>إضافة اختبار جديد 📝</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>إضافة اختبار جديد</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
             <Label>المقياس</Label>
@@ -309,7 +319,7 @@ function EditExamDialog({ exam, onClose, onSaved }: { exam: Exam; onClose: () =>
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
-      toast.success("تم تعديل الاختبار ✅");
+      toast.success("تم تعديل الاختبار");
       onSaved();
     } catch { toast.error("فشل الاتصال"); }
     finally { setSaving(false); }

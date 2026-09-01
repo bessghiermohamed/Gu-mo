@@ -150,14 +150,14 @@ export function TalibScheduleScreen() {
                           className="flex items-center gap-3 p-2 rounded-lg bg-muted/40"
                         >
                           <div className="flex flex-col items-center justify-center w-14 h-14 rounded-lg bg-primary/10 text-primary shrink-0">
-                            <span className="text-[10px]">يبدأ</span>
+                            <span className="text-xs">يبدأ</span>
                             <span className="text-xs font-bold">{item.startTime}</span>
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="font-bold text-sm truncate">
                               {item.moduleName}
                             </div>
-                            <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5 flex-wrap">
+                            <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5 flex-wrap">
                               <span>{item.type}</span>
                               {item.room && (
                                 <span className="flex items-center gap-0.5">
@@ -173,7 +173,7 @@ export function TalibScheduleScreen() {
                               )}
                             </div>
                             {item.endTime && (
-                              <div className="text-[10px] text-muted-foreground mt-0.5">
+                              <div className="text-xs text-muted-foreground mt-0.5">
                                 ينتهي: {item.endTime}
                               </div>
                             )}
@@ -183,7 +183,7 @@ export function TalibScheduleScreen() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="text-muted-foreground hover:text-primary h-7 w-7"
+                                className="text-muted-foreground hover:text-primary h-8 w-8"
                                 onClick={() => setItemToEdit(item)}
                                 aria-label="تعديل الحصة"
                               >
@@ -192,7 +192,7 @@ export function TalibScheduleScreen() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="text-muted-foreground hover:text-destructive h-7 w-7"
+                                className="text-muted-foreground hover:text-destructive h-8 w-8"
                                 onClick={() => setItemToDelete(item)}
                                 aria-label="حذف الحصة"
                               >
@@ -281,7 +281,7 @@ function AddSlotDialog({
         toast.error(data.error ?? "فشل الحفظ");
         return;
       }
-      toast.success("تمت إضافة الحصة بنجاح ✅");
+      toast.success("تمت إضافة الحصة بنجاح");
       onOpenChange(false);
       setStartTime("");
       setEndTime("");
@@ -304,7 +304,7 @@ function AddSlotDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>إضافة حصة جديدة 📅</DialogTitle>
+          <DialogTitle>إضافة حصة جديدة</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
@@ -410,7 +410,7 @@ function ImageSchedule() {
     const reader = new FileReader();
     reader.onload = () => {
       setImageUrl(reader.result as string);
-      toast.success("تم تحميل الصورة (محلياً). ستحفظ في حسابك.");
+      toast.success("تم تحميل الصورة — تُعرض على هذا الجهاز أثناء الجلسة الحالية.");
     };
     reader.readAsDataURL(file);
   }
@@ -493,7 +493,7 @@ function EditSlotDialog({ item, onClose, onSaved }: { item: ScheduleItem; onClos
         toast.error(data.error ?? "فشل الحفظ");
         return;
       }
-      toast.success("تم تعديل الحصة ✅");
+      toast.success("تم تعديل الحصة");
       onSaved();
     } catch {
       toast.error("فشل الاتصال");

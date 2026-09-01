@@ -272,7 +272,7 @@ function ShellInner() {
                   {unreadCount > 0 && (
                     <Badge
                       variant="destructive"
-                      className="absolute -top-1 -right-1 h-5 min-w-5 px-1 text-[10px] flex items-center justify-center"
+                      className="absolute -top-1 -right-1 h-5 min-w-5 px-1 text-xs flex items-center justify-center"
                     >
                       {unreadCount > 9 ? "9+" : unreadCount}
                     </Badge>
@@ -303,7 +303,7 @@ function ShellInner() {
                 >
                   <div className="flex items-center justify-center gap-2 text-sm">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                    <span className="text-primary-foreground/80">
+                    <span className="text-primary font-medium">
                       {loadingMessage || t("common.loading")}
                     </span>
                   </div>

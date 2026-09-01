@@ -4,8 +4,10 @@ import * as React from "react";
 import { Users, UserCheck, GraduationCap, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
+import { useShell } from "@/app/page";
 
 interface GroupMember {
   id: number;
@@ -17,6 +19,7 @@ interface GroupMember {
 export function TalibGroupScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
+  const { navigate } = useShell();
   const [members, setMembers] = React.useState<GroupMember[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -56,13 +59,21 @@ export function TalibGroupScreen() {
             </div>
             <div className="flex-1">
               <h3 className="font-bold text-sm mb-1 text-amber-700 dark:text-amber-300">
-                📌 أنت مسجل بحالة (بدون فوج)
+                أنت مسجل بحالة (بدون فوج)
               </h3>
               <p className="text-xs text-amber-700/80 dark:text-amber-300/80 leading-relaxed">
                 سيتم إلحاقك بفوجك الدراسي من قِبل ممثل الدفعة أو مشرف التخصص عبر
                 لوحة الإدارة. يمكنك تصفح محتوى تخصصك الكامل حتى يتم إلحاقك. لتسريع
-                العملية، اذهب إلى «حسابي» → «تصفح المجموعات والأفواج» وأرسل طلب انضمام.
+                العملية، أرسل طلب انضمام من زر «تصفح المجموعات والأفواج» بالأسفل.
               </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3 border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10"
+                onClick={() => navigate("BROWSE_GROUPS")}
+              >
+                تصفح المجموعات والأفواج
+              </Button>
             </div>
           </div>
         </Card>
@@ -89,10 +100,10 @@ export function TalibGroupScreen() {
                   <UserCheck className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-[10px] text-muted-foreground">ممثل الفوج</p>
+                  <p className="text-xs text-muted-foreground">ممثل الفوج</p>
                   <p className="font-bold text-sm">{representative.fullName}</p>
                 </div>
-                <Badge variant="secondary" className="text-[10px]">
+                <Badge variant="secondary" className="text-xs">
                   {t(`roles.${representative.role}`)}
                 </Badge>
               </div>
@@ -118,7 +129,7 @@ export function TalibGroupScreen() {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{m.fullName}</p>
                       {m.role !== "STUDENT" && (
-                        <Badge variant="secondary" className="text-[10px] mt-0.5">
+                        <Badge variant="secondary" className="text-xs mt-0.5">
                           {t(`roles.${m.role}`)}
                         </Badge>
                       )}

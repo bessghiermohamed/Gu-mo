@@ -62,7 +62,7 @@ export function TalibBottomNavBar({ currentScreen, onNavigate }: Props) {
       className="fixed bottom-0 left-0 right-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border"
       aria-label="Main navigation"
     >
-      <div className="mx-auto max-w-5xl px-2 py-2 flex items-center justify-around gap-1">
+      <div className="mx-auto max-w-5xl px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex items-center justify-around gap-1">
         {visibleItems.map((item) => {
           const active = currentScreen === item.route;
           return (
@@ -86,7 +86,7 @@ export function TalibBottomNavBar({ currentScreen, onNavigate }: Props) {
               </div>
               <span
                 className={cn(
-                  "text-[11px] font-medium leading-tight",
+                  "text-xs font-medium leading-tight",
                   active ? "text-primary font-bold" : "text-muted-foreground"
                 )}
               >

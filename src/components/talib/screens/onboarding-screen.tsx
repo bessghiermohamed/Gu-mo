@@ -252,9 +252,16 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
                             : "border-border hover:border-primary/50"
                         }`}
                       >
-                        <div className="font-bold text-sm">{inst.nameAr}</div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {inst.type} • {inst.city}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-bold text-sm">{inst.nameAr}</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {inst.type} • {inst.city}
+                            </div>
+                          </div>
+                          {selectedInstitution === inst.id && (
+                            <Check className="w-4 h-4 text-primary shrink-0" aria-label="مُحدد" />
+                          )}
                         </div>
                       </button>
                     ))
@@ -286,9 +293,16 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
                             : "border-border hover:border-primary/50"
                         }`}
                       >
-                        <div className="font-bold text-sm">{sp.nameAr}</div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {sp.faculty} • {sp.code}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-bold text-sm">{sp.nameAr}</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {sp.faculty} • {sp.code}
+                            </div>
+                          </div>
+                          {selectedSpecialty === sp.id && (
+                            <Check className="w-4 h-4 text-primary shrink-0" aria-label="مُحدد" />
+                          )}
                         </div>
                       </button>
                     ))
@@ -320,9 +334,16 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
                             : "border-border hover:border-primary/50"
                         }`}
                       >
-                        <div className="font-bold text-sm">{track.trackNameAr}</div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {track.code}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-bold text-sm">{track.trackNameAr}</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {track.code}
+                            </div>
+                          </div>
+                          {selectedTrack === track.id && (
+                            <Check className="w-4 h-4 text-primary shrink-0" aria-label="مُحدد" />
+                          )}
                         </div>
                       </button>
                     ))
@@ -344,13 +365,14 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
                         key={y.id}
                         type="button"
                         onClick={() => setSelectedYear(y.id)}
-                        className={`p-3 rounded-xl border-2 transition-all text-sm font-bold ${
+                        className={`p-3 rounded-xl border-2 transition-all text-sm font-bold flex items-center justify-between gap-2 ${
                           selectedYear === y.id
                             ? "border-primary bg-primary/5 text-primary"
                             : "border-border hover:border-primary/50"
                         }`}
                       >
-                        {y.yearName}
+                        <span>{y.yearName}</span>
+                        {selectedYear === y.id && <Check className="w-4 h-4 shrink-0" aria-label="مُحدد" />}
                       </button>
                     ))}
                   </div>

@@ -126,7 +126,7 @@ export function TalibAnnouncementsScreen() {
           <h3 className="font-bold text-sm mb-1">{t("announcements.noAnnouncements")}</h3>
           <p className="text-xs text-muted-foreground">
             {canPublish
-              ? "لا توجد إعلانات بعد — أضف أول إعلان بزر \"+ إعلان\"."
+              ? "لا توجد إعلانات بعد — أضف أول إعلان بزر «إعلان»."
               : "ستظهر الإعلانات الجديدة هنا عند نشرها من طرف الممثل أو الإدارة."}
           </p>
         </Card>
@@ -145,10 +145,10 @@ export function TalibAnnouncementsScreen() {
                   <div className="flex items-center gap-1">
                     {manage && (
                       <>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditAnn(ann)} aria-label="تعديل الإعلان">
+                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditAnn(ann)} aria-label="تعديل الإعلان">
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
-                        <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => setAnnToDelete(ann)} aria-label="حذف الإعلان">
+                        <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setAnnToDelete(ann)} aria-label="حذف الإعلان">
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </>
@@ -192,7 +192,7 @@ function AddAnnouncementDialog({ onCreated }: { onCreated: () => void }) {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل النشر"); return; }
-      toast.success("تم نشر الإعلان ✅");
+      toast.success("تم نشر الإعلان");
       setOpen(false); setTitle(""); setContent(""); setUrgency("عام");
       onCreated();
     } finally { setSaving(false); }
@@ -204,7 +204,7 @@ function AddAnnouncementDialog({ onCreated }: { onCreated: () => void }) {
         <Button><Plus className="w-4 h-4 ml-1" />إعلان</Button>
       </DialogTrigger>
       <DialogContent>
-        <DialogHeader><DialogTitle>نشر إعلان جديد 📢</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>نشر إعلان جديد</DialogTitle></DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
             <Label htmlFor="annTitle">العنوان</Label>
@@ -217,7 +217,7 @@ function AddAnnouncementDialog({ onCreated }: { onCreated: () => void }) {
           <div className="space-y-1.5">
             <Label>الأهمية</Label>
             <div className="grid grid-cols-3 gap-2">
-              {[{ k: "عام", l: "عام" }, { k: "هام", l: "هام" }, { k: "عاجل", l: "عاجل 🔴" }].map((o) => (
+              {[{ k: "عام", l: "عام" }, { k: "هام", l: "هام" }, { k: "عاجل", l: "عاجل" }].map((o) => (
                 <button key={o.k} type="button" onClick={() => setUrgency(o.k)}
                   className={`py-2 rounded-lg text-xs font-bold border-2 ${urgency === o.k ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}>
                   {o.l}
@@ -255,7 +255,7 @@ function EditAnnouncementDialog({ announcement, onClose, onSaved }: {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
-      toast.success("تم تعديل الإعلان ✅");
+      toast.success("تم تعديل الإعلان");
       onSaved();
     } catch { toast.error("فشل الاتصال"); }
     finally { setSaving(false); }
@@ -277,7 +277,7 @@ function EditAnnouncementDialog({ announcement, onClose, onSaved }: {
           <div className="space-y-1.5">
             <Label>الأهمية</Label>
             <div className="grid grid-cols-3 gap-2">
-              {[{ k: "عام", l: "عام" }, { k: "هام", l: "هام" }, { k: "عاجل", l: "عاجل 🔴" }].map((o) => (
+              {[{ k: "عام", l: "عام" }, { k: "هام", l: "هام" }, { k: "عاجل", l: "عاجل" }].map((o) => (
                 <button key={o.k} type="button" onClick={() => setUrgency(o.k)}
                   className={`py-2 rounded-lg text-xs font-bold border-2 ${urgency === o.k ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}>
                   {o.l}

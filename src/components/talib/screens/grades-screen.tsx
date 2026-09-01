@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Calculator, TrendingUp, Award, Target } from "lucide-react";
+import { Calculator, TrendingUp, Award, Target, Plus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,9 +20,30 @@ interface GradeRow {
 
 export function TalibGradesScreen() {
   const { t } = useI18n();
+  // Rows persist locally per device (critique: GPA evaporated on refresh)
   const [grades, setGrades] = React.useState<GradeRow[]>([
     { id: 1, moduleName: "", continuousScore: 0, examScore: 0, coefficient: 1, isOfficial: false },
   ]);
+
+  React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem("talib-grades");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) setGrades(parsed);
+      }
+    } catch {
+      // ignore corrupted storage
+    }
+  }, []);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem("talib-grades", JSON.stringify(grades));
+    } catch {
+      // storage full / disabled — calculation still works in-session
+    }
+  }, [grades]);
 
   const gpa = React.useMemo(() => {
     const total = grades.reduce(
@@ -92,7 +113,7 @@ export function TalibGradesScreen() {
               <span className="text-xs font-medium text-muted-foreground">
                 مقياس #{i + 1}
               </span>
-              <Badge variant="outline" className="text-[10px]">
+              <Badge variant="outline" className="text-xs">
                 {g.isOfficial ? t("grades.isOfficial") : t("grades.isEstimated")}
               </Badge>
             </div>
@@ -105,7 +126,7 @@ export function TalibGradesScreen() {
 
             <div className="grid grid-cols-3 gap-2">
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">
+                <Label className="text-xs text-muted-foreground">
                   {t("grades.continuousScore")}
                 </Label>
                 <Input
@@ -121,7 +142,7 @@ export function TalibGradesScreen() {
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">
+                <Label className="text-xs text-muted-foreground">
                   {t("grades.examScore")}
                 </Label>
                 <Input
@@ -137,7 +158,7 @@ export function TalibGradesScreen() {
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">
+                <Label className="text-xs text-muted-foreground">
                   {t("grades.coefficient")}
                 </Label>
                 <Input
@@ -166,9 +187,10 @@ export function TalibGradesScreen() {
 
       <button
         onClick={addRow}
-        className="w-full py-3 rounded-xl border-2 border-dashed border-border hover:border-primary/50 text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
+        className="w-full py-3 rounded-xl border-2 border-dashed border-border hover:border-primary/50 text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-2"
       >
-        + إضافة مقياس آخر
+        <Plus className="w-4 h-4" />
+        إضافة مقياس آخر
       </button>
     </div>
   );
