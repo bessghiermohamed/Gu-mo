@@ -226,18 +226,23 @@ export async function classifyItem(input: ClassifyInput): Promise<ClassifyResult
 }
 
 /**
- * مسبار تشخيصي: يجرّب كل نموذج في السلسلة بأصغر حمولة ويعيد رمز الحالة
- * ونص الاستجابة من غوغل كما هو (حتى أول نجاح) — حتى يُرى السبب الحقيقي
- * لأي فشل: 404 نموذج محجوز / 429 حصة / 400 حقل مرفوض / MAX_TOKENS ...
+ * مسبار تشخيصي: يجرّب نموذجاً (أو قائمة) بأصغر حمولة ويعيد رمز الحالة
+ * والزمن وعنوان URL النهائي (كشف إعادة التوجيه) ونص الاستجابة كما هو —
+ * حتى يُرى السبب الحقيقي لأي فشل: 404 محجوز / 429 حصة / 503 ضغط /
+ * AbortError إغلاق مبكر / MAX_TOKENS ...
  */
-export async function probeGeminiRaw(): Promise<Array<{ model: string; status: number; body: string }>> {
+export async function probeGeminiRaw(
+  models?: string[],
+  timeoutMs = 8_000
+): Promise<Array<{ model: string; status: number; ms: number; url: string; body: string }>> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) return [];
-  const attempts: Array<{ model: string; status: number; body: string }> = [];
-  // ميزانية قصيرة: المسبار تشخيصي ولا يجوز أن يدفع الطلب فوق maxDuration
-  for (const model of modelCandidates().slice(0, 3)) {
+  const list = (models && models.length > 0 ? models : modelCandidates()).slice(0, 6);
+  const attempts: Array<{ model: string; status: number; ms: number; url: string; body: string }> = [];
+  for (const model of list) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12_000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const startedAt = Date.now();
     try {
       const res = await fetch(
         `${GEMINI_ENDPOINT}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -251,11 +256,10 @@ export async function probeGeminiRaw(): Promise<Array<{ model: string; status: n
           signal: controller.signal,
         }
       );
-      const body = (await res.text()).slice(0, 300);
-      attempts.push({ model, status: res.status, body });
-      if (res.ok) break; // أول نموذج ناجح يكفي
+      const body = (await res.text()).slice(0, 200);
+      attempts.push({ model, status: res.status, ms: Date.now() - startedAt, url: res.url, body });
     } catch (e) {
-      attempts.push({ model, status: 0, body: String(e).slice(0, 200) });
+      attempts.push({ model, status: 0, ms: Date.now() - startedAt, url: "", body: String(e).slice(0, 150) });
     } finally {
       clearTimeout(timer);
     }

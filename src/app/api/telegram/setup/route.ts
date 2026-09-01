@@ -40,6 +40,16 @@ const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 const GEMINI_SAMPLE = "امتحان محلول في التحليل الرياضي — السنة الأولى جامعي — الدورة العادية";
 
+/** نماذج إضافية للتشخيص الواسع (فحص أي منها يقبل المفتاح فعلاً) */
+const DIAGNOSTIC_MODELS = [
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-3.7-flash",
+  "gemini-flash-latest",
+];
+
 async function checkTablesReady(): Promise<boolean> {
   if (!isVercel) return true; // محلياً: جداول Prisma تنشأ بـ db push
   try {
@@ -117,12 +127,12 @@ async function testGemini() {
   const cls = await classifyItem({ kind: "text", caption: GEMINI_SAMPLE, fileName: "" });
   const elapsedMs = Date.now() - startedAt;
 
-  // عند الفشل السريع فقط: مسبار خام يكشف السبب (رمز غوغل + نص الخطأ).
+  // عند الفشل السريع فقط: مسبار تشخيصي واسع يكشف أي نموذج يقبل المفتاح فعلاً.
   // إن فشل التصنيف بعد انتظار طويل فالمشكلة بطء الخوادم — لا حاجة لمزيد من الطلبات.
-  let probe: Array<{ model: string; status: number; body: string }> | null = null;
+  let probe: Array<{ model: string; status: number; ms: number; url: string; body: string }> | null = null;
   if (configured && !cls.aiClassified && elapsedMs < 15_000) {
     try {
-      probe = await probeGeminiRaw();
+      probe = await probeGeminiRaw(DIAGNOSTIC_MODELS, 8_000);
     } catch {
       probe = null;
     }
@@ -163,7 +173,7 @@ async function testGemini() {
   } else if (configured) {
     const first = probe && probe.length > 0 ? probe[0] : null;
     const probeInfo = first
-      ? ` جرّبنا السلسلة (${(probe ?? []).map((p) => `${p.model}:${p.status}`).join(" ثم ")}).${first.status === 200 ? " وصلت استجابة لكن بلا نص صالح — انظر «النتيجة الخام»" : ` أول خطأ من غوغل: ${first.body.slice(0, 200)}`}`
+      ? ` جرّبنا: ${(probe ?? []).map((p) => `${p.model}=${p.status}${p.ms ? `(${Math.round(p.ms / 1000)}ث)` : ""}`).join("، ")}.${first.status === 200 ? " وصلت استجابة لكن بلا نص صالح" : ` أول خطأ من غوغل: ${first.body.slice(0, 180)}`}`
       : "";
     message = `المفتاح مضبوط لكن الاستدعاء فشل.${probeInfo} جرّب ضبط GEMINI_MODEL بنموذج من القائمة أدناه ثم أعد النشر — أو استعمل مفتاحاً آخر. التصنيف المحلي يعمل في هذه الأثناء.`;
   } else {
