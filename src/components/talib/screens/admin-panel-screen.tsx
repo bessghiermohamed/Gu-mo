@@ -2264,7 +2264,7 @@ function TgStatusCard() {
         <StatusLine
           ok={geminiOk}
           label="التصنيف الذكي (GEMINI_API_KEY)"
-          okText={`مضبوط — النموذج: ${status?.geminiModel ?? "gemini-2.0-flash"} (تصنيف + قراءة نص الصور)`}
+          okText={`مضبوط — النموذج: ${status?.geminiModel ?? "gemini-2.5-flash"} (تصنيف + قراءة نص الصور)`}
           badText="غير مضبوط — يُستعمل التصنيف المحلي بالكلمات المفتاحية (يعمل بشكل كامل)"
         />
         <StatusLine

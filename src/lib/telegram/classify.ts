@@ -10,7 +10,8 @@
  * Design constraints:
  *  - Uses the REST API (no SDK dependency), env-driven:
  *      GEMINI_API_KEY  (required to enable AI classification)
- *      GEMINI_MODEL    (optional, default "gemini-2.0-flash")
+ *      GEMINI_MODEL    (optional — إن لم يُضبط نجرب سلسلة:
+ *                       gemini-2.5-flash → gemini-flash-latest → gemini-2.0-flash)
  *  - Falls back to local Arabic keyword heuristics when the key is
  *    missing or the call fails — the pipeline NEVER breaks.
  *  - Images are downloaded transiently for vision, passed inline to
@@ -43,8 +44,21 @@ const GEMINI_TIMEOUT_MS = 15000;
 /** أقصى حجم صورة نُرسله للتصنيف (الألبومات المضغوطة أصغر بكثير من هذا) */
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
+/**
+ * سلسلة النماذج الافتراضية — تُجرَّب بالترتيب حتى ينجح أحدها.
+ * الدافع: غوغل يوقف النماذج القديمة للمفاتيح الجديدة (حدث فعلاً مع
+ * gemini-2.0-flash) — السلسلة تمنع توقف الاستيراد كلياً عند ذلك.
+ */
+const DEFAULT_MODEL_CHAIN = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"];
+
 export function geminiModel(): string {
-  return process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash";
+  return process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL_CHAIN[0];
+}
+
+/** النماذج المراد تجربتها: GEMINI_MODEL الصريح وحده، وإلا السلسلة كاملة */
+function modelCandidates(): string[] {
+  const configured = process.env.GEMINI_MODEL?.trim();
+  return configured ? [configured] : DEFAULT_MODEL_CHAIN;
 }
 
 export function isGeminiConfigured(): boolean {
@@ -127,23 +141,32 @@ export async function classifyWithGemini(input: ClassifyInput): Promise<Classify
       inline_data: { mime_type: input.imageMimeType || "image/jpeg", data: input.imageBase64 },
     });
   }
+  const requestBody = JSON.stringify({
+    contents: [{ role: "user", parts }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 2048, responseMimeType: "application/json" },
+  });
 
+  for (const model of modelCandidates()) {
+    const result = await callGeminiModel(model, apiKey, requestBody, input);
+    if (result) return result;
+  }
+  return null;
+}
+
+async function callGeminiModel(
+  model: string,
+  apiKey: string,
+  requestBody: string,
+  input: ClassifyInput
+): Promise<ClassifyResult | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
   try {
     const res = await fetch(
-      `${GEMINI_ENDPOINT}/${geminiModel()}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 2048, responseMimeType: "application/json" },
-        }),
-        signal: controller.signal,
-      }
+      `${GEMINI_ENDPOINT}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody, signal: controller.signal }
     );
-    if (!res.ok) return null;
+    if (!res.ok) return null; // نموذج غير متاح لهذا المفتاح — جرّب التالي في السلسلة
     const data = (await res.json()) as {
       candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
     };
@@ -160,7 +183,7 @@ export async function classifyWithGemini(input: ClassifyInput): Promise<Classify
       aiClassified: true,
     };
   } catch {
-    return null; // انقطاع/مهلة/JSON تالف → fallback
+    return null; // انقطاع/مهلة/JSON تالف → التالي في السلسلة أو الكلمات المفتاحية
   } finally {
     clearTimeout(timer);
   }
