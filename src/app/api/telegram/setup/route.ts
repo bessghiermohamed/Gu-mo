@@ -113,11 +113,14 @@ export async function POST(req: NextRequest) {
 // ------------------------------------------------------------
 async function testGemini() {
   const configured = isGeminiConfigured();
+  const startedAt = Date.now();
   const cls = await classifyItem({ kind: "text", caption: GEMINI_SAMPLE, fileName: "" });
+  const elapsedMs = Date.now() - startedAt;
 
-  // عند الفشل: مسبار خام يجرّب كل نموذج في السلسلة ويكشف السبب الحقيقي
+  // عند الفشل السريع فقط: مسبار خام يكشف السبب (رمز غوغل + نص الخطأ).
+  // إن فشل التصنيف بعد انتظار طويل فالمشكلة بطء الخوادم — لا حاجة لمزيد من الطلبات.
   let probe: Array<{ model: string; status: number; body: string }> | null = null;
-  if (configured && !cls.aiClassified) {
+  if (configured && !cls.aiClassified && elapsedMs < 15_000) {
     try {
       probe = await probeGeminiRaw();
     } catch {
@@ -154,7 +157,9 @@ async function testGemini() {
 
   let message: string;
   if (cls.aiClassified) {
-    message = `Gemini يعمل ✅ — صنّف العيّنة كـ «${cls.itemType}» عبر ${geminiModel()}. التصنيف الذكي وقراءة نص الصور مفعّلان للمنشورات الجديدة.`;
+    message = `Gemini يعمل ✅ — صنّف العيّنة كـ «${cls.itemType}» عبر ${geminiModel()} في ${Math.round(elapsedMs / 1000)} ثانية. التصنيف الذكي وقراءة نص الصور مفعّلان للمنشورات الجديدة.`;
+  } else if (configured && elapsedMs >= 25_000) {
+    message = `المفتاح مضبوط والنموذج ${geminiModel()} مقبول، لكن خوادم غوغل بطيئة حالياً (انتظرنا ${Math.round(elapsedMs / 1000)} ثانية دون رد — ضغط مؤقت غالباً). استُعمل التصنيف المحلي للعيّنة، والذكاء الاصطناعي سيحاول تلقائياً مع المنشورات القادمة. أعد الفحص بعد قليل، وإن استمر الأمر اضبط GEMINI_MODEL=gemini-3.7-flash.`;
   } else if (configured) {
     const first = probe && probe.length > 0 ? probe[0] : null;
     const probeInfo = first
@@ -173,6 +178,7 @@ async function testGemini() {
     title: cls.title,
     model: geminiModel(),
     models,
+    elapsedMs,
     probe,
     message,
   });

@@ -40,7 +40,7 @@ export interface ClassifyResult {
 }
 
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_TIMEOUT_MS = 15000;
+const GEMINI_TIMEOUT_MS = 35_000; // نماذج 3.x قد تتأخر تحت الضغط — رأينا 3.6-flash يستغرق أكثر من 15 ثانية
 /** أقصى حجم صورة نُرسله للتصنيف (الألبومات المضغوطة أصغر بكثير من هذا) */
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
@@ -53,7 +53,7 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
 
 /** أقصى زمن إجمالي لتجربة السلسلة — هامش أمان تحت maxDuration=60 للويبهوك */
-const CHAIN_DEADLINE_MS = 45_000;
+const CHAIN_DEADLINE_MS = 50_000;
 
 /**
  * نماذج «التفكير» الموثقة مع thinkingBudget: 0 — عائلة 2.5 والاسم المستعار
@@ -234,9 +234,10 @@ export async function probeGeminiRaw(): Promise<Array<{ model: string; status: n
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) return [];
   const attempts: Array<{ model: string; status: number; body: string }> = [];
-  for (const model of modelCandidates()) {
+  // ميزانية قصيرة: المسبار تشخيصي ولا يجوز أن يدفع الطلب فوق maxDuration
+  for (const model of modelCandidates().slice(0, 3)) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
+    const timer = setTimeout(() => controller.abort(), 12_000);
     try {
       const res = await fetch(
         `${GEMINI_ENDPOINT}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
