@@ -7,6 +7,7 @@ import {
   Check, X, Building2, GraduationCap, Shield, Trash2, Route, CalendarDays, Pencil,
   Flag, AlertTriangle, CheckCheck, RotateCcw, Send, Eye, EyeOff, Star, Link2, Sparkles, Power,
   FlaskConical, RefreshCw, Zap, Database, ExternalLink, Mail, IdCard,
+  Network, ChevronDown, ChevronLeft, Search, ArrowLeftRight, UserMinus, UserCog,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -143,6 +144,7 @@ export function TalibAdminPanelScreen() {
           <TabsTrigger value="cohorts" className="text-xs flex-1 min-w-24"><Layers className="w-3.5 h-3.5 ml-1" />الأفواج</TabsTrigger>
           <TabsTrigger value="groups" className="text-xs flex-1 min-w-24"><FolderTree className="w-3.5 h-3.5 ml-1" />المجموعات</TabsTrigger>
           <TabsTrigger value="requests" className="text-xs flex-1 min-w-24"><UserPlus className="w-3.5 h-3.5 ml-1" />الطلبات</TabsTrigger>
+          <TabsTrigger value="subordinates" className="text-xs flex-1 min-w-24"><Network className="w-3.5 h-3.5 ml-1" />المرؤوسون</TabsTrigger>
           <TabsTrigger value="modules" className="text-xs flex-1 min-w-24"><BookOpen className="w-3.5 h-3.5 ml-1" />المقررات</TabsTrigger>
           <TabsTrigger value="issues" className="text-xs flex-1 min-w-24"><Flag className="w-3.5 h-3.5 ml-1" />التبليغات</TabsTrigger>
           <TabsTrigger value="telegram" className="text-xs flex-1 min-w-24"><Send className="w-3.5 h-3.5 ml-1" />تيليجرام</TabsTrigger>
@@ -155,7 +157,8 @@ export function TalibAdminPanelScreen() {
         <TabsContent value="years" className="mt-4"><YearsManager /></TabsContent>
         <TabsContent value="cohorts" className="mt-4"><CohortsManager /></TabsContent>
         <TabsContent value="groups" className="mt-4"><GroupsManager /></TabsContent>
-        <TabsContent value="requests" className="mt-4"><JoinRequestsManager /></TabsContent>
+        <TabsContent value="requests" className="mt-4 space-y-4"><DirectAssignmentCard /><JoinRequestsManager /></TabsContent>
+        <TabsContent value="subordinates" className="mt-4"><SubordinatesManager /></TabsContent>
         <TabsContent value="modules" className="mt-4"><ModulesManager /></TabsContent>
         <TabsContent value="issues" className="mt-4"><IssuesManager /></TabsContent>
         <TabsContent value="telegram" className="mt-4"><TelegramManager /></TabsContent>
@@ -183,6 +186,8 @@ function UsersManager() {
   const [search, setSearch] = React.useState("");
   const [promoteUser, setPromoteUser] = React.useState<AppUserRow | null>(null);
   const [deleteUser, setDeleteUser] = React.useState<AppUserRow | null>(null);
+  // round 9 (spec §4 — Method B): direct assignment dialog per student row
+  const [assignUser, setAssignUser] = React.useState<AppUserRow | null>(null);
 
   const fetchUsers = React.useCallback(async () => {
     setLoading(true);
@@ -282,10 +287,19 @@ function UsersManager() {
                                     <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
                                       <div className="flex items-center gap-1.5"><Mail className="w-3 h-3 shrink-0" />{u.email}</div>
                                       <div className="flex items-center gap-1.5"><IdCard className="w-3 h-3 shrink-0" />{u.studentId}</div>
-                                      {u.groupNumber && <div className="flex items-center gap-1.5"><Users className="w-3 h-3 shrink-0" />{u.groupNumber}</div>}
+                                      {u.groupNumber ? (
+                                        <div className="flex items-center gap-1.5"><Users className="w-3 h-3 shrink-0" />{u.groupNumber}</div>
+                                      ) : (
+                                        <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400"><UserMinus className="w-3 h-3 shrink-0" />بلا فوج</div>
+                                      )}
                                     </div>
                                   </div>
                                   <div className="flex gap-1 shrink-0">
+                                    {u.role === "STUDENT" && (
+                                      <Button size="sm" variant="outline" onClick={() => setAssignUser(u)} title="إلحاق مباشر بفوج">
+                                        <ArrowLeftRight className="w-3.5 h-3.5 ml-1" />إلحاق
+                                      </Button>
+                                    )}
                                     <Button size="sm" variant="outline" onClick={() => setPromoteUser(u)}>
                                       <Shield className="w-3.5 h-3.5 ml-1" />دور
                                     </Button>
@@ -310,6 +324,7 @@ function UsersManager() {
         </div>
       )}
       {promoteUser && <PromoteDialog user={promoteUser} onClose={() => setPromoteUser(null)} onDone={() => { setPromoteUser(null); fetchUsers(); }} />}
+      {assignUser && <AssignDialog user={assignUser} onClose={() => setAssignUser(null)} onDone={() => { setAssignUser(null); fetchUsers(); }} />}
       {deleteUser && (
         <Dialog open onOpenChange={() => setDeleteUser(null)}>
           <DialogContent>
@@ -3007,6 +3022,658 @@ function TgItemsManager() {
         </div>
       )}
     </div>
+  );
+}
+
+// =====================================================
+// round 9 — Direct assignment (spec §4, Method B)
+// Both methods coexist: join requests (Method A) are never disabled
+// by this flow. The destination list comes from /api/group/assignable,
+// which is scope-filtered SERVER-SIDE (the rep only sees sub-groups
+// inside their own scope — §6).
+// =====================================================
+interface AssignableCohort {
+  id: number;
+  nameAr: string;
+  groupId: number | null;
+  groupName: string;
+  yearName: string;
+  specialtyName: string;
+}
+
+function AssignDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: () => void; onDone: () => void }) {
+  const [cohorts, setCohorts] = React.useState<AssignableCohort[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [specialtyId, setSpecialtyId] = React.useState<string>("");
+  const [groupId, setGroupId] = React.useState<string>("");
+  const [cohortId, setCohortId] = React.useState<string>("");
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    fetch("/api/group/assignable", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        const list: AssignableCohort[] = data.cohorts ?? [];
+        setCohorts(list);
+        const specs = new Set(list.map((c) => c.specialtyName));
+        if (specs.size === 1) setSpecialtyId(String(list[0]?.specialtyName ?? ""));
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const specialtyOptions = React.useMemo(() => {
+    const seen = new Map<string, AssignableCohort>();
+    cohorts.forEach((c) => { if (!seen.has(c.specialtyName)) seen.set(c.specialtyName, c); });
+    return Array.from(seen.values());
+  }, [cohorts]);
+
+  const groupOptions = React.useMemo(() => {
+    const filtered = specialtyId ? cohorts.filter((c) => c.specialtyName === specialtyId) : cohorts;
+    const seen = new Map<string, AssignableCohort>();
+    filtered.forEach((c) => { if (c.groupName && !seen.has(c.groupName)) seen.set(c.groupName, c); });
+    return Array.from(seen.values());
+  }, [cohorts, specialtyId]);
+
+  const filteredCohorts = React.useMemo(() => {
+    let list = cohorts;
+    if (specialtyId) list = list.filter((c) => c.specialtyName === specialtyId);
+    if (groupId) list = list.filter((c) => c.groupName === groupId);
+    return list;
+  }, [cohorts, specialtyId, groupId]);
+
+  const currentAssignment = user.groupNumber?.trim() || null;
+
+  async function handleAssign() {
+    if (!cohortId) { toast.error("اختر الفوج (المجموعة الفرعية)"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/group/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, cohortId: parseInt(cohortId) }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الإلحاق"); return; }
+      toast.success(data.message ?? "تم الإلحاق");
+      onDone();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ArrowLeftRight className="w-5 h-5 text-primary" />
+            {currentAssignment ? "نقل الطالب إلى فوج آخر" : "إلحاق مباشر بفوج"}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="rounded-lg bg-muted/50 p-2 text-xs space-y-0.5">
+            <div className="flex items-center gap-1.5"><Mail className="w-3 h-3 shrink-0" />{user.email}</div>
+            <div className="flex items-center gap-1.5"><IdCard className="w-3 h-3 shrink-0" />{user.studentId}</div>
+            <div className="flex items-center gap-1.5">
+              <Users className="w-3 h-3 shrink-0" />
+              الفوج الحالي: {currentAssignment ?? "بلا فوج"}
+            </div>
+          </div>
+          {currentAssignment && (
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <p>الطالب مسجل في فوج حالياً — هذه العملية تنقله (النقل بين الأفواج من صلاحيات الممثل/المشرف فقط).</p>
+            </div>
+          )}
+          {loading ? (
+            <div className="text-center py-6"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div>
+          ) : cohorts.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-3 text-center">
+              لا توجد أفواج ضمن نطاق صلاحياتك — أنشئ أفواجاً أو توسّع نطاقك أولاً.
+            </p>
+          ) : (
+            <>
+              {specialtyOptions.length > 1 && (
+                <div className="space-y-1.5">
+                  <Label>التخصص</Label>
+                  <select value={specialtyId} onChange={(e) => { setSpecialtyId(e.target.value); setGroupId(""); setCohortId(""); }} className={selectCls}>
+                    <option value="">— الكل —</option>
+                    {specialtyOptions.map((s) => <option key={s.specialtyName} value={s.specialtyName}>{s.specialtyName}</option>)}
+                  </select>
+                </div>
+              )}
+              {groupOptions.length > 1 && (
+                <div className="space-y-1.5">
+                  <Label>المجموعة</Label>
+                  <select value={groupId} onChange={(e) => { setGroupId(e.target.value); setCohortId(""); }} className={selectCls}>
+                    <option value="">— الكل —</option>
+                    {groupOptions.map((g) => <option key={g.groupName} value={g.groupName}>{g.groupName}</option>)}
+                  </select>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label>الفوج (المجموعة الفرعية)</Label>
+                <select value={cohortId} onChange={(e) => setCohortId(e.target.value)} className={selectCls}>
+                  <option value="">— اختر الفوج —</option>
+                  {filteredCohorts.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nameAr}{c.groupName ? ` — ${c.groupName}` : ""}{c.yearName ? ` — ${c.yearName}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button onClick={handleAssign} disabled={saving || !cohortId}>
+            {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
+            {currentAssignment ? "تنفيذ النقل" : "إلحاق الطالب"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Direct-assignment card (spec §4): search by name or serial number,
+ * select the student, assign to a sub-group within the caller's scope.
+ * The student pool is already scope-filtered by /api/users (§7).
+ */
+function DirectAssignmentCard() {
+  const [users, setUsers] = React.useState<AppUserRow[]>([]);
+  const [query, setQuery] = React.useState("");
+  const [loading, setLoading] = React.useState(true);
+  const [assignUser, setAssignUser] = React.useState<AppUserRow | null>(null);
+
+  React.useEffect(() => {
+    fetch("/api/users", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => { setUsers(data.users ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const students = users.filter((u) => u.role === "STUDENT");
+  const q = query.trim().toLowerCase();
+  const matches = q
+    ? students.filter(
+        (u) =>
+          u.fullName.toLowerCase().includes(q) ||
+          u.studentId.toLowerCase().includes(q)
+      )
+    : [];
+
+  return (
+    <Card className="p-4 space-y-3">
+      <div>
+        <h3 className="font-bold text-sm flex items-center gap-2">
+          <ArrowLeftRight className="w-4 h-4 text-primary" />الإلحاق المباشر (بدون طلب)
+        </h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          ابحث عن طالب بالاسم أو الرقم التسلسلي وألحقه مباشرةً بفوج ضمن نطاقك — الطريقتان (الطلب والإلحاق) تعملان معاً
+        </p>
+      </div>
+      <div className="relative">
+        <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          className="pr-9"
+          placeholder="اسم الطالب أو رقمه التسلسلي..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      {loading ? (
+        <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" /></div>
+      ) : q && matches.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-2">لا يوجد طالب مطابق في نطاقك</p>
+      ) : q ? (
+        <div className="max-h-64 overflow-y-auto scrollbar-thin space-y-1.5">
+          {matches.slice(0, 12).map((u) => (
+            <button
+              key={u.id}
+              onClick={() => setAssignUser(u)}
+              className="w-full text-right p-2.5 rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 transition-colors flex items-center justify-between gap-2"
+            >
+              <div className="min-w-0">
+                <div className="font-bold text-sm truncate">{u.fullName}</div>
+                <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+                  <span className="flex items-center gap-1"><IdCard className="w-3 h-3" />{u.studentId}</span>
+                  <span className="flex items-center gap-1">{u.groupNumber ? <><Users className="w-3 h-3" />{u.groupNumber}</> : <><UserMinus className="w-3 h-3" />بلا فوج</>}</span>
+                </div>
+              </div>
+              <Badge variant="secondary" className="text-xs shrink-0">إلحاق</Badge>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground text-center py-1">اكتب للبحث — {students.length} طالب في نطاقك</p>
+      )}
+      {assignUser && (
+        <AssignDialog
+          user={assignUser}
+          onClose={() => setAssignUser(null)}
+          onDone={() => {
+            setAssignUser(null);
+            setQuery("");
+            fetch("/api/users", { cache: "no-store" })
+              .then((r) => r.json())
+              .then((data) => setUsers(data.users ?? []))
+              .catch(() => {});
+          }}
+        />
+      )}
+    </Card>
+  );
+}
+
+// =====================================================
+// round 9 — Subordinate Supervisors (spec §10/§11/§12)
+// Expandable/collapsible tree of the supervisors working inside the
+// caller's scope. Each node: name + current scope + Edit Scope + Remove.
+// Empty state (§11): "لم تعيّن أحداً بعد." — never an empty tree.
+// =====================================================
+interface SupervisorNode {
+  id: number;
+  fullName: string;
+  email: string;
+  role: "REPRESENTATIVE" | "SPECIALTY_ADMIN" | "OWNER";
+  scopeLabel: string;
+  subordinates: SupervisorNode[];
+}
+
+function SubordinatesManager() {
+  const [tree, setTree] = React.useState<SupervisorNode[]>([]);
+  const [count, setCount] = React.useState(0);
+  const [loading, setLoading] = React.useState(true);
+  const [editUser, setEditUser] = React.useState<SupervisorNode | null>(null);
+  const [removeUser, setRemoveUser] = React.useState<SupervisorNode | null>(null);
+
+  const fetchTree = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/users/subordinates", { cache: "no-store" });
+      const data = await res.json();
+      setTree(data.tree ?? []);
+      setCount(data.subordinatesCount ?? 0);
+    } catch { toast.error("فشل تحميل قائمة المرؤوسين"); }
+    finally { setLoading(false); }
+  }, []);
+
+  React.useEffect(() => { fetchTree(); }, [fetchTree]);
+
+  return (
+    <Card className="p-4 space-y-3">
+      <div>
+        <h3 className="font-bold text-sm flex items-center gap-2">
+          <Network className="w-4 h-4 text-primary" />المشرفون المرؤوسون
+          {count > 0 && <Badge variant="secondary" className="text-xs">{count}</Badge>}
+        </h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          المشرفون العاملون داخل نطاقك — يمكنك تعديل نطاق كل منهم أو إزالة دورهم
+        </p>
+      </div>
+      {loading ? (
+        <div className="text-center py-8"><Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground" /></div>
+      ) : tree.length === 0 ? (
+        <div className="text-center py-10">
+          <UserCog className="w-10 h-10 mx-auto text-muted-foreground/50 mb-3" />
+          <p className="font-bold text-sm text-muted-foreground">لم تعيّن أحداً بعد.</p>
+          <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs mx-auto leading-relaxed">
+            عيّن مشرفين من تبويب «المستخدمون» عبر زر «دور» — سيظهرون هنا في شجرة المرؤوسين.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {tree.map((node) => (
+            <SupervisorTreeNode
+              key={node.id}
+              node={node}
+              depth={0}
+              onEdit={(n) => setEditUser(n)}
+              onRemove={(n) => setRemoveUser(n)}
+            />
+          ))}
+        </div>
+      )}
+      {editUser && (
+        <ScopeEditDialog
+          user={editUser}
+          onClose={() => setEditUser(null)}
+          onDone={() => { setEditUser(null); fetchTree(); }}
+        />
+      )}
+      {removeUser && (
+        <RemoveSupervisorDialog
+          user={removeUser}
+          onClose={() => setRemoveUser(null)}
+          onDone={() => { setRemoveUser(null); fetchTree(); }}
+        />
+      )}
+    </Card>
+  );
+}
+
+function SupervisorTreeNode({
+  node, depth, onEdit, onRemove,
+}: {
+  node: SupervisorNode;
+  depth: number;
+  onEdit: (n: SupervisorNode) => void;
+  onRemove: (n: SupervisorNode) => void;
+}) {
+  const [open, setOpen] = React.useState(true);
+  const hasChildren = node.subordinates.length > 0;
+  return (
+    <div style={depth > 0 ? { marginRight: depth * 16 } : undefined}>
+      <Card className="p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-2 flex-1 min-w-0">
+            {hasChildren ? (
+              <button
+                onClick={() => setOpen((v) => !v)}
+                className="mt-0.5 w-6 h-6 flex items-center justify-center rounded-md hover:bg-muted shrink-0"
+                aria-label={open ? "طي" : "توسيع"}
+              >
+                {open ? <ChevronDown className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+              </button>
+            ) : (
+              <span className="mt-0.5 w-6 h-6 flex items-center justify-center shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" />
+              </span>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="w-6 h-6 rounded-full bg-primary/15 text-primary flex items-center justify-center text-[10px] font-bold shrink-0">
+                  {node.fullName.charAt(0)}
+                </span>
+                <span className="font-bold text-sm truncate">{node.fullName}</span>
+                <RoleBadge role={node.role} />
+                {hasChildren && <Badge variant="outline" className="text-xs">{node.subordinates.length} مرؤوسون</Badge>}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
+                <Shield className="w-3 h-3 shrink-0" />
+                النطاق: <span className="font-medium text-foreground/80">{node.scopeLabel}</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 shrink-0">
+            <Button size="sm" variant="outline" className="h-8" onClick={() => onEdit(node)}>
+              <Pencil className="w-3.5 h-3.5 ml-1" />تعديل النطاق
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8 text-destructive hover:bg-destructive/10" onClick={() => onRemove(node)}>
+              <UserMinus className="w-3.5 h-3.5 ml-1" />إزالة
+            </Button>
+          </div>
+        </div>
+        {hasChildren && open && (
+          <div className="mt-2 space-y-1.5 border-r-2 border-border/60 pr-2">
+            {node.subordinates.map((child) => (
+              <SupervisorTreeNode
+                key={child.id}
+                node={child}
+                depth={depth + 1}
+                onEdit={onEdit}
+                onRemove={onRemove}
+              />
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * Edit Scope dialog (spec §10): choose the supervision level + entity.
+ * Sends { newRole: same role, level, scope } to the promote endpoint,
+ * which enforces scope containment server-side (§6).
+ */
+function ScopeEditDialog({ user, onClose, onDone }: { user: SupervisorNode; onClose: () => void; onDone: () => void }) {
+  const cascade = useCascade();
+  const [level, setLevel] = React.useState<"INSTITUTION" | "SPECIALTY" | "YEAR" | "GROUP" | "SUBGROUP">("SPECIALTY");
+  const [cohorts, setCohorts] = React.useState<Array<{ id: number; groupName: string }>>([]);
+  const [cohortId, setCohortId] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (level !== "SUBGROUP" || !cascade.specId) return;
+    setCohorts([]);
+    const params = new URLSearchParams({ specialtyId: cascade.specId });
+    if (cascade.groupId) params.set("groupId", cascade.groupId);
+    fetch(`/api/cohort?${params.toString()}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => setCohorts(data.cohorts ?? []))
+      .catch(() => setCohorts([]));
+  }, [level, cascade.specId, cascade.groupId]);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const scope: Record<string, number | undefined> = {};
+      if (level === "INSTITUTION") scope.institutionId = cascade.instId ? parseInt(cascade.instId) : undefined;
+      if (level === "SPECIALTY") scope.specialtyId = cascade.specId ? parseInt(cascade.specId) : undefined;
+      if (level === "YEAR") {
+        scope.yearId = cascade.yearId ? parseInt(cascade.yearId) : undefined;
+        scope.specialtyId = cascade.specId ? parseInt(cascade.specId) : undefined;
+      }
+      if (level === "GROUP") {
+        scope.groupId = cascade.groupId ? parseInt(cascade.groupId) : undefined;
+        scope.specialtyId = cascade.specId ? parseInt(cascade.specId) : undefined;
+      }
+      if (level === "SUBGROUP") {
+        if (!cohortId) { toast.error("اختر الفوج"); setSaving(false); return; }
+        scope.cohortId = parseInt(cohortId);
+        scope.specialtyId = cascade.specId ? parseInt(cascade.specId) : undefined;
+      }
+      const res = await fetch(`/api/users/${user.id}/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newRole: user.role, level, scope }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل حفظ النطاق"); return; }
+      toast.success(`تم تحديث نطاق ${user.fullName}`);
+      onDone();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5" />تعديل نطاق الإشراف</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="rounded-lg bg-muted/50 p-2 text-xs space-y-0.5">
+            <div className="font-bold">{user.fullName}</div>
+            <div>الدور: <RoleBadge role={user.role} /></div>
+            <div>النطاق الحالي: <span className="font-medium">{user.scopeLabel}</span></div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>مستوى النطاق الجديد</Label>
+            <select value={level} onChange={(e) => setLevel(e.target.value as typeof level)} className={selectCls}>
+              <option value="INSTITUTION">مؤسسة كاملة</option>
+              <option value="SPECIALTY">تخصص كامل</option>
+              <option value="YEAR">سنة محددة</option>
+              <option value="GROUP">مجموعة محددة</option>
+              <option value="SUBGROUP">فوج محدد (مجموعة فرعية)</option>
+            </select>
+          </div>
+          {level === "INSTITUTION" && (
+            <div className="space-y-1.5">
+              <Label>المؤسسة</Label>
+              <select value={cascade.instId} onChange={(e) => cascade.setInstId(e.target.value)} className={selectCls}>
+                <option value="">— اختر —</option>
+                {cascade.institutions.map((i) => <option key={i.id} value={i.id}>{i.nameAr}</option>)}
+              </select>
+            </div>
+          )}
+          {(level === "SPECIALTY" || level === "YEAR" || level === "GROUP" || level === "SUBGROUP") && (
+            <div className="space-y-1.5">
+              <Label>المؤسسة ثم التخصص</Label>
+              <select value={cascade.instId} onChange={(e) => cascade.setInstId(e.target.value)} className={selectCls}>
+                <option value="">— المؤسسة —</option>
+                {cascade.institutions.map((i) => <option key={i.id} value={i.id}>{i.nameAr}</option>)}
+              </select>
+              <select value={cascade.specId} onChange={(e) => cascade.setSpecId(e.target.value)} className={selectCls}>
+                <option value="">— التخصص —</option>
+                {cascade.specialties.map((s) => <option key={s.id} value={s.id}>{s.nameAr}</option>)}
+              </select>
+            </div>
+          )}
+          {level === "YEAR" && (
+            <div className="space-y-1.5">
+              <Label>السنة</Label>
+              <select value={cascade.yearId} onChange={(e) => cascade.setYearId(e.target.value)} className={selectCls}>
+                <option value="">— اختر —</option>
+                {cascade.years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+              </select>
+            </div>
+          )}
+          {(level === "GROUP" || level === "SUBGROUP") && (
+            <div className="space-y-1.5">
+              <Label>السنة ثم المجموعة</Label>
+              <select value={cascade.yearId} onChange={(e) => cascade.setYearId(e.target.value)} className={selectCls}>
+                <option value="">— السنة —</option>
+                {cascade.years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+              </select>
+              <select value={cascade.groupId} onChange={(e) => cascade.setGroupId(e.target.value)} className={selectCls}>
+                <option value="">— المجموعة —</option>
+                {cascade.groups.map((g) => <option key={g.id} value={g.id}>{g.groupName}</option>)}
+              </select>
+            </div>
+          )}
+          {level === "SUBGROUP" && (
+            <div className="space-y-1.5">
+              <Label>الفوج (المجموعة الفرعية)</Label>
+              <select value={cohortId} onChange={(e) => setCohortId(e.target.value)} className={selectCls}>
+                <option value="">— اختر —</option>
+                {cohorts.map((c) => <option key={c.id} value={c.id}>{c.groupName}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 text-xs flex items-start gap-2">
+            <Shield className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary" />
+            <p>لا يمكن تعيين نطاق أوسع من نطاقك الحالي — يتحقق الخادم من ذلك تلقائياً.</p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ النطاق</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Remove supervisor (spec §12). No subordinates → the existing removal
+ * flow (demote to STUDENT). Has subordinates → the 3-option warning
+ * dialog: (1) remove only, subordinates stay under the caller,
+ * (2) remove the supervisor AND all subordinates, (3) cancel.
+ */
+function RemoveSupervisorDialog({ user, onClose, onDone }: { user: SupervisorNode; onClose: () => void; onDone: () => void }) {
+  const hasSubordinates = user.subordinates.length > 0;
+  const [option, setOption] = React.useState<"keep" | "cascade" | null>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  async function handleRemove(opt: "keep" | "cascade") {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/users/${user.id}/remove-supervisor`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ option: opt }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشلت الإزالة"); return; }
+      toast.success(data.message ?? "تمت الإزالة");
+      onDone();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="text-destructive flex items-center gap-2">
+            <UserMinus className="w-5 h-5" />إزالة دور المشرف
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="rounded-lg bg-muted/50 p-2 text-xs space-y-0.5">
+            <div className="font-bold">{user.fullName}</div>
+            <div>الدور: <RoleBadge role={user.role} /></div>
+            <div>النطاق: <span className="font-medium">{user.scopeLabel}</span></div>
+          </div>
+          {!hasSubordinates ? (
+            <>
+              <p className="text-sm">
+                سيُزال دور الإشراف من <strong>{user.fullName}</strong> ويعود طالباً عادياً (يبقى حسابه — يمكن إعادة تعيينه لاحقاً).
+              </p>
+              <DialogFooter>
+                <Button variant="outline" onClick={onClose}>إلغاء</Button>
+                <Button variant="destructive" onClick={() => handleRemove("keep")} disabled={busy}>
+                  {busy && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}إزالة الدور
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <p>
+                  هذا المشرف لديه <strong>{user.subordinates.length}</strong> مرؤوساً تحت نطاقه.
+                  اختر أحد الخيارات الثلاثة قبل المتابعة:
+                </p>
+              </div>
+              <div className="space-y-2">
+                <button
+                  onClick={() => setOption("keep")}
+                  className={`w-full text-right p-3 rounded-xl border-2 transition-all ${option === "keep" ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                >
+                  <div className="font-bold text-sm flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500" />إزالة دوره فقط</div>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    يبقى المرؤوسون مشرفين بنطاقاتهم الحالية وينتقلون تحت إشرافك المباشر.
+                  </p>
+                </button>
+                <button
+                  onClick={() => setOption("cascade")}
+                  className={`w-full text-right p-3 rounded-xl border-2 transition-all ${option === "cascade" ? "border-destructive bg-destructive/5" : "border-border hover:border-destructive/50"}`}
+                >
+                  <div className="font-bold text-sm flex items-center gap-2"><XCircle className="w-4 h-4 text-destructive" />إزالته وكافة مرؤوسيه</div>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    يُزال دور الإشراف عن المشرف وجميع المرؤوسين تحته (يعودون جميعاً طلاباً).
+                  </p>
+                </button>
+                <button
+                  onClick={onClose}
+                  className="w-full text-right p-3 rounded-xl border-2 border-border hover:border-muted-foreground/40 transition-all"
+                >
+                  <div className="font-bold text-sm flex items-center gap-2"><X className="w-4 h-4 text-muted-foreground" />إلغاء العملية</div>
+                  <p className="text-xs text-muted-foreground mt-1">لا تُجرى أي تغييرات.</p>
+                </button>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={onClose}>إغلاق</Button>
+                <Button
+                  variant={option === "cascade" ? "destructive" : "default"}
+                  disabled={!option || busy}
+                  onClick={() => option && handleRemove(option)}
+                >
+                  {busy && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
+                  {option === "cascade" ? "إزالة الكل" : "تنفيذ الإزالة"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

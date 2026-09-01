@@ -12,6 +12,10 @@ import {
   Trash2,
   Pencil,
   Loader2,
+  CalendarX,
+  ChevronDown,
+  ChevronLeft,
+  CheckCircle2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,7 +58,10 @@ export function TalibScheduleScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
   const canManage = canManageSchedule(user ?? null);
-  const [mode, setMode] = React.useState<"manual" | "image">("manual");
+  // round 9 (spec §15): "manual" | "image" | "attendance" — the
+  // personal attendance/absence feature lives INSIDE the Schedule section
+  // (a clearly separated tab), never inside "My Files".
+  const [mode, setMode] = React.useState<"manual" | "image" | "attendance">("manual");
   const [items, setItems] = React.useState<ScheduleItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [addOpen, setAddOpen] = React.useState(false);
@@ -104,12 +111,14 @@ export function TalibScheduleScreen() {
         <p className="text-sm text-muted-foreground">
           {mode === "manual"
             ? "أدخل حصصك يدوياً أو عدّلها"
-            : "ارفع صورة جدولك الخاص"}
+            : mode === "image"
+            ? "ارفع صورة جدولك الخاص"
+            : "سجل غياباتك الشخصية لكل مقياس"}
         </p>
       </div>
 
-      <Tabs value={mode} onValueChange={(v) => setMode(v as "manual" | "image")}>
-        <TabsList className="grid w-full grid-cols-2">
+      <Tabs value={mode} onValueChange={(v) => setMode(v as "manual" | "image" | "attendance")}>
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="manual">
             <CalendarDays className="w-4 h-4 ml-2" />
             {t("schedule.modeManual")}
@@ -117,6 +126,10 @@ export function TalibScheduleScreen() {
           <TabsTrigger value="image">
             <ImageIcon className="w-4 h-4 ml-2" />
             {t("schedule.modeImage")}
+          </TabsTrigger>
+          <TabsTrigger value="attendance">
+            <CalendarX className="w-4 h-4 ml-2" />
+            غياباتي
           </TabsTrigger>
         </TabsList>
         <TabsContent value="manual" className="mt-4 space-y-4">
@@ -211,6 +224,9 @@ export function TalibScheduleScreen() {
         </TabsContent>
         <TabsContent value="image" className="mt-4">
           <ImageSchedule />
+        </TabsContent>
+        <TabsContent value="attendance" className="mt-4">
+          <MyAttendance />
         </TabsContent>
       </Tabs>
       {itemToEdit && (
@@ -565,6 +581,278 @@ function EditSlotDialog({ item, onClose, onSaved }: { item: ScheduleItem; onClos
           <Button onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
             حفظ التعديل
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// =====================================================
+// round 9 — Personal attendance & absence tracking (spec §14–§19)
+//
+// STRICTLY PERSONAL: the API (/api/attendance) only ever touches the
+// logged-in user's OWN records — supervisors have no administrative
+// access, no approval workflow, and no way to see or edit a student's
+// absences. This is unofficial personal bookkeeping only.
+//
+// Layout per spec §16: course name + absence count + "+" button,
+// simple and compact. Tapping a row expands its records (deletable).
+// =====================================================
+interface AttendanceCourse {
+  name: string;
+  count: number;
+  records: Array<{ id: number; moduleName: string; date: string; createdAt: string }>;
+}
+
+function MyAttendance() {
+  const [courses, setCourses] = React.useState<AttendanceCourse[]>([]);
+  const [total, setTotal] = React.useState(0);
+  const [loading, setLoading] = React.useState(true);
+  const [expanded, setExpanded] = React.useState<string | null>(null);
+  const [addFor, setAddFor] = React.useState<string | null>(null);
+  const [deletingId, setDeletingId] = React.useState<number | null>(null);
+
+  const fetchAttendance = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/attendance", { cache: "no-store" });
+      const data = await res.json();
+      setCourses(data.courses ?? []);
+      setTotal(data.totalAbsences ?? 0);
+    } catch {
+      // silent
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { fetchAttendance(); }, [fetchAttendance]);
+
+  async function handleDelete(id: number) {
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/attendance?id=${id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
+      toast.success("تم حذف سجل الغياب");
+      fetchAttendance();
+    } catch {
+      toast.error("فشل الاتصال");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  const absenceLabel = (n: number) =>
+    n === 0 ? "لا غياب" : n === 1 ? "غياب واحد" : n === 2 ? "غيابان" : `${n} غيابات`;
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-4 bg-primary/5 border-primary/20">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
+            <CalendarX className="w-5 h-5" />
+          </div>
+          <div className="flex-1">
+            <h2 className="font-black text-sm">تتبع الغيابات — شخصي وغير رسمي</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              سجلك الخاص فقط: {absenceLabel(total)} • لا يطّلع عليه أي مشرف — البيانات تُعدَّل منك وحدك
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setAddFor(null)}>
+            <Plus className="w-4 h-4 ml-1" />غياب
+          </Button>
+        </div>
+      </Card>
+
+      {loading ? (
+        <Card className="p-8 text-center">
+          <Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground mb-2" />
+          <p className="text-sm text-muted-foreground">جاري التحميل...</p>
+        </Card>
+      ) : courses.length === 0 ? (
+        <Card className="p-8 text-center bg-muted/30 border-dashed">
+          <CalendarX className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+          <h3 className="font-bold text-sm mb-1">لا توجد مقاييس بعد</h3>
+          <p className="text-xs text-muted-foreground">
+            ستظهر مقاييسك هنا تلقائياً بمجرد إضافتها من لوحة الإدارة — يمكنك تسجيل أول غياب بزر «+».
+          </p>
+        </Card>
+      ) : (
+        <Card className="p-4 space-y-1.5">
+          {courses.map((course) => {
+            const isOpen = expanded === course.name;
+            return (
+              <div key={course.name} className="rounded-lg border border-border/60 overflow-hidden">
+                <div
+                  className="flex items-center gap-2 p-3 cursor-pointer hover:bg-muted/40 transition-colors"
+                  onClick={() => setExpanded(isOpen ? null : course.name)}
+                  role="button"
+                  aria-expanded={isOpen}
+                >
+                  {course.count > 0 ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setAddFor(course.name); }}
+                      className="w-8 h-8 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 flex items-center justify-center shrink-0 transition-colors"
+                      aria-label={`إضافة غياب لـ ${course.name}`}
+                      title="إضافة غياب"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setAddFor(course.name); }}
+                      className="w-8 h-8 rounded-lg bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary flex items-center justify-center shrink-0 transition-colors"
+                      aria-label={`إضافة غياب لـ ${course.name}`}
+                      title="إضافة غياب"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  )}
+                  <span className="font-bold text-sm flex-1 min-w-0 truncate">{course.name}</span>
+                  <span className={`text-xs font-medium shrink-0 ${course.count > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+                    {absenceLabel(course.count)}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                  </span>
+                </div>
+                {isOpen && (
+                  <div className="border-t border-border/40 bg-muted/20 p-2 space-y-1.5">
+                    {course.records.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-2">لا توجد سجلات</p>
+                    ) : (
+                      course.records.map((r) => (
+                        <div key={r.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-background">
+                          <div className="flex items-center gap-2 text-xs min-w-0">
+                            <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                            <span className="font-medium" dir="ltr">{r.date}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+                            onClick={() => handleDelete(r.id)}
+                            disabled={deletingId === r.id}
+                            aria-label="حذف السجل"
+                          >
+                            {deletingId === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
+      {addFor !== null && (
+        <AddAbsenceDialog
+          courses={courses.map((c) => c.name)}
+          initialCourse={addFor || undefined}
+          onClose={() => setAddFor(null)}
+          onSaved={() => { setAddFor(null); fetchAttendance(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Add-absence modal (spec §17): student selects course + date → record
+ * is created and the count for that course updates immediately.
+ */
+function AddAbsenceDialog({
+  courses, initialCourse, onClose, onSaved,
+}: {
+  courses: string[];
+  initialCourse?: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [course, setCourse] = React.useState(initialCourse ?? (courses[0] ?? ""));
+  const [customCourse, setCustomCourse] = React.useState("");
+  const [date, setDate] = React.useState(new Date().toISOString().split("T")[0]);
+  const [saving, setSaving] = React.useState(false);
+  const effectiveCourse = course === "__custom__" ? customCourse : course;
+
+  async function handleSave() {
+    if (!effectiveCourse.trim()) { toast.error("اختر/اكتب اسم المقياس"); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast.error("اختر التاريخ"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ moduleName: effectiveCourse.trim(), date }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+      toast.success("تم تسجيل الغياب");
+      onSaved();
+    } catch {
+      toast.error("فشل الاتصال");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><CalendarX className="w-5 h-5 text-primary" />تسجيل غياب</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>المقياس</Label>
+            {courses.length === 0 ? (
+              <Input
+                value={course}
+                onChange={(e) => setCourse(e.target.value)}
+                placeholder="اسم المقياس"
+              />
+            ) : (
+              <select value={course} onChange={(e) => setCourse(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+                {courses.map((c) => <option key={c} value={c}>{c}</option>)}
+                <option value="__custom__">— مقياس آخر —</option>
+              </select>
+            )}
+          </div>
+          {course === "__custom__" && (
+            <div className="space-y-1.5">
+              <Label>اسم المقياس</Label>
+              <Input
+                value={customCourse}
+                onChange={(e) => setCustomCourse(e.target.value)}
+                placeholder="اكتب اسم المقياس"
+              />
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label>التاريخ</Label>
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              dir="ltr"
+              className="text-right"
+            />
+          </div>
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+            <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <p>هذا سجل شخصي غير رسمي — لن يراه أي مشرف، ويمكنك حذفه في أي وقت.</p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={saving || !effectiveCourse.trim()}>
+            {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
+            تسجيل الغياب
           </Button>
         </DialogFooter>
       </DialogContent>

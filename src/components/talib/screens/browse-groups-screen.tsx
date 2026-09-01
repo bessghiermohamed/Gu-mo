@@ -55,6 +55,12 @@ export function TalibBrowseGroupsScreen() {
   const [requestMessage, setRequestMessage] = React.useState("");
   const [sending, setSending] = React.useState(false);
 
+  // round 9 (spec §5): a user with an active sub-group membership (student
+  // OR cohort-scoped representative — their scope cohort IS their
+  // membership) must NOT submit new join requests — transfers are done by
+  // an authorized supervisor. The API blocks it too; this is the UX half.
+  const isAssigned = user?.scopeCohortGroupId != null;
+
   React.useEffect(() => {
     if (!user) return;
     // fix أ.3/أ.4 (round 3): a student without a completed profile has no
@@ -122,6 +128,26 @@ export function TalibBrowseGroupsScreen() {
         <p className="text-sm text-muted-foreground">اختر فوجاً وأرسل طلب انضمام — سيتلقاه ممثل الفوج للموافقة</p>
       </div>
 
+      {isAssigned && (
+        <Card className="p-4 bg-emerald-500/5 border-emerald-500/30">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-sm mb-1 text-emerald-700 dark:text-emerald-300">
+                أنت عضو في فوج بالفعل
+              </h3>
+              <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80 leading-relaxed">
+                لا يمكنك إرسال طلبات انضمام جديدة ما دمت عضواً نشطاً. للانتقال إلى فوج
+                آخر، تواصل مع ممثل فوجك أو المشرف المسؤول (النقل بين الأفواج من
+                صلاحيات المشرفين فقط).
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {myRequests.length > 0 && (
         <Card className="p-4 bg-primary/5 border-primary/20">
           <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
@@ -172,27 +198,32 @@ export function TalibBrowseGroupsScreen() {
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                     {groupCohorts.map((cohort) => {
                       const existingReq = isRequested(cohort.id);
+                      const isMyCohort = user?.scopeCohortGroupId === cohort.id;
+                      const locked = isAssigned || existingReq?.status === "pending";
                       return (
                         <button
                           key={cohort.id}
-                          onClick={() => { if (existingReq?.status !== "pending") setRequestCohort(cohort); }}
-                          disabled={existingReq?.status === "pending"}
+                          onClick={() => { if (!locked) setRequestCohort(cohort); }}
+                          disabled={locked}
                           className={`p-3 rounded-xl border-2 transition-all text-right ${
-                            existingReq?.status === "pending" ? "border-amber-500/30 bg-amber-500/5 cursor-not-allowed"
+                            isMyCohort ? "border-emerald-500/60 bg-emerald-500/10 cursor-default"
+                            : existingReq?.status === "pending" ? "border-amber-500/30 bg-amber-500/5 cursor-not-allowed"
                             : existingReq?.status === "approved" ? "border-emerald-500/30 bg-emerald-500/5 cursor-default"
                             : existingReq?.status === "rejected" ? "border-muted hover:border-primary/50"
+                            : isAssigned ? "border-border opacity-60 cursor-not-allowed"
                             : "border-border hover:border-primary/50"
                           }`}
                         >
                           <div className="font-bold text-sm flex items-center justify-between">
                             <span>{cohort.groupName}</span>
-                            {existingReq && <StatusIcon status={existingReq.status} />}
+                            {isMyCohort ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : existingReq && <StatusIcon status={existingReq.status} />}
                           </div>
                           {cohort.subGroup && <p className="text-xs text-muted-foreground mt-0.5">{cohort.subGroup}</p>}
-                          {existingReq?.status === "pending" && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">قيد المراجعة</p>}
-                          {existingReq?.status === "approved" && <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1"><Check className="w-3 h-3" />تم القبول</p>}
-                          {existingReq?.status === "rejected" && <p className="text-xs text-muted-foreground mt-1">يمكنك إعادة الطلب</p>}
-                          {!existingReq && <p className="text-xs text-primary mt-1 flex items-center gap-1"><Send className="w-2.5 h-2.5" />إرسال طلب</p>}
+                          {isMyCohort && <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1"><Check className="w-3 h-3" />فوجي الحالي</p>}
+                          {!isMyCohort && existingReq?.status === "pending" && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">قيد المراجعة</p>}
+                          {!isMyCohort && existingReq?.status === "approved" && <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1"><Check className="w-3 h-3" />تم القبول</p>}
+                          {!isMyCohort && existingReq?.status === "rejected" && <p className="text-xs text-muted-foreground mt-1">يمكنك إعادة الطلب</p>}
+                          {!existingReq && !isMyCohort && !isAssigned && <p className="text-xs text-primary mt-1 flex items-center gap-1"><Send className="w-2.5 h-2.5" />إرسال طلب</p>}
                         </button>
                       );
                     })}

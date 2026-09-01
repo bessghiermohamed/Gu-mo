@@ -26,6 +26,7 @@ export interface AuthUser {
   scopeAcademicYearId?: number | null;
   scopeSpecialtyId?: number | null;
   scopeInstitutionId?: number | null;
+  scopeGroupId?: number | null;
 }
 
 const ROLE_RANK: Record<UserRole, number> = {
@@ -38,6 +39,9 @@ const ROLE_RANK: Record<UserRole, number> = {
 /**
  * Returns true if the caller has a supervisory scope (can manage roles).
  * fix A.1: students with no scope CANNOT see promote buttons.
+ * round 9: scopeGroupId and scopeInstitutionId now count too — a
+ * group-scoped or institution-scoped representative (spec §7.2/§7.3)
+ * is a legitimate supervisor even without year/specialty/cohort scope.
  */
 export function canManageRoles(caller: AuthUser | null): boolean {
   if (!caller) return false;
@@ -47,8 +51,10 @@ export function canManageRoles(caller: AuthUser | null): boolean {
     // Must have at least one scope field set
     return (
       caller.scopeCohortGroupId != null ||
+      caller.scopeGroupId != null ||
       caller.scopeAcademicYearId != null ||
-      caller.scopeSpecialtyId != null
+      caller.scopeSpecialtyId != null ||
+      caller.scopeInstitutionId != null
     );
   }
   return false;

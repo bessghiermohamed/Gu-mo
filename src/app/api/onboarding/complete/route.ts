@@ -68,6 +68,10 @@ export async function POST(req: NextRequest) {
       ]);
 
       // Update app_users — fix أ.4: persist the FULL academic scope
+      // round 9 (spec §2/§5): re-running onboarding (new device, cleared
+      // localStorage) must NOT silently drop an existing sub-group
+      // membership — the join-request assignment survives; cohort
+      // selection isn't part of onboarding anymore.
       const { error: userError } = await supabase
         .from("app_users")
         .update({
@@ -77,11 +81,12 @@ export async function POST(req: NextRequest) {
           scope_institution_id: institutionId ?? null,
           scope_specialty_id: specialtyId ?? null,
           scope_academic_year_id: academicYearId ?? null,
-          scope_cohort_group_id: cohortId ?? null,
+          scope_cohort_group_id: cohortId ?? user.scopeCohortGroupId ?? null,
           scope_track_id: trackId ?? null,
           specialty_name: specialty?.name_ar ?? "",
           year_name: year?.year_name ?? "",
-          group_number: cohort?.group_name ?? "",
+          // keep the existing group label when membership is preserved
+          group_number: cohort ? String(cohort.group_name) : (user.scopeCohortGroupId != null ? undefined : ""),
         })
         .eq("id", user.id);
 
@@ -108,7 +113,7 @@ export async function POST(req: NextRequest) {
           track_id: trackId ?? null,
           selected_specialty_id: specialtyId ?? 1,
           selected_year_id: academicYearId ?? 1,
-          selected_cohort_id: cohortId ?? null,
+          selected_cohort_id: cohortId ?? user.scopeCohortGroupId ?? null,
           academic_year_name: year?.year_name ?? "",
           group_number: cohort?.group_name ?? "",
           is_configured: true,
@@ -147,11 +152,13 @@ export async function POST(req: NextRequest) {
         scopeInstitutionId: institutionId ?? null,
         scopeSpecialtyId: specialtyId ?? null,
         scopeAcademicYearId: academicYearId ?? null,
-        scopeCohortGroupId: cohortId ?? null,
+        // round 9: preserve an existing membership on re-onboarding
+        scopeCohortGroupId: cohortId ?? user.scopeCohortGroupId ?? null,
         scopeTrackId: trackId ?? null,
         specialtyName: specialty?.nameAr ?? "",
         yearName: year?.yearName ?? "",
-        groupNumber: cohort?.groupName ?? "",
+        // keep the existing group label when membership is preserved
+        groupNumber: cohort ? cohort.groupName : (user.scopeCohortGroupId != null ? undefined : ""),
       },
     });
 
@@ -168,7 +175,7 @@ export async function POST(req: NextRequest) {
       trackId: trackId ?? null,
       selectedSpecialtyId: specialtyId ?? 1,
       selectedYearId: academicYearId ?? 1,
-      selectedCohortId: cohortId ?? null,
+      selectedCohortId: cohortId ?? user.scopeCohortGroupId ?? null,
       academicYearName: year?.yearName ?? "",
       groupNumber: cohort?.groupName ?? "",
       isConfigured: true,

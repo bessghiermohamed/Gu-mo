@@ -5,6 +5,7 @@
  */
 import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { loadScopeContext, requestVisibleTo, type ScopedUserLike } from "@/lib/auth/scope";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -403,54 +404,72 @@ export async function fetchAnnouncements(specialtyId: number): Promise<Announcem
 }
 
 // =====================================================
-// Join Requests (pending, scoped to reviewer)
+// Join Requests (pending, routed by most specific scope — spec §8)
+// round 9: one code path for BOTH storage branches. The request stays a
+// single DB record; each supervisor sees it iff their scope contains the
+// requested sub-group (sub-group rep → group rep → year → specialty →
+// institution → owner). The old local-Prisma branch ignored cohort/group
+// scope entirely (a cohort rep saw every pending request of the specialty).
 // =====================================================
 export async function fetchPendingJoinRequests(
-  reviewerId: number,
-  reviewerRole: string,
-  scopeCohortId?: number | null,
-  scopeGroupId?: number | null,
-  scopeYearId?: number | null,
-  specialtyId?: number
+  reviewer: ScopedUserLike
 ): Promise<JoinRequest[]> {
-  if (isVercel) {
-    const supabase = await createSupabaseServerClient();
-    let query = supabase
-      .from("join_requests")
-      .select(`
-        id, requester_id, cohort_id, group_id, status, message, reviewer_note, created_at, reviewed_at,
-        app_users!join_requests_requester_id_fkey(full_name),
-        cohort_groups!join_requests_cohort_id_fkey(group_name)
-      `)
-      .eq("status", "pending");
-    if (reviewerRole === "REPRESENTATIVE") {
-      if (scopeCohortId) query = query.eq("cohort_id", scopeCohortId);
-      else if (scopeGroupId) query = query.eq("group_id", scopeGroupId);
-    }
-    const { data, error } = await query.order("created_at", { ascending: false });
-    if (error) return [];
-    return (data ?? []).map((r: Record<string, unknown>) => {
-      const requester = r.app_users as Record<string, unknown>;
-      const cohort = r.cohort_groups as Record<string, unknown>;
-      return mapJoinRequest({
-        ...r,
-        requester_name: requester?.full_name ?? "",
-        cohort_name: cohort?.group_name ?? "",
+  try {
+    const ctx = await loadScopeContext();
+    let rows: Array<Record<string, unknown>> = [];
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data, error } = await supabase
+        .from("join_requests")
+        .select(`
+          id, requester_id, cohort_id, group_id, status, message, reviewer_note, created_at, reviewed_at,
+          app_users!join_requests_requester_id_fkey(full_name),
+          cohort_groups!join_requests_cohort_id_fkey(group_name)
+        `)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      if (error) return [];
+      rows = (data ?? []) as Array<Record<string, unknown>>;
+    } else {
+      const items = await db.joinRequest.findMany({
+        where: { status: "pending" } as never,
+        include: { requester: { select: { fullName: true } }, cohort: { select: { groupName: true } } },
+        orderBy: { createdAt: "desc" },
       });
-    });
+      rows = items.map((r) => ({
+        id: r.id,
+        requester_id: r.requesterId,
+        cohort_id: r.cohortId,
+        group_id: r.groupId ?? null,
+        status: r.status,
+        message: r.message,
+        reviewer_note: r.reviewerNote,
+        created_at: r.createdAt?.toISOString?.() ?? "",
+        reviewed_at: r.reviewedAt?.toISOString?.() ?? null,
+        requester_name: r.requester?.fullName ?? "",
+        cohort_name: r.cohort?.groupName ?? "",
+      })) as unknown as Array<Record<string, unknown>>;
+    }
+    return rows
+      .filter((r) => requestVisibleTo(reviewer, Number(r.cohort_id ?? 0), ctx))
+      .map((r) => {
+        const embedded = (r.app_users ?? r.requester_name) as unknown;
+        const requesterName =
+          typeof embedded === "string"
+            ? embedded
+            : String((embedded as Record<string, unknown> | undefined)?.full_name ?? r.requester_name ?? "");
+        const embeddedCohort = (r.cohort_groups ?? r.cohort_name) as unknown;
+        const cohortName =
+          typeof embeddedCohort === "string"
+            ? embeddedCohort
+            : String((embeddedCohort as Record<string, unknown> | undefined)?.group_name ?? r.cohort_name ?? "");
+        return mapJoinRequest({
+          ...r,
+          requester_name: requesterName,
+          cohort_name: cohortName,
+        });
+      });
+  } catch {
+    return [];
   }
-  const where: Record<string, unknown> = { status: "pending" };
-  if (specialtyId) where.cohort = { specialtyId };
-  const items = await db.joinRequest.findMany({
-    where: where as never,
-    include: { requester: { select: { fullName: true } }, cohort: { select: { groupName: true } } },
-    orderBy: { createdAt: "desc" },
-  });
-  return items.map((r) => ({
-    id: r.id, requesterId: r.requesterId, requesterName: r.requester?.fullName ?? "",
-    cohortId: r.cohortId, cohortName: r.cohort?.groupName ?? "",
-    groupId: r.groupId ?? null, status: r.status as JoinRequest["status"], message: r.message,
-    reviewerNote: r.reviewerNote, createdAt: r.createdAt?.toISOString?.() ?? "",
-    reviewedAt: r.reviewedAt?.toISOString?.() ?? null,
-  }));
 }
