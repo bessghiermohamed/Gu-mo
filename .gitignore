@@ -45,6 +45,14 @@ server.log
 # uploads (user-generated content)
 /uploads
 
+# repo hygiene (system review + cleanup policy 2026-09):
+# platform skill libraries and bulky uploaded archives must never be
+# committed again — they cost the repo 119MB last time.
+/skills/
+/upload/
+# intentionally-tracked files inside upload/ stay tracked; new files there
+# are ignored by default — add them explicitly if ever needed.
+
 # IDE
 .vscode/
 .idea/
