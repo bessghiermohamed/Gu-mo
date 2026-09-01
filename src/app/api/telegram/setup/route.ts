@@ -31,7 +31,7 @@ import {
   deleteTelegramItemById,
   processTelegramUpdate,
 } from "@/lib/telegram/ingest";
-import { classifyItem, isGeminiConfigured, geminiModel } from "@/lib/telegram/classify";
+import { classifyItem, isGeminiConfigured, geminiModel, probeGeminiRaw } from "@/lib/telegram/classify";
 import type { TgUpdate } from "@/lib/telegram/types";
 
 export const maxDuration = 60; // فحص Gemini قد يستغرق بضع ثوانٍ
@@ -115,6 +115,16 @@ async function testGemini() {
   const configured = isGeminiConfigured();
   const cls = await classifyItem({ kind: "text", caption: GEMINI_SAMPLE, fileName: "" });
 
+  // عند الفشل: مسبار خام يكشف السبب الحقيقي (رمز حالة غوغل + نص الخطأ)
+  let probe: { model: string; status: number; body: string } | null = null;
+  if (configured && !cls.aiClassified) {
+    try {
+      probe = await probeGeminiRaw();
+    } catch {
+      probe = null;
+    }
+  }
+
   // قائمة النماذج التي تدعم generateContent (best-effort — قد تفشل دون أثر)
   let models: string[] = [];
   const apiKey = process.env.GEMINI_API_KEY?.trim();
@@ -146,7 +156,10 @@ async function testGemini() {
   if (cls.aiClassified) {
     message = `Gemini يعمل ✅ — صنّف العيّنة كـ «${cls.itemType}» عبر ${geminiModel()}. التصنيف الذكي وقراءة نص الصور مفعّلان للمنشورات الجديدة.`;
   } else if (configured) {
-    message = `المفتاح مضبوط لكن الاستدعاء فشل (النموذج: ${geminiModel()}). جرّب ضبط GEMINI_MODEL بنموذج من القائمة أدناه ثم أعد النشر — أو استعمل مفتاحاً آخر. التصنيف المحلي يعمل في هذه الأثناء.`;
+    const probeInfo = probe
+      ? ` رمز الاستجابة من غوغل: ${probe.status}.${probe.status === 200 ? " (وصلت استجابة لكن بلا نص صالح — انظر «النتيجة الخام» أدناه)" : ` التفاصيل: ${probe.body.slice(0, 220)}`}`
+      : "";
+    message = `المفتاح مضبوط لكن الاستدعاء فشل (النموذج: ${geminiModel()}).${probeInfo} جرّب ضبط GEMINI_MODEL بنموذج من القائمة أدناه ثم أعد النشر — أو استعمل مفتاحاً آخر. التصنيف المحلي يعمل في هذه الأثناء.`;
   } else {
     message = "GEMINI_API_KEY غير مضبوط — التصنيف المحلي بالكلمات المفتاحية يعمل الآن بشكل كامل. أضف المفتاح في Vercel لتفعيل الذكاء الاصطناعي.";
   }
@@ -159,6 +172,7 @@ async function testGemini() {
     title: cls.title,
     model: geminiModel(),
     models,
+    probe,
     message,
   });
 }

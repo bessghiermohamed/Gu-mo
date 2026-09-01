@@ -51,6 +51,24 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
  */
 const DEFAULT_MODEL_CHAIN = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"];
 
+/**
+ * نماذج "التفكير" (gemini-2.5/3 + اللاحقة latest): إن لم يُوقف التفكير
+ * استهلكت رموز التفكير الداخلية حد maxOutputTokens وعادت استجابة فارغة
+ * (حدث فعلاً: MAX_TOKENS دون أي نص) — لذا نضبط thinkingBudget: 0 لها فقط،
+ * لأن النماذج الأقدم (2.0/gemma) قد ترفض الحقل.
+ */
+const THINKING_MODEL_RE = /(^gemini-(2\.5|3))|latest/;
+
+function generationConfigFor(model: string): Record<string, unknown> {
+  const cfg: Record<string, unknown> = {
+    temperature: 0.1,
+    maxOutputTokens: 2048,
+    responseMimeType: "application/json",
+  };
+  if (THINKING_MODEL_RE.test(model)) cfg.thinkingConfig = { thinkingBudget: 0 };
+  return cfg;
+}
+
 export function geminiModel(): string {
   return process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL_CHAIN[0];
 }
@@ -141,12 +159,10 @@ export async function classifyWithGemini(input: ClassifyInput): Promise<Classify
       inline_data: { mime_type: input.imageMimeType || "image/jpeg", data: input.imageBase64 },
     });
   }
-  const requestBody = JSON.stringify({
-    contents: [{ role: "user", parts }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 2048, responseMimeType: "application/json" },
-  });
+  const contents = [{ role: "user", parts }];
 
   for (const model of modelCandidates()) {
+    const requestBody = JSON.stringify({ contents, generationConfig: generationConfigFor(model) });
     const result = await callGeminiModel(model, apiKey, requestBody, input);
     if (result) return result;
   }
@@ -201,4 +217,37 @@ export async function classifyItem(input: ClassifyInput): Promise<ClassifyResult
     // defensive — classifyWithGemini already catches
   }
   return heuristicClassify(input);
+}
+
+/**
+ * مسبار تشخيصي: استدعاء generateContent خام بأصغر حمولة — يعيد رمز
+ * الحالة ونص الاستجابة من غوغل كما هو، حتى يرى المشرف السبب الحقيقي
+ * لأي فشل (404 نموذج محذوف / 429 حصة / 400 حقل مرفوض / ...).
+ */
+export async function probeGeminiRaw(): Promise<{ model: string; status: number; body: string } | null> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) return null;
+  const model = geminiModel();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `${GEMINI_ENDPOINT}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: 'صنّف هذا: امتحان محلول. أعد JSON فقط: {"item_type":"امتحان","title":"فحص اتصال","text":""}' }] }],
+          generationConfig: generationConfigFor(model),
+        }),
+        signal: controller.signal,
+      }
+    );
+    const body = (await res.text()).slice(0, 600);
+    return { model, status: res.status, body };
+  } catch (e) {
+    return { model, status: 0, body: String(e).slice(0, 300) };
+  } finally {
+    clearTimeout(timer);
+  }
 }
