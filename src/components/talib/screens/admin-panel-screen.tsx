@@ -24,7 +24,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
-import { canManageRoles, canCreateGroups, canCreateModules, canCreateCohorts } from "@/lib/auth/permissions";
+import { canManageRoles, canCreateGroups, canCreateModules, canCreateCohorts, canAccessDevSettings } from "@/lib/auth/permissions";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -113,6 +113,13 @@ export function TalibAdminPanelScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
 
+  // fix (R12-06, P0): the permission helpers were imported but NEVER used —
+  // all 13 tabs rendered for every supervisory role, including «السحابة»
+  // (Supabase connection details — an OWNER-only tool per /api/dev/env's
+  // canAccessDevSettings gate). Tab visibility is now bound to the SAME
+  // helpers the APIs enforce.
+  const isOwner = canAccessDevSettings(user ?? null);
+
   // فتح التبويب المطلوب مباشرة (مثلاً «تيليجرام» من شاشة دروس تيليجرام)
   // round 10 (review §16): اللوحة تفتح افتراضياً على «مركز التحكم» —
   // نظرة عامة منظمة حسب الأولوية بدل الترام في بطاقات متساوية.
@@ -120,6 +127,8 @@ export function TalibAdminPanelScreen() {
     try {
       const wanted = sessionStorage.getItem("talib-admin-tab");
       sessionStorage.removeItem("talib-admin-tab");
+      // never restore into a tab this role cannot see
+      if (wanted === "cloud" && !canAccessDevSettings(user ?? null)) return "overview";
       return wanted ?? "overview";
     } catch {
       return "overview";
@@ -130,13 +139,21 @@ export function TalibAdminPanelScreen() {
   // مفتوحة + أعداد نطاق المتصل (feed للشارات والبطاقات).
   const [stats, setStats] = React.useState<AdminStats | null>(null);
   const [statsLoading, setStatsLoading] = React.useState(true);
+  // fix (R12): a failed stats fetch used to be indistinguishable from
+  // "zero pending items" — the overview showed a green ALL-CLEAR on error.
+  const [statsError, setStatsError] = React.useState(false);
   const refreshStats = React.useCallback(async () => {
     setStatsLoading(true);
     try {
       const res = await fetch("/api/admin/stats", { cache: "no-store" });
-      if (res.ok) setStats(await res.json());
+      if (res.ok) {
+        setStats(await res.json());
+        setStatsError(false);
+      } else {
+        setStatsError(true);
+      }
     } catch {
-      // keep last known stats
+      setStatsError(true);
     } finally {
       setStatsLoading(false);
     }
@@ -190,11 +207,19 @@ export function TalibAdminPanelScreen() {
             )}
           </TabsTrigger>
           <TabsTrigger value="telegram" className="text-xs flex-1 min-w-24"><Send className="w-3.5 h-3.5 ml-1" />تيليجرام</TabsTrigger>
-          <TabsTrigger value="cloud" className="text-xs flex-1 min-w-24"><Cloud className="w-3.5 h-3.5 ml-1" />السحابة</TabsTrigger>
+          {isOwner && (
+            <TabsTrigger value="cloud" className="text-xs flex-1 min-w-24"><Cloud className="w-3.5 h-3.5 ml-1" />السحابة</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
-          <ControlCenterOverview stats={stats} loading={statsLoading} onGoToTab={setAdminTab} />
+          <ControlCenterOverview
+            stats={stats}
+            loading={statsLoading}
+            error={statsError && stats == null && !statsLoading}
+            onRetry={refreshStats}
+            onGoToTab={setAdminTab}
+          />
         </TabsContent>
         <TabsContent value="users" className="mt-4"><UsersManager /></TabsContent>
         <TabsContent value="structure" className="mt-4"><StructureManager /></TabsContent>
@@ -207,7 +232,9 @@ export function TalibAdminPanelScreen() {
         <TabsContent value="modules" className="mt-4"><ModulesManager /></TabsContent>
         <TabsContent value="issues" className="mt-4"><IssuesManager /></TabsContent>
         <TabsContent value="telegram" className="mt-4"><TelegramManager /></TabsContent>
-        <TabsContent value="cloud" className="mt-4"><CloudManager /></TabsContent>
+        {isOwner && (
+          <TabsContent value="cloud" className="mt-4"><CloudManager /></TabsContent>
+        )}
       </Tabs>
     </div>
   );
@@ -256,9 +283,11 @@ function StatTile({ icon: Icon, label, value, loading }: {
   );
 }
 
-function ControlCenterOverview({ stats, loading, onGoToTab }: {
+function ControlCenterOverview({ stats, loading, error, onRetry, onGoToTab }: {
   stats: AdminStats | null;
   loading: boolean;
+  error: boolean;
+  onRetry: () => void;
   onGoToTab: (tab: string) => void;
 }) {
   const attention = (stats?.pendingJoinRequests ?? 0) + (stats?.openReports ?? 0);
@@ -274,6 +303,24 @@ function ControlCenterOverview({ stats, loading, onGoToTab }: {
         {loading && stats == null ? (
           <Card className="p-6 text-center">
             <Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" />
+          </Card>
+        ) : error ? (
+          // fix (R12): a failed stats fetch used to render the SAME green
+          // "all clear" card as a genuine zero — a supervisor could miss
+          // real waiting work forever. Failure now looks like failure.
+          <Card className="p-4 bg-red-500/5 border-red-500/30 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/15 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-red-700 dark:text-red-300">تعذّر تحميل الإحصاءات</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                لا يمكن التأكد من وجود بنود منتظرة — أعد المحاولة قبل المتابعة
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              <RotateCcw className="w-3.5 h-3.5 ml-1" />إعادة المحاولة
+            </Button>
           </Card>
         ) : attention === 0 ? (
           <Card className="p-4 bg-emerald-500/5 border-emerald-500/30 flex items-center gap-3">

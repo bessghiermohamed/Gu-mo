@@ -13,6 +13,9 @@ import {
   Calendar,
   PartyPopper,
   Info,
+  Loader2,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +53,7 @@ interface AcademicTrack {
 
 export function TalibOnboardingScreen({ onComplete }: Props) {
   const { t } = useI18n();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const { dir } = useI18n();
 
   const [step, setStep] = React.useState(0);
@@ -63,6 +66,18 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
   const [tracks, setTracks] = React.useState<AcademicTrack[]>([]);
   const [years, setYears] = React.useState<AcademicYear[]>([]);
 
+  // fix (R12-22, P0): every fetch failure used to render as an eternal
+  // "جارٍ التحميل…" or an empty list — no retry, no logout, the flow was
+  // PERMANENTLY stuck (the completion marker is localStorage, so even a
+  // reload re-entered the same trap). Failures are now explicit states
+  // with a retry button and a logout escape hatch.
+  const [instState, setInstState] = React.useState<"loading" | "ok" | "error">("loading");
+  const [instTick, setInstTick] = React.useState(0);
+  const [specState, setSpecState] = React.useState<"loading" | "ok" | "error">("ok");
+  const [specTick, setSpecTick] = React.useState(0);
+  const [yearTrackState, setYearTrackState] = React.useState<"loading" | "ok" | "error">("ok");
+  const [yearTrackTick, setYearTrackTick] = React.useState(0);
+
   const [selectedInstitution, setSelectedInstitution] = React.useState<number | null>(null);
   const [selectedSpecialty, setSelectedSpecialty] = React.useState<number | null>(null);
   const [selectedTrack, setSelectedTrack] = React.useState<number | null>(null);
@@ -73,42 +88,74 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
   const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
+    let alive = true;
+    setInstState("loading");
     fetch("/api/onboarding/institutions")
-      .then((r) => r.json())
-      .then((data) => setInstitutions(data.institutions ?? []))
-      .catch(() => setInstitutions([]));
-  }, []);
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (!alive) return;
+        setInstitutions(data.institutions ?? []);
+        setInstState("ok");
+      })
+      .catch(() => alive && setInstState("error"));
+    return () => { alive = false; };
+  }, [instTick]);
 
   React.useEffect(() => {
     if (!selectedInstitution) return;
+    let alive = true;
+    setSpecState("loading");
+    setSelectedSpecialty(null); // fix (R12-11): no silent default — must TAP
     fetch(`/api/onboarding/specialties?institutionId=${selectedInstitution}`)
-      .then((r) => r.json())
-      .then((data) => {
-        setSpecialties(data.specialties ?? []);
-        if (data.specialties?.length > 0) {
-          setSelectedSpecialty(data.specialties[0].id);
-        }
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
       })
-      .catch(() => setSpecialties([]));
-  }, [selectedInstitution]);
+      .then((data) => {
+        if (!alive) return;
+        setSpecialties(data.specialties ?? []);
+        setSpecState("ok");
+      })
+      .catch(() => alive && setSpecState("error"));
+    return () => { alive = false; };
+  }, [selectedInstitution, specTick]);
 
   React.useEffect(() => {
     if (!selectedSpecialty) return;
+    let alive = true;
+    setYearTrackState("loading");
+    // fix (R12-11): the first year/track of the DB listing used to be
+    // silently pre-selected — identity-critical decisions landed in the
+    // wrong scope by DB row order. Selection is now EXPLICIT.
+    setSelectedYear(null);
+    setSelectedTrack(null);
     Promise.all([
-      fetch(`/api/onboarding/years?specialtyId=${selectedSpecialty}`).then((r) => r.json()),
-      fetch(`/api/onboarding/tracks?specialtyId=${selectedSpecialty}`).then((r) => r.json()),
+      fetch(`/api/onboarding/years?specialtyId=${selectedSpecialty}`).then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }),
+      fetch(`/api/onboarding/tracks?specialtyId=${selectedSpecialty}`).then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }),
     ])
       .then(([yearsData, tracksData]) => {
+        if (!alive) return;
         setYears(yearsData.years ?? []);
         setTracks(tracksData.tracks ?? []);
-        if (yearsData.years?.length > 0) setSelectedYear(yearsData.years[0].id);
-        if (tracksData.tracks?.length > 0) setSelectedTrack(tracksData.tracks[0].id);
+        setYearTrackState("ok");
       })
       .catch(() => {
+        if (!alive) return;
         setYears([]);
         setTracks([]);
+        setYearTrackState("error");
       });
-  }, [selectedSpecialty]);
+    return () => { alive = false; };
+  }, [selectedSpecialty, yearTrackTick]);
 
   function canProceed() {
     switch (step) {
@@ -119,7 +166,10 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
       case 2:
         return selectedSpecialty !== null;
       case 3:
-        return selectedTrack !== null;
+        // fix: a specialty with NO tracks used to trap the user forever —
+        // the next button required a selection that could never be made.
+        // Track is now optional when the specialty defines none.
+        return tracks.length === 0 || selectedTrack !== null;
       case 4:
         return selectedYear !== null;
       case 5:
@@ -175,8 +225,14 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
           <span className="text-xs font-medium text-muted-foreground">
             {t("onboarding.step")} {step + 1} {t("onboarding.of")} {totalSteps}
           </span>
-          {/* fix L-1 (round 4): raw technical percentages (83%, 100%) removed —
-              the "step X of 6" counter above is the user-friendly indicator. */}
+          {/* fix (R12-22): escape hatch — a user trapped in onboarding by a
+              persistent network failure can always log out and retry later. */}
+          <button
+            onClick={() => signOut()}
+            className="text-xs text-muted-foreground hover:text-red-600 underline underline-offset-4"
+          >
+            تسجيل الخروج
+          </button>
         </div>
         <div className="h-2 bg-muted rounded-full overflow-hidden">
           <motion.div
@@ -236,11 +292,28 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
                 subtitle={t("onboarding.selectInstitution")}
               >
                 <div className="space-y-2">
-                  {institutions.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">
+                  {instState === "loading" && (
+                    <p className="text-sm text-muted-foreground text-center py-8 flex items-center justify-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
                       {t("common.loading")}
                     </p>
-                  ) : (
+                  )}
+                  {instState === "error" && (
+                    <div className="text-center py-8">
+                      <AlertTriangle className="w-8 h-8 mx-auto text-red-500 mb-2" />
+                      <p className="text-sm font-bold mb-1">تعذّر تحميل قائمة المؤسسات</p>
+                      <p className="text-xs text-muted-foreground mb-3">تحقق من اتصالك بالإنترنت ثم أعد المحاولة.</p>
+                      <Button variant="outline" size="sm" onClick={() => setInstTick((n) => n + 1)}>
+                        <RefreshCw className="w-3.5 h-3.5 ml-1" />إعادة المحاولة
+                      </Button>
+                    </div>
+                  )}
+                  {instState === "ok" && institutions.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-8">
+                      لا توجد مؤسسات مسجّلة بعد — تواصل مع إدارة المنصة.
+                    </p>
+                  )}
+                  {instState === "ok" && institutions.length > 0 && (
                     institutions.map((inst) => (
                       <button
                         key={inst.id}
@@ -277,11 +350,27 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
                 subtitle={t("onboarding.selectSpecialty")}
               >
                 <div className="space-y-2">
-                  {specialties.length === 0 ? (
+                  {specState === "loading" && (
+                    <p className="text-sm text-muted-foreground text-center py-8 flex items-center justify-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {t("common.loading")}
+                    </p>
+                  )}
+                  {specState === "error" && (
+                    <div className="text-center py-8">
+                      <AlertTriangle className="w-8 h-8 mx-auto text-red-500 mb-2" />
+                      <p className="text-sm font-bold mb-1">تعذّر تحميل قائمة التخصصات</p>
+                      <Button variant="outline" size="sm" className="mt-2" onClick={() => setSpecTick((n) => n + 1)}>
+                        <RefreshCw className="w-3.5 h-3.5 ml-1" />إعادة المحاولة
+                      </Button>
+                    </div>
+                  )}
+                  {specState === "ok" && specialties.length === 0 && (
                     <p className="text-sm text-muted-foreground text-center py-8">
                       {t("common.noData")}
                     </p>
-                  ) : (
+                  )}
+                  {specState === "ok" && specialties.length > 0 && (
                     specialties.map((sp) => (
                       <button
                         key={sp.id}
@@ -319,9 +408,25 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
               >
                 <div className="space-y-2">
                   {tracks.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">
-                      لا توجد ملامح متاحة لهذا التخصص
-                    </p>
+                    yearTrackState === "error" ? (
+                      <div className="text-center py-8">
+                        <AlertTriangle className="w-8 h-8 mx-auto text-red-500 mb-2" />
+                        <p className="text-sm font-bold mb-1">تعذّر تحميل الملامح</p>
+                        <Button variant="outline" size="sm" className="mt-2" onClick={() => setYearTrackTick((n) => n + 1)}>
+                          <RefreshCw className="w-3.5 h-3.5 ml-1" />إعادة المحاولة
+                        </Button>
+                      </div>
+                    ) : yearTrackState === "loading" ? (
+                      <p className="text-sm text-muted-foreground text-center py-8 flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {t("common.loading")}
+                      </p>
+                    ) : (
+                      <div className="rounded-lg bg-muted/40 border border-dashed p-4 text-center">
+                        <p className="text-sm font-bold">هذا التخصص بلا ملامح</p>
+                        <p className="text-xs text-muted-foreground mt-1">يمكنك المتابعة مباشرة — اضغط «التالي».</p>
+                      </div>
+                    )
                   ) : (
                     tracks.map((track) => (
                       <button
@@ -359,6 +464,28 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
                 subtitle={t("onboarding.selectYear")}
               >
                 <div className="space-y-3">
+                  {yearTrackState === "loading" && (
+                    <p className="text-sm text-muted-foreground text-center py-8 flex items-center justify-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {t("common.loading")}
+                    </p>
+                  )}
+                  {yearTrackState === "error" && (
+                    <div className="text-center py-8">
+                      <AlertTriangle className="w-8 h-8 mx-auto text-red-500 mb-2" />
+                      <p className="text-sm font-bold mb-1">تعذّر تحميل السنوات الدراسية</p>
+                      <Button variant="outline" size="sm" className="mt-2" onClick={() => setYearTrackTick((n) => n + 1)}>
+                        <RefreshCw className="w-3.5 h-3.5 ml-1" />إعادة المحاولة
+                      </Button>
+                    </div>
+                  )}
+                  {yearTrackState === "ok" && years.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-8">
+                      لا توجد سنوات دراسية معرّفة لهذا التخصص — تواصل مع المشرف.
+                    </p>
+                  )}
+                  {yearTrackState === "ok" && years.length > 0 && (
+                    <>
                   <div className="grid grid-cols-2 gap-2">
                     {years.map((y) => (
                       <button
@@ -384,6 +511,8 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
                       لفوجه يدوياً.
                     </p>
                   </div>
+                    </>
+                  )}
                 </div>
               </StepCard>
             )}

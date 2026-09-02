@@ -11,6 +11,7 @@ import { useI18n } from "@/components/talib/i18n-provider";
 import { usePalette } from "@/components/talib/theme-provider";
 import { useTheme } from "next-themes";
 import { AuthProvider, useAuth } from "@/components/talib/auth-provider";
+import { canManageRoles } from "@/lib/auth/permissions";
 import { TalibLoginScreen } from "@/components/talib/screens/login-screen";
 import { TalibOnboardingScreen } from "@/components/talib/screens/onboarding-screen";
 import { TalibHomeScreen } from "@/components/talib/screens/home-screen";
@@ -26,6 +27,7 @@ import { TalibGroupScreen } from "@/components/talib/screens/group-screen";
 import { TalibAssignmentsScreen } from "@/components/talib/screens/assignments-screen";
 import { TalibBrowseGroupsScreen } from "@/components/talib/screens/browse-groups-screen";
 import { TalibTelegramScreen } from "@/components/talib/screens/telegram-screen";
+import { TalibCourseDetailScreen } from "@/components/talib/screens/course-detail-screen";
 import { TalibBottomNavBar } from "@/components/talib/bottom-nav-bar";
 import {
   TalibNotificationsSheet,
@@ -47,7 +49,59 @@ export type ScreenRoute =
   | "ANNOUNCEMENTS"
   | "ADMIN"
   | "TELEGRAM"
+  | "COURSE_DETAIL"
   | "ONBOARDING";
+
+// =====================================================
+// fix (R12-03, P0): the app used to forget the current screen on refresh —
+// every reload dumped the student back on HOME, mid-task work was lost and
+// no screen could ever be shared/bookmarked. Each route now has a stable
+// hash (#/grades, #/courses, …) that is kept in sync so:
+//   • refresh / app re-open restores the exact screen
+//   • the Android/browser back gesture walks the real visit history
+//   • duplicate tab taps no longer poison the back stack (navigate guards)
+// =====================================================
+const ROUTE_TO_HASH: Record<ScreenRoute, string> = {
+  HOME: "home",
+  COURSES: "courses",
+  SCHEDULE: "schedule",
+  EXAMS: "exams",
+  GRADES: "grades",
+  ASSIGNMENTS: "assignments",
+  FILES: "files",
+  GROUP: "group",
+  BROWSE_GROUPS: "browse-groups",
+  PROFILE: "profile",
+  ANNOUNCEMENTS: "announcements",
+  ADMIN: "admin",
+  TELEGRAM: "telegram",
+  COURSE_DETAIL: "course",
+  ONBOARDING: "onboarding", // never restored from the URL — gated below
+};
+
+function routeFromHash(hash: string): ScreenRoute {
+  const key = hash.replace(/^#\/?/, "").toLowerCase();
+  if (!key) return "HOME";
+  const found = (Object.entries(ROUTE_TO_HASH) as Array<[ScreenRoute, string]>).find(
+    ([, h]) => h === key
+  );
+  if (!found) return "HOME";
+  // never restore INTO onboarding from the URL — the onboarding gate owns it
+  if (found[0] === "ONBOARDING") return "HOME";
+  return found[0];
+}
+
+// Minimal shape a screen needs to open the course detail view.
+export interface CourseSummary {
+  id: number;
+  name: string;
+  code: string;
+  coefficient: number;
+  professorName: string;
+  category: string;
+  description: string;
+  semester: number;
+}
 
 interface ShellContextValue {
   currentScreen: ScreenRoute;
@@ -55,6 +109,8 @@ interface ShellContextValue {
   navigateBack: () => void;
   showLoading: (message?: string) => void;
   hideLoading: () => void;
+  detailCourse: CourseSummary | null;
+  navigateToCourse: (course: CourseSummary) => void;
 }
 
 const ShellContext = React.createContext<ShellContextValue | null>(null);
@@ -72,7 +128,10 @@ function ShellInner() {
   const { user, loading: authLoading, signOut, refresh } = useAuth();
 
   const [currentScreen, setCurrentScreen] = React.useState<ScreenRoute>("HOME");
-  const [history, setHistory] = React.useState<ScreenRoute[]>([]);
+  // In-app back stack (the header chevron). Browser history is mirrored via
+  // pushState — see the routing comment above.
+  const historyStackRef = React.useRef<ScreenRoute[]>([]);
+  const [detailCourse, setDetailCourse] = React.useState<CourseSummary | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [loadingMessage, setLoadingMessage] = React.useState("");
   const [unreadCount, setUnreadCount] = React.useState(0);
@@ -148,6 +207,14 @@ function ShellInner() {
     return () => clearInterval(interval);
   }, [refreshUnreadCount, refreshNotifications]);
 
+  // fix (R12): the announcements screen marks its items read — the badge
+  // refreshes IMMEDIATELY instead of waiting for the next 30s poll.
+  React.useEffect(() => {
+    const onAnnRead = () => { refreshUnreadCount(); };
+    window.addEventListener("talib-ann-read", onAnnRead);
+    return () => window.removeEventListener("talib-ann-read", onAnnRead);
+  }, [refreshUnreadCount]);
+
   const markAllNotificationsRead = React.useCallback(async () => {
     try {
       await fetch("/api/notifications/read", {
@@ -163,24 +230,104 @@ function ShellInner() {
   }, []);
 
   const navigate = React.useCallback((route: ScreenRoute) => {
+    if (route === "COURSE_DETAIL") return; // use navigateToCourse
     setCurrentScreen((prev) => {
-      setHistory((h) => [...h, prev]);
+      // fix (R12-03): tapping the tab you are ALREADY on used to push a
+      // duplicate history entry, so the back chevron appeared to do nothing.
+      if (prev === route) return prev;
+      historyStackRef.current.push(prev);
       return route;
     });
+    const target = `#/${ROUTE_TO_HASH[route]}`;
+    if (window.location.hash !== target) {
+      window.history.pushState({ talib: route }, "", target);
+    }
+  }, []);
+
+  const navigateToCourse = React.useCallback((course: CourseSummary) => {
+    setDetailCourse(course);
+    try {
+      sessionStorage.setItem("talib-course", JSON.stringify(course));
+    } catch {
+      // storage disabled — in-session navigation still works
+    }
+    setCurrentScreen((prev) => {
+      if (prev === "COURSE_DETAIL") return prev;
+      historyStackRef.current.push(prev);
+      return "COURSE_DETAIL";
+    });
+    const target = "#/course";
+    if (window.location.hash !== target) {
+      window.history.pushState({ talib: "COURSE_DETAIL" }, "", target);
+    }
   }, []);
 
   const navigateBack = React.useCallback(() => {
-    setHistory((h) => {
-      if (h.length === 0) {
-        setCurrentScreen("HOME");
-        return h;
-      }
-      const newHistory = [...h];
-      const prev = newHistory.pop()!;
+    const stack = historyStackRef.current;
+    if (stack.length > 0) {
+      const prev = stack.pop()!;
       setCurrentScreen(prev);
-      return newHistory;
-    });
+      if (prev !== "COURSE_DETAIL") setDetailCourse(null);
+      const target = `#/${ROUTE_TO_HASH[prev]}`;
+      if (window.location.hash !== target) {
+        window.history.pushState({ talib: prev }, "", target);
+      }
+    } else {
+      setCurrentScreen("HOME");
+      const target = "#/home";
+      if (window.location.hash !== target) {
+        window.history.replaceState({ talib: "HOME" }, "", target);
+      }
+    }
   }, []);
+
+  // Browser / Android back gesture: the previous hash wins. The in-app stack
+  // is cleared (the OS already walked back for us); the next in-app back
+  // then safely falls home.
+  React.useEffect(() => {
+    function onPopState() {
+      historyStackRef.current = [];
+      const route = routeFromHash(window.location.hash);
+      setCurrentScreen((prev) => (prev === route ? prev : route));
+      if (route === "COURSE_DETAIL") {
+        try {
+          const raw = sessionStorage.getItem("talib-course");
+          if (raw) setDetailCourse(JSON.parse(raw) as CourseSummary);
+        } catch {
+          // fall through — render guard below handles a missing course
+        }
+      }
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  // Restore the last screen after a refresh / from a shared deep link once
+  // we know who the user is (needed for the ADMIN role guard).
+  React.useEffect(() => {
+    if (!user) return;
+    if (!window.location.hash) {
+      window.history.replaceState({ talib: "HOME" }, "", "#/home");
+      return;
+    }
+    const route = routeFromHash(window.location.hash);
+    if (route === "COURSE_DETAIL") {
+      try {
+        const raw = sessionStorage.getItem("talib-course");
+        if (raw) {
+          setDetailCourse(JSON.parse(raw) as CourseSummary);
+          setCurrentScreen("COURSE_DETAIL");
+          return;
+        }
+      } catch {
+        // corrupted session storage — fall through to HOME
+      }
+      window.history.replaceState({ talib: "HOME" }, "", "#/home");
+      setCurrentScreen("HOME");
+      return;
+    }
+    setCurrentScreen(route);
+  }, [user]);
 
   const handleNotificationTap = React.useCallback(
     (item: AppNotificationItem) => {
@@ -227,6 +374,8 @@ function ShellInner() {
     navigateBack,
     showLoading,
     hideLoading,
+    detailCourse,
+    navigateToCourse,
   };
 
   // Auth loading state
@@ -260,15 +409,50 @@ function ShellInner() {
     );
   }
 
-  // Needs onboarding
-  if (!onboardingDone && currentScreen !== "ONBOARDING") {
-    setCurrentScreen("ONBOARDING");
+  // Needs onboarding — pure render gate (no setState during render):
+  // onboarding wins over ANY screen, including a restored deep link.
+  if (!onboardingDone) {
+    return (
+      <ShellContext.Provider value={shellValue}>
+        <div dir={dir} className="min-h-screen bg-background flex flex-col">
+          <main className="flex-1">
+            <TalibOnboardingScreen
+              onComplete={async () => {
+                if (user) {
+                  localStorage.setItem(
+                    `talib-onboarding-${user.id}`,
+                    "true"
+                  );
+                }
+                // fix أ.3/أ.4 (round 3): the session user used to stay stale
+                // after onboarding (assignedSpecialtyId = first specialty,
+                // null year/track) so the join screen leaked other
+                // specialties' groups until a full page reload. Refresh the
+                // session user BEFORE navigating home.
+                await refresh();
+                setOnboardingDone(true);
+                window.history.replaceState({ talib: "HOME" }, "", "#/home");
+                setCurrentScreen("HOME");
+                toast.success(t("onboarding.finish"));
+              }}
+            />
+          </main>
+          <SonnerToaster position="top-center" dir={dir} />
+        </div>
+      </ShellContext.Provider>
+    );
   }
 
-  const isAdminScreen = currentScreen === "ADMIN";
-  const isOnboardingScreen = currentScreen === "ONBOARDING";
-  const showHeader = !isOnboardingScreen;
-  const showBottomNav = !isAdminScreen && !isOnboardingScreen;
+  // fix (R12-06, P0): the ADMIN panel used to render for ANY role reached
+  // via the notification deep-link or a typed URL. The route is now gated —
+  // non-supervisors land on HOME (defense in depth; the APIs already
+  // enforce their own authorization).
+  const effectiveScreen: ScreenRoute =
+    currentScreen === "ADMIN" && !canManageRoles(user ?? null) ? "HOME" : currentScreen;
+
+  const isAdminScreen = effectiveScreen === "ADMIN";
+  const showHeader = true;
+  const showBottomNav = !isAdminScreen;
 
   return (
     <ShellContext.Provider value={shellValue}>
@@ -278,7 +462,7 @@ function ShellInner() {
           <header className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
             <div className="mx-auto max-w-5xl px-4 py-3 flex items-center gap-3">
               {/* Back button */}
-              {currentScreen !== "HOME" && (
+              {effectiveScreen !== "HOME" && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -399,53 +583,36 @@ function ShellInner() {
         <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-4 pb-24">
           <AnimatePresence mode="wait">
             <motion.div
-              key={currentScreen}
+              key={effectiveScreen}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
             >
-              {currentScreen === "ONBOARDING" && (
-                <TalibOnboardingScreen
-                  onComplete={async () => {
-                    if (user) {
-                      localStorage.setItem(
-                        `talib-onboarding-${user.id}`,
-                        "true"
-                      );
-                    }
-                    // fix أ.3/أ.4 (round 3): the session user used to stay stale
-                    // after onboarding (assignedSpecialtyId = first specialty,
-                    // null year/track) so the join screen leaked other
-                    // specialties' groups until a full page reload. Refresh the
-                    // session user BEFORE navigating home.
-                    await refresh();
-                    setOnboardingDone(true);
-                    setCurrentScreen("HOME");
-                    toast.success(t("onboarding.finish"));
-                  }}
-                />
+              {effectiveScreen === "HOME" && <TalibHomeScreen />}
+              {effectiveScreen === "COURSES" && <TalibCoursesScreen />}
+              {effectiveScreen === "SCHEDULE" && <TalibScheduleScreen />}
+              {effectiveScreen === "EXAMS" && <TalibExamsScreen />}
+              {effectiveScreen === "GRADES" && <TalibGradesScreen />}
+              {effectiveScreen === "ASSIGNMENTS" && <TalibAssignmentsScreen />}
+              {effectiveScreen === "FILES" && <TalibFilesScreen />}
+              {effectiveScreen === "TELEGRAM" && <TalibTelegramScreen />}
+              {effectiveScreen === "GROUP" && <TalibGroupScreen />}
+              {effectiveScreen === "BROWSE_GROUPS" && <TalibBrowseGroupsScreen />}
+              {effectiveScreen === "ANNOUNCEMENTS" && <TalibAnnouncementsScreen />}
+              {effectiveScreen === "COURSE_DETAIL" && (
+                <TalibCourseDetailScreen course={detailCourse} />
               )}
-              {currentScreen === "HOME" && <TalibHomeScreen />}
-              {currentScreen === "COURSES" && <TalibCoursesScreen />}
-              {currentScreen === "SCHEDULE" && <TalibScheduleScreen />}
-              {currentScreen === "EXAMS" && <TalibExamsScreen />}
-              {currentScreen === "GRADES" && <TalibGradesScreen />}
-              {currentScreen === "ASSIGNMENTS" && <TalibAssignmentsScreen />}
-              {currentScreen === "FILES" && <TalibFilesScreen />}
-              {currentScreen === "TELEGRAM" && <TalibTelegramScreen />}
-              {currentScreen === "GROUP" && <TalibGroupScreen />}
-              {currentScreen === "BROWSE_GROUPS" && <TalibBrowseGroupsScreen />}
-              {currentScreen === "ANNOUNCEMENTS" && <TalibAnnouncementsScreen />}
-              {currentScreen === "PROFILE" && (
+              {effectiveScreen === "PROFILE" && (
                 <TalibProfileScreen
                   onSignOut={async () => {
                     await signOut();
+                    window.history.replaceState({ talib: "HOME" }, "", "#/home");
                     setCurrentScreen("HOME");
                   }}
                 />
               )}
-              {currentScreen === "ADMIN" && <TalibAdminPanelScreen />}
+              {effectiveScreen === "ADMIN" && <TalibAdminPanelScreen />}
             </motion.div>
           </AnimatePresence>
         </main>

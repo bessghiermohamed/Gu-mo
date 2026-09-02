@@ -1,13 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { Calculator, TrendingUp, Award, Target, Plus } from "lucide-react";
+import { Calculator, TrendingUp, Award, Target, Plus, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useI18n } from "@/components/talib/i18n-provider";
+import { computeGpa } from "@/lib/grades";
 
 interface GradeRow {
   id: number;
@@ -18,12 +20,25 @@ interface GradeRow {
   isOfficial: boolean;
 }
 
+function makeRow(): GradeRow {
+  return {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    moduleName: "",
+    continuousScore: 0,
+    examScore: 0,
+    coefficient: 1,
+    isOfficial: false,
+  };
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v));
+}
+
 export function TalibGradesScreen() {
   const { t } = useI18n();
   // Rows persist locally per device (critique: GPA evaporated on refresh)
-  const [grades, setGrades] = React.useState<GradeRow[]>([
-    { id: 1, moduleName: "", continuousScore: 0, examScore: 0, coefficient: 1, isOfficial: false },
-  ]);
+  const [grades, setGrades] = React.useState<GradeRow[]>([makeRow()]);
 
   React.useEffect(() => {
     try {
@@ -45,37 +60,49 @@ export function TalibGradesScreen() {
     }
   }, [grades]);
 
-  const gpa = React.useMemo(() => {
-    const total = grades.reduce(
-      (acc, g) => acc + (g.continuousScore + g.examScore) / 2 * g.coefficient,
-      0
-    );
-    const totalCoef = grades.reduce((acc, g) => acc + g.coefficient, 0);
-    return totalCoef > 0 ? total / totalCoef : 0;
-  }, [grades]);
+  // fix (R12): the GPA used to be computed inline with slightly different
+  // rules than the Home hero — both now share lib/grades.ts (single source).
+  const gpa = React.useMemo(() => computeGpa(grades), [grades]);
 
+  // fix (R12-04, P0): the old updater coerced EVERY string through
+  // `Number(value) || 0` — so typing an Arabic module name like
+  // "أدب جاهلي" instantly became 0. Now text fields stay text, and
+  // numeric fields are clamped to their legal ranges (0–20 / 1–10) so
+  // a typo like 999 can no longer push the GPA above 20.
   function updateGrade(id: number, field: keyof GradeRow, value: string | number | boolean) {
     setGrades((gs) =>
-      gs.map((g) =>
-        g.id === id
-          ? { ...g, [field]: typeof value === "string" ? Number(value) || 0 : value }
-          : g
-      )
+      gs.map((g) => {
+        if (g.id !== id) return g;
+        if (field === "moduleName") {
+          return { ...g, moduleName: typeof value === "string" ? value : g.moduleName };
+        }
+        if (field === "continuousScore" || field === "examScore") {
+          const n = Number(value);
+          if (Number.isNaN(n)) return g; // half-typed input ("-", "") — keep previous
+          return { ...g, [field]: clamp(n, 0, 20) };
+        }
+        if (field === "coefficient") {
+          const n = Math.floor(Number(value));
+          if (Number.isNaN(n)) return g;
+          return { ...g, coefficient: clamp(n || 1, 1, 10) };
+        }
+        return { ...g, [field]: value };
+      })
     );
   }
 
   function addRow() {
-    setGrades((gs) => [
-      ...gs,
-      {
-        id: Date.now(),
-        moduleName: "",
-        continuousScore: 0,
-        examScore: 0,
-        coefficient: 1,
-        isOfficial: false,
-      },
-    ]);
+    setGrades((gs) => [...gs, makeRow()]);
+  }
+
+  // fix (R12-04, P0): rows could be added but NEVER removed — one accidental
+  // tap on "إضافة مقياس آخر" polluted the GPA forever (until localStorage
+  // was manually cleared). Deleting all rows resets to one fresh row.
+  function deleteRow(id: number) {
+    setGrades((gs) => {
+      const next = gs.filter((g) => g.id !== id);
+      return next.length > 0 ? next : [makeRow()];
+    });
   }
 
   return (
@@ -92,17 +119,19 @@ export function TalibGradesScreen() {
             <TrendingUp className="w-5 h-5 text-primary" />
             <span className="font-bold text-sm">{t("grades.gpa")}</span>
           </div>
-          <Badge variant={gpa >= 10 ? "default" : "destructive"}>
-            {gpa > 0 ? (gpa >= 10 ? "ناجح" : "غير ناجح") : "—"}
+          <Badge
+            variant={gpa == null ? "secondary" : gpa >= 10 ? "default" : "destructive"}
+          >
+            {gpa == null ? "—" : gpa >= 10 ? "ناجح" : "غير ناجح"}
           </Badge>
         </div>
         <div className="flex items-end gap-2">
           <span className="text-4xl font-black text-primary">
-            {gpa.toFixed(2)}
+            {gpa == null ? "—" : gpa.toFixed(2)}
           </span>
           <span className="text-sm text-muted-foreground mb-1">/ 20</span>
         </div>
-        <Progress value={(gpa / 20) * 100} className="mt-3" />
+        <Progress value={((gpa ?? 0) / 20) * 100} className="mt-3" />
       </Card>
 
       {/* Grade rows */}
@@ -113,9 +142,20 @@ export function TalibGradesScreen() {
               <span className="text-xs font-medium text-muted-foreground">
                 مقياس #{i + 1}
               </span>
-              <Badge variant="outline" className="text-xs">
-                {g.isOfficial ? t("grades.isOfficial") : t("grades.isEstimated")}
-              </Badge>
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="text-xs">
+                  {g.isOfficial ? t("grades.isOfficial") : t("grades.isEstimated")}
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => deleteRow(g.id)}
+                  className="h-7 w-7 text-muted-foreground hover:text-red-600"
+                  aria-label={`حذف ${g.moduleName || `مقياس ${i + 1}`}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
             </div>
 
             <Input
@@ -181,6 +221,11 @@ export function TalibGradesScreen() {
                 {((g.continuousScore + g.examScore) / 2).toFixed(2)} / 20
               </span>
             </div>
+            {!g.isOfficial && (
+              <p className="text-[11px] text-muted-foreground">
+                تقدير داخلي — يُحفظ على هذا الجهاز فقط ولا يُرسل للإدارة
+              </p>
+            )}
           </Card>
         ))}
       </div>

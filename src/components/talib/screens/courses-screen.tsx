@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, Plus, Flag, Loader2, ChevronDown, Send } from "lucide-react";
+import { BookOpen, Plus, Flag, Loader2, ChevronDown, Send, AlertTriangle, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,19 +14,11 @@ import {
 } from "@/components/ui/dialog";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
-import { useShell } from "@/app/page";
+import { useShell, type CourseSummary } from "@/app/page";
 import { canManageRoles } from "@/lib/auth/permissions";
 import { toast } from "sonner";
 
-interface Course {
-  id: number;
-  name: string;
-  code: string;
-  coefficient: number;
-  professorName: string;
-  category: string;
-  description: string;
-  semester: number;
+interface Course extends CourseSummary {
   academicYearId: number;
 }
 
@@ -36,15 +27,20 @@ export function TalibCoursesScreen() {
   const { navigate } = useShell();
   const [courses, setCourses] = React.useState<Course[]>([]);
   const [loading, setLoading] = React.useState(true);
+  // fix (R12 data-layer audit): a failed request used to be swallowed and
+  // rendered as "لا توجد مقاييس" — indistinguishable from truly empty data.
+  const [loadError, setLoadError] = React.useState(false);
 
   const fetchCourses = React.useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const res = await fetch("/api/courses", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setCourses(data.courses ?? []);
     } catch {
-      // silent
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -103,16 +99,13 @@ export function TalibCoursesScreen() {
   );
 }
 
-function CoursesList({ courses, loading, onRefresh }: { courses: Course[]; loading: boolean; onRefresh: () => void }) {
+function CoursesList({ courses, loading, loadError, onRefresh }: { courses: Course[]; loading: boolean; loadError: boolean; onRefresh: () => void }) {
   const { t } = useI18n();
   const { user } = useAuth();
+  const { navigateToCourse } = useShell();
   const canManage = canManageRoles(user ?? null);
   const [reportOpen, setReportOpen] = React.useState<number | null>(null);
   const [reportReason, setReportReason] = React.useState("");
-  // fix C-1 (round 4): cards were flat non-clickable containers — the course
-  // list felt dead and students had no way to see course details. Now each
-  // card expands in place to reveal the course description from the database.
-  const [expandedId, setExpandedId] = React.useState<number | null>(null);
 
   function handleReport(courseName: string) {
     if (!reportReason.trim()) { toast.error("اكتب وصف المشكلة"); return; }
@@ -136,6 +129,23 @@ function CoursesList({ courses, loading, onRefresh }: { courses: Course[]; loadi
     );
   }
 
+  // fix (R12): network failure is no longer disguised as an empty list
+  if (loadError) {
+    return (
+      <div className="space-y-3">
+        <Card className="p-8 text-center bg-red-500/5 border-red-500/30">
+          <AlertTriangle className="w-10 h-10 mx-auto text-red-500 mb-3" />
+          <h3 className="font-bold text-sm mb-1">تعذّر تحميل المقاييس</h3>
+          <p className="text-xs text-muted-foreground mb-3">حدث خطأ أثناء الاتصال بالخادم — أعد المحاولة.</p>
+          <Button variant="outline" size="sm" onClick={onRefresh}>
+            <RefreshCw className="w-3.5 h-3.5 ml-1" />إعادة المحاولة
+          </Button>
+        </Card>
+        {canManage && <AddModuleDialog onCreated={onRefresh} />}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
       {courses.length === 0 ? (
@@ -146,27 +156,23 @@ function CoursesList({ courses, loading, onRefresh }: { courses: Course[]; loadi
         </Card>
       ) : (
         courses.map((course) => {
-          const expanded = expandedId === course.id;
           return (
             <Card
               key={course.id}
               role="button"
               tabIndex={0}
-              aria-expanded={expanded}
-              aria-label={`عرض تفاصيل ${course.name}`}
-              onClick={() => setExpandedId(expanded ? null : course.id)}
+              aria-label={`فتح تفاصيل ${course.name}`}
+              // fix (R12-02/03, P0): the card used to expand IN PLACE to a
+              // description and stop — a dead end. It now opens the course
+              // detail screen: lessons, exams, assignments, description.
+              onClick={() => navigateToCourse(course)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  setExpandedId(expanded ? null : course.id);
+                  navigateToCourse(course);
                 }
               }}
-              className={cn(
-                "p-4 cursor-pointer transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                expanded
-                  ? "border-primary/50 shadow-md"
-                  : "hover:border-primary/40 hover:shadow-md hover:-translate-y-0.5"
-              )}
+              className="p-4 cursor-pointer transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none hover:border-primary/40 hover:shadow-md hover:-translate-y-0.5"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
@@ -210,37 +216,10 @@ function CoursesList({ courses, loading, onRefresh }: { courses: Course[]; loadi
                   </Dialog>
                   <ChevronDown
                     aria-hidden
-                    className={cn(
-                      "w-4 h-4 text-muted-foreground transition-transform duration-200",
-                      expanded && "rotate-180 text-primary"
-                    )}
+                    className="w-4 h-4 text-muted-foreground -rotate-90"
                   />
                 </div>
               </div>
-              <AnimatePresence initial={false}>
-                {expanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="mt-3 pt-3 border-t border-border/70 space-y-2">
-                      <div>
-                        <p className="text-xs font-bold text-muted-foreground mb-1">وصف المقياس</p>
-                        <p className="text-xs text-foreground/90 leading-relaxed">
-                          {course.description?.trim()
-                            || "لا يوجد وصف متاح لهذا المقياس بعد — يمكن للمشرفين إضافته لاحقاً."}
-                        </p>
-                      </div>
-                      <Badge variant="outline" className="text-xs">
-                        السداسي: {course.semester === 2 ? "الثاني" : "الأول"}
-                      </Badge>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </Card>
           );
         })
@@ -263,7 +242,14 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
   const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
-    fetch(`/api/onboarding/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
+    if (!open) return;
+    // fix (R12-37s): the dialog used to silently fetch years of specialty 1
+    // when the caller had no specialty — creating courses in the WRONG scope.
+    if (user?.assignedSpecialtyId == null) {
+      setYears([]);
+      return;
+    }
+    fetch(`/api/onboarding/years?specialtyId=${user.assignedSpecialtyId}`)
       .then((r) => r.json())
       .then((data) => {
         const l = data.years ?? [];
@@ -277,6 +263,12 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
   async function handleSave() {
     if (!name.trim() || !code.trim()) { toast.error("الاسم والكود مطلوبان"); return; }
     if (!yearId) { toast.error("اختر السنة الدراسية"); return; }
+    // fix (R12-37s): no silent `?? 1` — a missing specialty must STOP the
+    // write, not corrupt another specialty's data.
+    if (user?.assignedSpecialtyId == null) {
+      toast.error("حسابك غير مرتبط بتخصص — لا يمكن إنشاء مقياس");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/courses", {
@@ -284,7 +276,7 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
         body: JSON.stringify({
           name: name.trim(), code: code.trim(), professorName: professor.trim(),
           coefficient: parseFloat(coefficient) || 2, semester: parseInt(semester),
-          specialtyId: user?.assignedSpecialtyId ?? 1, academicYearId: parseInt(yearId),
+          specialtyId: user.assignedSpecialtyId, academicYearId: parseInt(yearId),
         }),
       });
       const data = await res.json();

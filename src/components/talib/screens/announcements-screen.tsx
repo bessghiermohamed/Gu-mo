@@ -56,7 +56,20 @@ export function TalibAnnouncementsScreen() {
     try {
       const res = await fetch("/api/announcements", { cache: "no-store" });
       const data = await res.json();
-      setAnnouncements(data.announcements ?? []);
+      const list: Announcement[] = data.announcements ?? [];
+      setAnnouncements(list);
+      // fix (R12): opening the screen now MARKS the visible announcements as
+      // read — the bell badge used to count the same announcements forever
+      // because notification_read_states was never written.
+      if (list.length > 0) {
+        fetch("/api/announcements/mark-read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: list.map((a) => a.id) }),
+        })
+          .then(() => window.dispatchEvent(new Event("talib-ann-read")))
+          .catch(() => {});
+      }
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, []);
