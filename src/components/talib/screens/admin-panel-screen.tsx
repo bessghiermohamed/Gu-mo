@@ -8,6 +8,7 @@ import {
   Flag, AlertTriangle, CheckCheck, RotateCcw, Send, Eye, EyeOff, Star, Link2, Sparkles, Power,
   FlaskConical, RefreshCw, Zap, Database, ExternalLink, Mail, IdCard,
   Network, ChevronDown, ChevronLeft, Search, ArrowLeftRight, UserMinus, UserCog,
+  LayoutDashboard, Inbox,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -113,15 +114,39 @@ export function TalibAdminPanelScreen() {
   const { user } = useAuth();
 
   // فتح التبويب المطلوب مباشرة (مثلاً «تيليجرام» من شاشة دروس تيليجرام)
+  // round 10 (review §16): اللوحة تفتح افتراضياً على «مركز التحكم» —
+  // نظرة عامة منظمة حسب الأولوية بدل الترام في بطاقات متساوية.
   const [adminTab, setAdminTab] = React.useState<string>(() => {
     try {
       const wanted = sessionStorage.getItem("talib-admin-tab");
       sessionStorage.removeItem("talib-admin-tab");
-      return wanted ?? "users";
+      return wanted ?? "overview";
     } catch {
-      return "users";
+      return "overview";
     }
   });
+
+  // round 10 (review §16): إحصاءات مركز التحكم — طلبات معلّقة وتبليغات
+  // مفتوحة + أعداد نطاق المتصل (feed للشارات والبطاقات).
+  const [stats, setStats] = React.useState<AdminStats | null>(null);
+  const [statsLoading, setStatsLoading] = React.useState(true);
+  const refreshStats = React.useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const res = await fetch("/api/admin/stats", { cache: "no-store" });
+      if (res.ok) setStats(await res.json());
+    } catch {
+      // keep last known stats
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+  React.useEffect(() => { refreshStats(); }, [refreshStats]);
+  // re-sync whenever the supervisor lands back on the overview (counts
+  // change after approve/reject/resolve actions in the other tabs)
+  React.useEffect(() => {
+    if (adminTab === "overview") refreshStats();
+  }, [adminTab, refreshStats]);
 
   return (
     <div className="space-y-4">
@@ -135,22 +160,42 @@ export function TalibAdminPanelScreen() {
       <Tabs value={adminTab} onValueChange={setAdminTab}>
         {/* fix أ.5: tabs used to squeeze into 4 columns on mobile, pushing
             "الطلبات" (join requests) off-screen. Now they wrap into rows so
-            every tab is always visible and reachable. */}
+            every tab is always visible and reachable.
+            round 10 (review §16): «مركز التحكم» أولاً + شارات عدّاد على
+            «الطلبات» و«التبليغات» حتى تُرى البنود المنتظرة دون فتح التبويب. */}
         <TabsList className="flex flex-wrap gap-1 w-full">
+          <TabsTrigger value="overview" className="text-xs flex-1 min-w-24 data-[state=active]:font-bold"><LayoutDashboard className="w-3.5 h-3.5 ml-1" />مركز التحكم</TabsTrigger>
           <TabsTrigger value="users" className="text-xs flex-1 min-w-24"><Users className="w-3.5 h-3.5 ml-1" />المستخدمون</TabsTrigger>
           <TabsTrigger value="structure" className="text-xs flex-1 min-w-24"><Building2 className="w-3.5 h-3.5 ml-1" />الهيكل</TabsTrigger>
           <TabsTrigger value="tracks" className="text-xs flex-1 min-w-24"><Route className="w-3.5 h-3.5 ml-1" />الملامح</TabsTrigger>
           <TabsTrigger value="years" className="text-xs flex-1 min-w-24"><CalendarDays className="w-3.5 h-3.5 ml-1" />السنوات</TabsTrigger>
           <TabsTrigger value="cohorts" className="text-xs flex-1 min-w-24"><Layers className="w-3.5 h-3.5 ml-1" />الأفواج</TabsTrigger>
           <TabsTrigger value="groups" className="text-xs flex-1 min-w-24"><FolderTree className="w-3.5 h-3.5 ml-1" />المجموعات</TabsTrigger>
-          <TabsTrigger value="requests" className="text-xs flex-1 min-w-24"><UserPlus className="w-3.5 h-3.5 ml-1" />الطلبات</TabsTrigger>
+          <TabsTrigger value="requests" className="text-xs flex-1 min-w-24">
+            <UserPlus className="w-3.5 h-3.5 ml-1" />الطلبات
+            {stats != null && stats.pendingJoinRequests > 0 && (
+              <span className="mr-1 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold">
+                {stats.pendingJoinRequests > 99 ? "99+" : stats.pendingJoinRequests}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="subordinates" className="text-xs flex-1 min-w-24"><Network className="w-3.5 h-3.5 ml-1" />المرؤوسون</TabsTrigger>
           <TabsTrigger value="modules" className="text-xs flex-1 min-w-24"><BookOpen className="w-3.5 h-3.5 ml-1" />المقررات</TabsTrigger>
-          <TabsTrigger value="issues" className="text-xs flex-1 min-w-24"><Flag className="w-3.5 h-3.5 ml-1" />التبليغات</TabsTrigger>
+          <TabsTrigger value="issues" className="text-xs flex-1 min-w-24">
+            <Flag className="w-3.5 h-3.5 ml-1" />التبليغات
+            {stats != null && stats.openReports > 0 && (
+              <span className="mr-1 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                {stats.openReports > 99 ? "99+" : stats.openReports}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="telegram" className="text-xs flex-1 min-w-24"><Send className="w-3.5 h-3.5 ml-1" />تيليجرام</TabsTrigger>
           <TabsTrigger value="cloud" className="text-xs flex-1 min-w-24"><Cloud className="w-3.5 h-3.5 ml-1" />السحابة</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="overview" className="mt-4">
+          <ControlCenterOverview stats={stats} loading={statsLoading} onGoToTab={setAdminTab} />
+        </TabsContent>
         <TabsContent value="users" className="mt-4"><UsersManager /></TabsContent>
         <TabsContent value="structure" className="mt-4"><StructureManager /></TabsContent>
         <TabsContent value="tracks" className="mt-4"><TracksManager /></TabsContent>
@@ -164,6 +209,185 @@ export function TalibAdminPanelScreen() {
         <TabsContent value="telegram" className="mt-4"><TelegramManager /></TabsContent>
         <TabsContent value="cloud" className="mt-4"><CloudManager /></TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// =====================================================
+// Control Center Overview — round 10, review §16
+//
+// The dashboard is no longer 12 equal tabs with no landing point. It
+// opens on a Control Center organized by the three zones the review
+// demands:
+//   1) يتطلب انتباهك — pending join requests + open reports (actionable)
+//   2) معلومات — caller-scoped counts (students, subordinates, groups,
+//      cohorts) — NOT global numbers a year-representative shouldn't see
+//   3) إدارة — quick links into the management tabs
+// States: loading skeleton, attention-empty ("all clear"), stat error
+// tolerance (— placeholders).
+// =====================================================
+interface AdminStats {
+  pendingJoinRequests: number;
+  openReports: number;
+  students: number;
+  subordinates: number;
+  groups: number;
+  cohorts: number;
+}
+
+function StatTile({ icon: Icon, label, value, loading }: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number | null;
+  loading: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/40">
+      <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+        <Icon className="w-4 h-4" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-lg font-black leading-none tabular-nums">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /> : value ?? "—"}
+        </p>
+        <p className="text-[11px] text-muted-foreground mt-1 truncate">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function ControlCenterOverview({ stats, loading, onGoToTab }: {
+  stats: AdminStats | null;
+  loading: boolean;
+  onGoToTab: (tab: string) => void;
+}) {
+  const attention = (stats?.pendingJoinRequests ?? 0) + (stats?.openReports ?? 0);
+
+  return (
+    <div className="space-y-4">
+      {/* ---- Zone 1: يتطلب انتباهك ---- */}
+      <section>
+        <h2 className="text-sm font-black mb-2 flex items-center gap-2">
+          <Inbox className="w-4 h-4 text-primary" />
+          يتطلب انتباهك
+        </h2>
+        {loading && stats == null ? (
+          <Card className="p-6 text-center">
+            <Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" />
+          </Card>
+        ) : attention === 0 ? (
+          <Card className="p-4 bg-emerald-500/5 border-emerald-500/30 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">لا شيء ينتظر معالجتك</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                ستظهر هنا طلبات الانضمام الجديدة والتبليغات فور وصولها
+              </p>
+            </div>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => onGoToTab("requests")}
+              className="text-right"
+              aria-label="معالجة طلبات الانضمام"
+            >
+              <Card className="p-4 h-full bg-amber-500/5 border-amber-500/30 hover:border-amber-500/60 hover:shadow-md transition-all">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                    <UserPlus className="w-5 h-5" />
+                  </div>
+                  <span className="text-2xl font-black tabular-nums text-amber-600 dark:text-amber-400">
+                    {stats?.pendingJoinRequests ?? 0}
+                  </span>
+                </div>
+                <p className="text-sm font-bold">طلب انضمام معلّق</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  طلاب في انتظار موافقة أو رفض — تُوجَّه إليك حسب نطاق إشرافك
+                </p>
+                <span className="inline-flex items-center gap-1 mt-2 text-xs font-bold text-primary">
+                  معالجة الطلبات<ChevronLeft className="w-3 h-3" />
+                </span>
+              </Card>
+            </button>
+            <button
+              type="button"
+              onClick={() => onGoToTab("issues")}
+              className="text-right"
+              aria-label="عرض التبليغات"
+            >
+              <Card className="p-4 h-full bg-red-500/5 border-red-500/30 hover:border-red-500/60 hover:shadow-md transition-all">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-10 h-10 rounded-xl bg-red-500/15 text-red-600 dark:text-red-400 flex items-center justify-center">
+                    <Flag className="w-5 h-5" />
+                  </div>
+                  <span className="text-2xl font-black tabular-nums text-red-600 dark:text-red-400">
+                    {stats?.openReports ?? 0}
+                  </span>
+                </div>
+                <p className="text-sm font-bold">تبليغ بانتظار المراجعة</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  مشاكل بلّغ عنها الطلاب من شاشتي المقررات والواجبات
+                </p>
+                <span className="inline-flex items-center gap-1 mt-2 text-xs font-bold text-primary">
+                  عرض التبليغات<ChevronLeft className="w-3 h-3" />
+                </span>
+              </Card>
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* ---- Zone 2: معلومات (نطاقك أنت) ---- */}
+      <section>
+        <h2 className="text-sm font-black mb-2 flex items-center gap-2">
+          <Layers className="w-4 h-4 text-primary" />
+          معلومات — داخل نطاق إشرافك
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <StatTile icon={GraduationCap} label="طلبة" value={stats?.students ?? null} loading={loading} />
+          <StatTile icon={Network} label="مشرفون تابعون" value={stats?.subordinates ?? null} loading={loading} />
+          <StatTile icon={FolderTree} label="مجموعات" value={stats?.groups ?? null} loading={loading} />
+          <StatTile icon={Layers} label="أفواج" value={stats?.cohorts ?? null} loading={loading} />
+        </div>
+      </section>
+
+      {/* ---- Zone 3: إدارة ---- */}
+      <section>
+        <h2 className="text-sm font-black mb-2 flex items-center gap-2">
+          <Building2 className="w-4 h-4 text-primary" />
+          الإدارة
+        </h2>
+        <Card className="p-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+            {([
+              { tab: "users", label: "المستخدمون", icon: Users },
+              { tab: "structure", label: "الهيكل", icon: Building2 },
+              { tab: "tracks", label: "الملامح", icon: Route },
+              { tab: "years", label: "السنوات", icon: CalendarDays },
+              { tab: "cohorts", label: "الأفواج", icon: Layers },
+              { tab: "groups", label: "المجموعات", icon: FolderTree },
+              { tab: "subordinates", label: "المرؤوسون", icon: Network },
+              { tab: "modules", label: "المقررات", icon: BookOpen },
+              { tab: "telegram", label: "تيليجرام", icon: Send },
+              { tab: "cloud", label: "السحابة", icon: Cloud },
+            ] as const).map(({ tab, label, icon: Icon }) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => onGoToTab(tab)}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-background hover:border-primary/50 hover:bg-primary/5 transition-colors text-right"
+              >
+                <Icon className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-xs font-bold">{label}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      </section>
     </div>
   );
 }

@@ -27,6 +27,10 @@ import { TalibAssignmentsScreen } from "@/components/talib/screens/assignments-s
 import { TalibBrowseGroupsScreen } from "@/components/talib/screens/browse-groups-screen";
 import { TalibTelegramScreen } from "@/components/talib/screens/telegram-screen";
 import { TalibBottomNavBar } from "@/components/talib/bottom-nav-bar";
+import {
+  TalibNotificationsSheet,
+  type AppNotificationItem,
+} from "@/components/talib/notifications-sheet";
 import { cn } from "@/lib/utils";
 
 export type ScreenRoute =
@@ -72,6 +76,10 @@ function ShellInner() {
   const [isLoading, setIsLoading] = React.useState(false);
   const [loadingMessage, setLoadingMessage] = React.useState("");
   const [unreadCount, setUnreadCount] = React.useState(0);
+  const [notifOpen, setNotifOpen] = React.useState(false);
+  const [notifications, setNotifications] = React.useState<AppNotificationItem[]>([]);
+  const [notifUnread, setNotifUnread] = React.useState(0);
+  const [notifLoading, setNotifLoading] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
   const [onboardingDone, setOnboardingDone] = React.useState(true);
 
@@ -110,11 +118,49 @@ function ShellInner() {
     }
   }, [user]);
 
+  // round 10 (review §3/§4): app notifications feed — join-request
+  // outcomes for students, waiting items for supervisors.
+  const refreshNotifications = React.useCallback(async () => {
+    if (!user) {
+      setNotifications([]);
+      setNotifUnread(0);
+      return;
+    }
+    try {
+      const res = await fetch("/api/notifications", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data.notifications ?? []);
+        setNotifUnread(data.unreadCount ?? 0);
+      }
+    } catch {
+      // silent fail — badge simply stays stale until next poll
+    }
+  }, [user]);
+
   React.useEffect(() => {
     refreshUnreadCount();
-    const interval = setInterval(refreshUnreadCount, 30000); // refresh every 30s
+    refreshNotifications();
+    const interval = setInterval(() => {
+      refreshUnreadCount();
+      refreshNotifications();
+    }, 30000); // refresh every 30s
     return () => clearInterval(interval);
-  }, [refreshUnreadCount]);
+  }, [refreshUnreadCount, refreshNotifications]);
+
+  const markAllNotificationsRead = React.useCallback(async () => {
+    try {
+      await fetch("/api/notifications/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+      setNotifUnread(0);
+      setNotifications((prev) => prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })));
+    } catch {
+      // silent
+    }
+  }, []);
 
   const navigate = React.useCallback((route: ScreenRoute) => {
     setCurrentScreen((prev) => {
@@ -135,6 +181,35 @@ function ShellInner() {
       return newHistory;
     });
   }, []);
+
+  const handleNotificationTap = React.useCallback(
+    (item: AppNotificationItem) => {
+      // mark the single notification read
+      if (item.readAt == null) {
+        fetch("/api/notifications/read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [item.id] }),
+        })
+          .then(() => {
+            setNotifUnread((c) => Math.max(0, c - 1));
+            setNotifications((prev) =>
+              prev.map((n) => (n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n))
+            );
+          })
+          .catch(() => {});
+      }
+      // deep link by type (review §4: the notification takes you to the
+      // place where you can act on it)
+      setNotifOpen(false);
+      if (item.type === "join_approved" || item.type === "join_rejected") {
+        navigate("BROWSE_GROUPS");
+      } else if (item.type === "join_new" || item.type === "report_new") {
+        navigate("ADMIN");
+      }
+    },
+    [navigate]
+  );
 
   const showLoading = React.useCallback((message?: string) => {
     setIsLoading(true);
@@ -260,21 +335,28 @@ function ShellInner() {
                   )}
                 </Button>
 
-                {/* Notifications bell with real counter (fix B.8) */}
+                {/* Notifications bell (fix B.8 + round 10 review §3/§4):
+                    opens the unified notifications panel — join-request
+                    outcomes (students) + waiting items (supervisors) —
+                    with announcements still reachable inside it. */}
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => navigate("ANNOUNCEMENTS")}
+                  onClick={() => {
+                    setNotifOpen(true);
+                    setNotifLoading(true);
+                    refreshNotifications().finally(() => setNotifLoading(false));
+                  }}
                   className="shrink-0 relative h-10 w-10"
                   aria-label={t("nav.notifications")}
                 >
                   <Bell className="w-4 h-4" />
-                  {unreadCount > 0 && (
+                  {unreadCount + notifUnread > 0 && (
                     <Badge
                       variant="destructive"
                       className="absolute -top-1 -right-1 h-5 min-w-5 px-1 text-xs flex items-center justify-center"
                     >
-                      {unreadCount > 9 ? "9+" : unreadCount}
+                      {unreadCount + notifUnread > 9 ? "9+" : unreadCount + notifUnread}
                     </Badge>
                   )}
                 </Button>
@@ -377,6 +459,21 @@ function ShellInner() {
         )}
 
         <SonnerToaster position="top-center" dir={dir} />
+
+        {/* round 10 (review §3/§4): unified notifications panel */}
+        <TalibNotificationsSheet
+          open={notifOpen}
+          onOpenChange={setNotifOpen}
+          notifications={notifications}
+          loading={notifLoading}
+          announcementsUnread={unreadCount}
+          onMarkAllRead={markAllNotificationsRead}
+          onOpenAnnouncements={() => {
+            setNotifOpen(false);
+            navigate("ANNOUNCEMENTS");
+          }}
+          onItemTap={handleNotificationTap}
+        />
       </div>
     </ShellContext.Provider>
   );

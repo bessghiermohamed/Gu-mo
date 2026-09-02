@@ -15,6 +15,7 @@ import {
   CheckSquare,
   Send,
   ChevronLeft,
+  Clock,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +48,26 @@ export function TalibHomeScreen() {
       .then((d) => setModuleCount((d.courses ?? []).length))
       .catch(() => setModuleCount(null));
   }, []);
+
+  // round 10 (review §4 + §17-G): the student must clearly know whether
+  // they have a PENDING join request (and discover the feature if they
+  // have no group at all) — not find out only inside a deep screen.
+  const [pendingRequest, setPendingRequest] = React.useState<{ cohortName: string } | null>(null);
+  const [noGroupNoRequests, setNoGroupNoRequests] = React.useState(false);
+  React.useEffect(() => {
+    if (!user) return;
+    // students with a cohort already have a group — nothing to surface
+    if (user.scopeCohortGroupId != null) return;
+    fetch("/api/join-requests/mine", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        const reqs: Array<{ status: string; cohortName?: string }> = d.requests ?? [];
+        const pending = reqs.find((r) => r.status === "pending");
+        setPendingRequest(pending ? { cohortName: pending.cohortName ?? "" } : null);
+        setNoGroupNoRequests(reqs.length === 0);
+      })
+      .catch(() => {});
+  }, [user]);
 
   // Compute quick actions (with shortened names per fix "ج")
   const actions: QuickAction[] = [
@@ -154,6 +175,55 @@ export function TalibHomeScreen() {
           </div>
         </div>
       </motion.div>
+
+      {/* round 10 (review §4): join-request status banner — visible answer
+          to "do I have a pending request?" / "where do I join a group?" */}
+      {pendingRequest && (
+        <motion.button
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          onClick={() => navigate("BROWSE_GROUPS")}
+          className="w-full text-right"
+          aria-label="متابعة طلب الانضمام"
+        >
+          <Card className="p-3.5 flex items-center gap-3 bg-amber-500/5 border-amber-500/30 hover:border-amber-500/50 transition-colors">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold">لديك طلب انضمام قيد المراجعة</p>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                {pendingRequest.cohortName ? `الفوج: ${pendingRequest.cohortName} — ` : ""}تابع حالته من شاشة تصفح المجموعات
+              </p>
+            </div>
+            <ChevronLeft className="w-4 h-4 text-muted-foreground/40 shrink-0" />
+          </Card>
+        </motion.button>
+      )}
+      {!pendingRequest && noGroupNoRequests && (
+        <motion.button
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          onClick={() => navigate("BROWSE_GROUPS")}
+          className="w-full text-right"
+          aria-label="تصفح المجموعات"
+        >
+          <Card className="p-3.5 flex items-center gap-3 bg-primary/5 border-primary/20 hover:border-primary/40 transition-colors">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <Users className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold">لم تنضم إلى فوج بعد</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                تصفّح المجموعات والأفواج وأرسل طلب انضمام إلى فوجك
+              </p>
+            </div>
+            <ChevronLeft className="w-4 h-4 text-muted-foreground/40 shrink-0" />
+          </Card>
+        </motion.button>
+      )}
 
       {/* Quick actions grid */}
       <section>

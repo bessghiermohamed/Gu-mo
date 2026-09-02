@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canManageRoles } from "@/lib/auth/permissions";
+import { notifyReportSubmitted } from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -40,6 +41,13 @@ export async function POST(req: NextRequest) {
         description: description?.trim() ?? "", date: now, status: "قيد المراجعة",
       }).select().single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      // round 10 (review §14/§4): the report announces itself to supervisors
+      // instead of waiting to be discovered in the "التبليغات" tab.
+      await notifyReportSubmitted({
+        reporterId: user.id,
+        studentName: user.fullName,
+        itemTitle: itemTitle.trim(),
+      });
       return NextResponse.json({ report: data });
     }
     const report = await db.studentIssueReport.create({
@@ -49,6 +57,11 @@ export async function POST(req: NextRequest) {
         itemType: itemType.trim(), itemTitle: itemTitle.trim(),
         description: description?.trim() ?? "", date: now,
       },
+    });
+    await notifyReportSubmitted({
+      reporterId: user.id,
+      studentName: user.fullName,
+      itemTitle: itemTitle.trim(),
     });
     return NextResponse.json({ report });
   } catch (e) {

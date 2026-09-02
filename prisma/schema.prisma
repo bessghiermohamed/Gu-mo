@@ -578,9 +578,30 @@ model AppUser {
   deviceSessions        DeviceSession[]
   contentUploads        ContentUploadLog[]
   notificationReads    NotificationReadState[]
+  appNotifications     AppNotification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// =====================================================
+// 15b. إشعارات التطبيق (AppNotification) - round 10, review §3/§4
+// Real per-user notifications (join-request outcomes, new requests
+// awaiting review, new student reports) — distinct from announcement
+// read states. Server-side inserts only; users read/mark-read their own.
+// =====================================================
+model AppNotification {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  type      String    // "join_new" | "join_approved" | "join_rejected" | "report_new" | "generic"
+  title     String
+  body      String    @default("")
+  meta      String    @default("{}") // JSON string: { requestId, cohortId, ... }
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      AppUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
 }
 
 // =====================================================

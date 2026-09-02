@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import {
-  FolderTree, Users, Loader2, Send, CheckCircle2, Clock, XCircle, AlertCircle, Check,
+  FolderTree, Users, Loader2, Send, CheckCircle2, Clock, XCircle, AlertCircle, Check, X,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,8 +38,12 @@ interface Cohort {
 interface MyRequest {
   id: number;
   cohortId: number;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "cancelled";
   cohortName: string;
+  message?: string;
+  reviewerNote?: string;
+  createdAt?: string | null;
+  reviewedAt?: string | null;
 }
 
 export function TalibBrowseGroupsScreen() {
@@ -54,6 +58,7 @@ export function TalibBrowseGroupsScreen() {
   const [requestCohort, setRequestCohort] = React.useState<Cohort | null>(null);
   const [requestMessage, setRequestMessage] = React.useState("");
   const [sending, setSending] = React.useState(false);
+  const [cancellingId, setCancellingId] = React.useState<number | null>(null);
 
   // round 9 (spec §5): a user with an active sub-group membership (student
   // OR cohort-scoped representative — their scope cohort IS their
@@ -107,9 +112,30 @@ export function TalibBrowseGroupsScreen() {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل إرسال الطلب"); return; }
       toast.success("تم إرسال طلب الانضمام — بانتظار موافقة الممثل");
-      setMyRequests((prev) => [...prev, { id: data.request?.id ?? Date.now(), cohortId: requestCohort.id, status: "pending", cohortName: requestCohort.groupName }]);
+      setMyRequests((prev) => [{
+        id: data.request?.id ?? Date.now(), cohortId: requestCohort.id, status: "pending" as const,
+        cohortName: requestCohort.groupName, message: requestMessage.trim(),
+        createdAt: new Date().toISOString(),
+      }, ...prev]);
       setRequestCohort(null); setRequestMessage("");
     } finally { setSending(false); }
+  }
+
+  // round 10 (review §17-D): the student can WITHDRAW their own pending
+  // request — a complete action set includes Cancel, not just wait.
+  async function handleCancelRequest(id: number) {
+    setCancellingId(id);
+    try {
+      const res = await fetch(`/api/join-requests/${id}/cancel`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل إلغاء الطلب"); return; }
+      toast.success(data.message ?? "تم إلغاء الطلب");
+      setMyRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "cancelled" as const } : r)));
+    } catch {
+      toast.error("فشل إلغاء الطلب");
+    } finally {
+      setCancellingId(null);
+    }
   }
 
   if (loading) {
@@ -150,14 +176,69 @@ export function TalibBrowseGroupsScreen() {
 
       {myRequests.length > 0 && (
         <Card className="p-4 bg-primary/5 border-primary/20">
-          <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-primary" />طلباتي ({myRequests.length})
+          <h3 className="font-bold text-sm mb-1 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-primary" />
+            طلباتي
+            <Badge variant="outline" className="text-xs">{myRequests.length}</Badge>
           </h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            حالة كل طلب أرسلته — النتيجة تصلك أيضاً كإشعار فور مراجعته
+          </p>
           <div className="space-y-2">
             {myRequests.map((req) => (
-              <div key={req.id} className="flex items-center justify-between p-2 rounded-lg bg-background">
-                <span className="text-sm font-medium">{req.cohortName}</span>
-                <StatusBadge status={req.status} />
+              <div key={req.id} className="p-3 rounded-lg bg-background border">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold truncate">{req.cohortName}</span>
+                  <StatusBadge status={req.status} />
+                </div>
+                {req.createdAt && (
+                  <p className="text-[10px] text-muted-foreground mt-1">أُرسل {formatDate(req.createdAt)}</p>
+                )}
+                {req.message?.trim() && (
+                  <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">رسالتك: {req.message}</p>
+                )}
+                {req.status === "pending" && (
+                  <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t">
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                      الطلب قيد المراجعة لدى ممثل الفوج
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-muted-foreground hover:text-destructive px-2"
+                      disabled={cancellingId === req.id}
+                      onClick={() => handleCancelRequest(req.id)}
+                    >
+                      {cancellingId === req.id
+                        ? <Loader2 className="w-3 h-3 ml-1 animate-spin" />
+                        : <X className="w-3 h-3 ml-1" />}
+                      إلغاء الطلب
+                    </Button>
+                  </div>
+                )}
+                {req.status === "approved" && (
+                  <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-2 pt-2 border-t flex items-center gap-1">
+                    <Check className="w-3 h-3" />
+                    تم قبولك — أنت عضو في هذا الفوج الآن
+                  </p>
+                )}
+                {req.status === "rejected" && (
+                  <div className="mt-2 pt-2 border-t">
+                    {req.reviewerNote?.trim() && (
+                      <p className="text-[11px] text-muted-foreground leading-relaxed mb-1">
+                        السبب: {req.reviewerNote}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-red-600 dark:text-red-400">
+                      يمكنك إرسال طلب جديد إلى فوج آخر من القائمة أدناه
+                    </p>
+                  </div>
+                )}
+                {req.status === "cancelled" && (
+                  <p className="text-[11px] text-muted-foreground mt-2 pt-2 border-t">
+                    أُلغي الطلب بطلب منك — يمكنك إرسال طلب جديد
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -263,6 +344,7 @@ function StatusBadge({ status }: { status: MyRequest["status"] }) {
   if (status === "pending") return <Badge className="bg-amber-500 text-white text-xs"><Clock className="w-2.5 h-2.5 ml-1" />معلّق</Badge>;
   if (status === "approved") return <Badge className="bg-emerald-500 text-white text-xs"><CheckCircle2 className="w-2.5 h-2.5 ml-1" />مقبول</Badge>;
   if (status === "rejected") return <Badge variant="destructive" className="text-xs"><XCircle className="w-2.5 h-2.5 ml-1" />مرفوض</Badge>;
+  if (status === "cancelled") return <Badge variant="secondary" className="text-xs"><XCircle className="w-2.5 h-2.5 ml-1" />ملغى</Badge>;
   return null;
 }
 
@@ -270,5 +352,14 @@ function StatusIcon({ status }: { status: MyRequest["status"] }) {
   if (status === "pending") return <Clock className="w-3.5 h-3.5 text-amber-500" />;
   if (status === "approved") return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
   if (status === "rejected") return <XCircle className="w-3.5 h-3.5 text-muted-foreground" />;
+  if (status === "cancelled") return <XCircle className="w-3.5 h-3.5 text-muted-foreground" />;
   return null;
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("ar", { day: "numeric", month: "long", year: "numeric" });
+  } catch {
+    return "";
+  }
 }

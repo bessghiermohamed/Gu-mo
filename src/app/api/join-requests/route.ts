@@ -5,8 +5,19 @@ import { getCurrentUser } from "@/lib/auth/service";
 import { canManageRoles } from "@/lib/auth/permissions";
 import { fetchPendingJoinRequests } from "@/lib/data-layer";
 import { loadScopeContext, cohortCompatibleWithStudent } from "@/lib/auth/scope";
+import { notifyJoinRequestSubmitted } from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+/** Resolve a cohort's display name from the shared scope context. */
+async function ctxCohortName(cohortId: number): Promise<string> {
+  try {
+    const ctx = await loadScopeContext();
+    return ctx.cohorts.get(cohortId)?.nameAr ?? "";
+  } catch {
+    return "";
+  }
+}
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -74,6 +85,15 @@ export async function POST(req: NextRequest) {
         status: "pending", message: message?.trim() ?? "",
       }).select().single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      // round 10 (review §3/§4): the request announces itself to the
+      // supervisors who can review it (same scope routing as the list).
+      await notifyJoinRequestSubmitted({
+        requesterId: user.id,
+        requesterName: user.fullName,
+        requestId: Number(data?.id ?? 0),
+        cohortId: Number(cohortId),
+        cohortName: await ctxCohortName(Number(cohortId)),
+      });
       return NextResponse.json({ request: data });
     }
     const existing = await db.joinRequest.findFirst({
@@ -82,6 +102,13 @@ export async function POST(req: NextRequest) {
     if (existing) return NextResponse.json({ error: "لديك طلب معلّق" }, { status: 409 });
     const request = await db.joinRequest.create({
       data: { requesterId: user.id, cohortId, groupId: groupId ?? null, status: "pending", message: message?.trim() ?? "" } as never,
+    });
+    await notifyJoinRequestSubmitted({
+      requesterId: user.id,
+      requesterName: user.fullName,
+      requestId: request.id,
+      cohortId: Number(cohortId),
+      cohortName: await ctxCohortName(Number(cohortId)),
     });
     return NextResponse.json({ request });
   } catch (e) {

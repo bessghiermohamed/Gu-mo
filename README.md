@@ -23,3 +23,20 @@ BINDING for every feature, bug fix, and refactor in this repository. In short:
    academic scope server-side).
 4. Companion policies: `upload/تنظيف-وقاعدة-حماية-git.md` (cleanup + git
    protection), `upload/قواعد-عمل-موجهة-للأداة.md` (tool work rules).
+
+## 🚀 Deployment — pending Supabase migrations
+
+After pulling new code, apply any **new** `download/supabase_*.sql` file once via
+the Supabase Dashboard → SQL Editor. Current migration state:
+
+| SQL file | What it adds | Required for |
+| --- | --- | --- |
+| `supabase_schema.sql` | base schema | first deploy |
+| `supabase_round2_fixes.sql` | groups + join_requests | join-request feature |
+| `supabase_update_schema.sql` | round 3+ updates | later features |
+| `supabase_telegram.sql` | Telegram integration | Telegram screens |
+| **`supabase_notifications.sql`** | **`app_notifications` table — round 10** | **notifications (§3/§4/§16)** |
+
+All migration files are idempotent (`IF NOT EXISTS` guards) and safe to re-run.
+Until `supabase_notifications.sql` is applied, the app keeps working — the bell
+panel simply stays empty and notification inserts fail silently server-side.

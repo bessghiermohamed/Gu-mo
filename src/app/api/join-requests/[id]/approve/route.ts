@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canReviewJoinRequests } from "@/lib/auth/permissions";
 import { loadScopeContext, requestVisibleTo } from "@/lib/auth/scope";
+import { notifyJoinRequestApproved } from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -18,6 +19,7 @@ const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
  * (scope routing, spec §8) — previously any supervisor could approve any
  * request by forging the id. Other pending requests from the same student
  * are auto-closed so a later approval can't double-assign them.
+ * round 10 (review §3): the STUDENT is now notified of the outcome.
  */
 export async function POST(
   req: NextRequest,
@@ -72,6 +74,12 @@ export async function POST(
         .eq("status", "pending")
         .neq("id", parseInt(id));
 
+      await notifyJoinRequestApproved({
+        studentId: Number(request.requester_id),
+        cohortName: cohort?.group_name ?? "",
+        note: reviewerNote,
+      });
+
       return NextResponse.json({ ok: true, message: "تم قبول الطلب وإلحاق الطالب بالفوج" });
     }
 
@@ -97,6 +105,11 @@ export async function POST(
     await db.joinRequest.updateMany({
       where: { requesterId: request.requesterId, status: "pending", id: { not: parseInt(id) } } as never,
       data: { status: "rejected", reviewerId: user.id, reviewerNote: "أُغلق تلقائياً بعد قبول الطالب في فوج آخر", reviewedAt: new Date() } as never,
+    });
+    await notifyJoinRequestApproved({
+      studentId: request.requesterId,
+      cohortName: cohort?.groupName ?? "",
+      note: reviewerNote,
     });
     return NextResponse.json({ ok: true, message: "تم قبول الطلب وإلحاق الطالب بالفوج" });
   } catch (e) {
