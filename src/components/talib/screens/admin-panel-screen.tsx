@@ -109,6 +109,19 @@ function useCascade() {
   };
 }
 
+// =====================================================
+// Management tab grid (design fix: organized boxes)
+// The tabs themselves form the management network — a uniform grid of
+// boxed destinations («مركز التحكم» full-width on top, then equal
+// icon-over-label boxes in aligned rows) instead of the old ragged
+// wrapped pill rows the owner called "disorganized".
+// =====================================================
+const TAB_BOX_CLS =
+  "h-16 flex-col gap-1 rounded-lg border border-input bg-background " +
+  "data-[state=active]:border-primary data-[state=active]:bg-primary/10 " +
+  "dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/10";
+const TAB_LABEL_CLS = "text-[11px] font-bold leading-none";
+
 export function TalibAdminPanelScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
@@ -175,40 +188,54 @@ export function TalibAdminPanelScreen() {
       </div>
 
       <Tabs value={adminTab} onValueChange={setAdminTab}>
-        {/* fix أ.5: tabs used to squeeze into 4 columns on mobile, pushing
-            "الطلبات" (join requests) off-screen. Now they wrap into rows so
-            every tab is always visible and reachable.
-            round 10 (review §16): «مركز التحكم» أولاً + شارات عدّاد على
-            «الطلبات» و«التبليغات» حتى تُرى البنود المنتظرة دون فتح التبويب. */}
-        <TabsList className="flex flex-wrap gap-1 w-full h-auto">
-          <TabsTrigger value="overview" className="text-xs flex-1 min-w-24 data-[state=active]:font-bold"><LayoutDashboard className="w-3.5 h-3.5 ml-1" />مركز التحكم</TabsTrigger>
-          <TabsTrigger value="users" className="text-xs flex-1 min-w-24"><Users className="w-3.5 h-3.5 ml-1" />المستخدمون</TabsTrigger>
-          <TabsTrigger value="structure" className="text-xs flex-1 min-w-24"><Building2 className="w-3.5 h-3.5 ml-1" />الهيكل</TabsTrigger>
-          <TabsTrigger value="tracks" className="text-xs flex-1 min-w-24"><Route className="w-3.5 h-3.5 ml-1" />الملامح</TabsTrigger>
-          <TabsTrigger value="years" className="text-xs flex-1 min-w-24"><CalendarDays className="w-3.5 h-3.5 ml-1" />السنوات</TabsTrigger>
-          <TabsTrigger value="cohorts" className="text-xs flex-1 min-w-24"><Layers className="w-3.5 h-3.5 ml-1" />الأفواج</TabsTrigger>
-          <TabsTrigger value="groups" className="text-xs flex-1 min-w-24"><FolderTree className="w-3.5 h-3.5 ml-1" />المجموعات</TabsTrigger>
-          <TabsTrigger value="requests" className="text-xs flex-1 min-w-24">
-            <UserPlus className="w-3.5 h-3.5 ml-1" />الطلبات
-            {stats != null && stats.pendingJoinRequests > 0 && (
-              <span className="mr-1 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold">
-                {stats.pendingJoinRequests > 99 ? "99+" : stats.pendingJoinRequests}
-              </span>
-            )}
+        {/* design fix (organized grid): the tab bar IS the management
+            network — «مركز التحكم» (panel home) as a full-width bar on
+            top, the management destinations below as equal boxed cells in
+            aligned rows (4 columns on phones, 6 on larger screens). Every
+            tab stays visible and reachable (fix أ.5 preserved) and the
+            container still auto-sizes its height (h-auto — mobile overlap
+            fix kept). Badges on «الطلبات» و«التبليغات» (round 10, §16)
+            keep pending counts visible without opening the tab. */}
+        <TabsList className="grid w-full h-auto grid-cols-4 sm:grid-cols-6 gap-1.5 bg-transparent p-0 items-stretch">
+          <TabsTrigger
+            value="overview"
+            className="col-span-4 sm:col-span-6 h-12 rounded-lg border border-input bg-background text-xs data-[state=active]:border-primary data-[state=active]:bg-primary/10 dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/10 data-[state=active]:font-bold"
+          >
+            <LayoutDashboard className="w-4 h-4 ml-1" />مركز التحكم
           </TabsTrigger>
-          <TabsTrigger value="subordinates" className="text-xs flex-1 min-w-24"><Network className="w-3.5 h-3.5 ml-1" />المرؤوسون</TabsTrigger>
-          <TabsTrigger value="modules" className="text-xs flex-1 min-w-24"><BookOpen className="w-3.5 h-3.5 ml-1" />المقررات</TabsTrigger>
-          <TabsTrigger value="issues" className="text-xs flex-1 min-w-24">
-            <Flag className="w-3.5 h-3.5 ml-1" />التبليغات
-            {stats != null && stats.openReports > 0 && (
-              <span className="mr-1 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
-                {stats.openReports > 99 ? "99+" : stats.openReports}
-              </span>
-            )}
+          <TabsTrigger value="users" className={TAB_BOX_CLS}><Users className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>المستخدمون</span></TabsTrigger>
+          <TabsTrigger value="structure" className={TAB_BOX_CLS}><Building2 className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>الهيكل</span></TabsTrigger>
+          <TabsTrigger value="tracks" className={TAB_BOX_CLS}><Route className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>الملامح</span></TabsTrigger>
+          <TabsTrigger value="years" className={TAB_BOX_CLS}><CalendarDays className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>السنوات</span></TabsTrigger>
+          <TabsTrigger value="cohorts" className={TAB_BOX_CLS}><Layers className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>الأفواج</span></TabsTrigger>
+          <TabsTrigger value="groups" className={TAB_BOX_CLS}><FolderTree className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>المجموعات</span></TabsTrigger>
+          <TabsTrigger value="requests" className={TAB_BOX_CLS}>
+            <UserPlus className="w-4 h-4 text-primary" />
+            <span className="flex items-center gap-1 text-[11px] font-bold leading-none">
+              الطلبات
+              {stats != null && stats.pendingJoinRequests > 0 && (
+                <span className="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold">
+                  {stats.pendingJoinRequests > 99 ? "99+" : stats.pendingJoinRequests}
+                </span>
+              )}
+            </span>
           </TabsTrigger>
-          <TabsTrigger value="telegram" className="text-xs flex-1 min-w-24"><Send className="w-3.5 h-3.5 ml-1" />تيليجرام</TabsTrigger>
+          <TabsTrigger value="subordinates" className={TAB_BOX_CLS}><Network className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>المرؤوسون</span></TabsTrigger>
+          <TabsTrigger value="modules" className={TAB_BOX_CLS}><BookOpen className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>المقررات</span></TabsTrigger>
+          <TabsTrigger value="issues" className={TAB_BOX_CLS}>
+            <Flag className="w-4 h-4 text-primary" />
+            <span className="flex items-center gap-1 text-[11px] font-bold leading-none">
+              التبليغات
+              {stats != null && stats.openReports > 0 && (
+                <span className="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                  {stats.openReports > 99 ? "99+" : stats.openReports}
+                </span>
+              )}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="telegram" className={TAB_BOX_CLS}><Send className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>تيليجرام</span></TabsTrigger>
           {isOwner && (
-            <TabsTrigger value="cloud" className="text-xs flex-1 min-w-24"><Cloud className="w-3.5 h-3.5 ml-1" />السحابة</TabsTrigger>
+            <TabsTrigger value="cloud" className={TAB_BOX_CLS}><Cloud className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>السحابة</span></TabsTrigger>
           )}
         </TabsList>
 

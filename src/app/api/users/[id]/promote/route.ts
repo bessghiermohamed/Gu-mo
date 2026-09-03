@@ -176,6 +176,18 @@ export async function POST(
       }
     }
 
+    // ---- fix (institution loss on promote): every sub-institution scope
+    // still sits inside an institution. Derive scope_institution_id from the
+    // resolved specialty so a promoted student keeps appearing under their
+    // institution in the users list (was landing in «بلا مؤسسة»).
+    // scopeChainOf() derives the exact same value for permission checks, so
+    // this changes NO authority — it only persists what the chain already
+    // implies. INSTITUTION-level keeps its explicitly chosen value, and the
+    // institutionOnly guard in scope.ts is unaffected (lower fields non-null).
+    if (newRole !== "STUDENT" && scopeInstitutionId == null && scopeSpecialtyId != null) {
+      scopeInstitutionId = ctx.specialties.get(scopeSpecialtyId)?.institutionId ?? null;
+    }
+
     // ---- round 9: the new supervisory scope must be inside the caller's
     // own scope (spec §6 — enforced at the data/API level, not just UI) ----
     if (newRole !== "STUDENT" && caller.role !== "OWNER") {
