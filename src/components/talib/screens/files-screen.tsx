@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { StickyNote, Plus, Trash2, BookMarked, ExternalLink, Loader2, Pencil } from "lucide-react";
+import { StickyNote, Plus, Trash2, BookMarked, ExternalLink, Loader2, Pencil, Wrench } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { canManageRoles } from "@/lib/auth/permissions";
+import { ToolsTab } from "@/components/talib/tools/tools-tab";
 import { toast } from "sonner";
 
 // fix ج: the Files screen had no way to add files. A new "المكتبة" tab shows
@@ -121,12 +122,12 @@ export function TalibFilesScreen() {
       <div>
         <h1 className="text-2xl font-black mb-1">{t("files.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          مكتبة الملفات، محفوظاتك، وملاحظاتك في مكان واحد
+          مكتبة الملفات، محفوظاتك، ملاحظاتك، وأدواتك في مكان واحد
         </p>
       </div>
 
       <Tabs defaultValue="library">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="library">
             <BookMarked className="w-3.5 h-3.5 ml-1.5" />
             المكتبة
@@ -134,6 +135,10 @@ export function TalibFilesScreen() {
           <TabsTrigger value="notes">
             <StickyNote className="w-3.5 h-3.5 ml-1.5" />
             {t("files.tabNotes")}
+          </TabsTrigger>
+          <TabsTrigger value="tools">
+            <Wrench className="w-3.5 h-3.5 ml-1.5" />
+            أدواتي
           </TabsTrigger>
         </TabsList>
 
@@ -274,6 +279,12 @@ export function TalibFilesScreen() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        {/* أدواتي — offline client-side file tools (images→PDF, compress,
+            merge). Zero server round-trips: see src/components/talib/tools/. */}
+        <TabsContent value="tools" className="mt-4 space-y-3">
+          <ToolsTab />
         </TabsContent>
       </Tabs>
     </div>
