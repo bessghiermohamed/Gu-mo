@@ -42,7 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { cn } from "@/lib/utils";
-import { computeGpa, isActiveGradeRow } from "@/lib/grades";
+import { computeGpa } from "@/lib/grades";
 
 interface Row {
   id: number;
@@ -165,11 +165,13 @@ export function GpaTool({ onBack }: { onBack: () => void }) {
     };
   }, []);
 
-  const filled = rows.filter(
-    (r) => r.continuousScore != null || r.examScore != null || r.moduleName.trim() !== ""
-  );
+  // Live average over SCORED rows only — in a what-if calculator an empty
+  // row means "still pending", not a zero (the solver below uses the same
+  // rule, so the big number and the solver can never disagree). Empty rows
+  // still show in the list and feed the "what do I still need" answer.
+  const scoredRows = rows.filter((r) => r.continuousScore != null || r.examScore != null);
   const gpa = computeGpa(
-    rows.map((r) => ({
+    scoredRows.map((r) => ({
       moduleName: r.moduleName,
       continuousScore: r.continuousScore ?? 0,
       examScore: r.examScore ?? 0,
@@ -178,19 +180,17 @@ export function GpaTool({ onBack }: { onBack: () => void }) {
   );
 
   // --- target solver: what average is still needed on the EMPTY rows? ---
-  const activeRows = rows.filter((r) => isActiveGradeRow({
-    moduleName: r.moduleName,
-    continuousScore: r.continuousScore ?? 0,
-    examScore: r.examScore ?? 0,
-    coefficient: r.coefficient,
-  }));
-  const scored = activeRows.filter((r) => r.continuousScore != null || r.examScore != null);
-  const unscored = activeRows.filter((r) => r.continuousScore == null && r.examScore == null);
-  const earnedPoints = scored.reduce(
+  // "Pending" = a named row with no scores yet — it will count in the
+  // final average but its grade is still open. Unnamed and unscored
+  // rows are placeholders and count for nothing.
+  const unscored = rows.filter(
+    (r) => r.continuousScore == null && r.examScore == null && r.moduleName.trim() !== ""
+  );
+  const earnedPoints = scoredRows.reduce(
     (acc, r) => acc + (((r.continuousScore ?? 0) + (r.examScore ?? 0)) / 2) * r.coefficient,
     0
   );
-  const scoredCoef = scored.reduce((acc, r) => acc + r.coefficient, 0);
+  const scoredCoef = scoredRows.reduce((acc, r) => acc + r.coefficient, 0);
   const unscoredCoef = unscored.reduce((acc, r) => acc + r.coefficient, 0);
   const targetNum = clampScore(target);
   let solver: { needed: number; possible: boolean } | null = null;
@@ -198,6 +198,12 @@ export function GpaTool({ onBack }: { onBack: () => void }) {
     const needed = (targetNum * (scoredCoef + unscoredCoef) - earnedPoints) / unscoredCoef;
     solver = { needed: Math.round(needed * 100) / 100, possible: needed >= 0 && needed <= 20 };
   }
+
+  // Rows worth persisting to حاسبة الطالب: anything with a name or a
+  // score (unnamed+unscored placeholders are dropped).
+  const filled = rows.filter(
+    (r) => r.continuousScore != null || r.examScore != null || r.moduleName.trim() !== ""
+  );
 
   function updateRow(id: number, patch: Partial<Row>) {
     setSaved(false);
