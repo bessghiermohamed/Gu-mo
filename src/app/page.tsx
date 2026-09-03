@@ -147,13 +147,34 @@ function ShellInner() {
   }, []);
 
   // Check if user needs onboarding
+  // fix (R25): onboarding used to be gated by localStorage ONLY — a
+  // fully-registered student who cleared browser data, switched devices,
+  // or reinstalled was forced through the whole setup flow again even
+  // though their profile exists in the DB. The DB row is now the source
+  // of truth: /api/onboarding/complete (and role grants) persist the
+  // academic scope on the user row, so a non-null scope specialty/year
+  // means the profile is complete and the flow is skipped — with an
+  // EMPTY localStorage too. The localStorage flag stays as a fast local
+  // cache and is backfilled after a DB-confirmed skip. (Note:
+  // assignedSpecialtyId is NOT a valid marker — signup pre-fills it.)
   React.useEffect(() => {
-    if (user) {
-      // Check localStorage flag for onboarding completion
-      const done = localStorage.getItem(`talib-onboarding-${user.id}`) === "true";
-      setOnboardingDone(done);
-      if (!done) {
-        setCurrentScreen("ONBOARDING");
+    if (!user) return;
+    const flagKey = `talib-onboarding-${user.id}`;
+    // DB-backed: scope_academic_year_id / scope_specialty_id are null at
+    // signup and only written by onboarding completion (or a role grant).
+    const hasDbScope =
+      user.scopeAcademicYearId != null || user.scopeSpecialtyId != null;
+    const localDone = localStorage.getItem(flagKey) === "true";
+    const done = localDone || hasDbScope;
+    setOnboardingDone(done);
+    if (!done) {
+      setCurrentScreen("ONBOARDING");
+    } else if (hasDbScope && !localDone) {
+      // cache the DB verdict so subsequent loads skip the check instantly
+      try {
+        localStorage.setItem(flagKey, "true");
+      } catch {
+        // private mode — the DB check simply re-runs next load
       }
     }
   }, [user]);
