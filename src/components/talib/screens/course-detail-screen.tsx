@@ -53,6 +53,7 @@ interface TgItem {
 
 interface ExamItem {
   id: number;
+  moduleId: number; // /api/exams returns it on both layers; was missing from this mirror (tsc error + cast hack)
   title: string;
   examDate: string;
   time: string;
