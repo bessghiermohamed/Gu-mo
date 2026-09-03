@@ -180,7 +180,7 @@ export function TalibAdminPanelScreen() {
             every tab is always visible and reachable.
             round 10 (review §16): «مركز التحكم» أولاً + شارات عدّاد على
             «الطلبات» و«التبليغات» حتى تُرى البنود المنتظرة دون فتح التبويب. */}
-        <TabsList className="flex flex-wrap gap-1 w-full">
+        <TabsList className="flex flex-wrap gap-1 w-full h-auto">
           <TabsTrigger value="overview" className="text-xs flex-1 min-w-24 data-[state=active]:font-bold"><LayoutDashboard className="w-3.5 h-3.5 ml-1" />مركز التحكم</TabsTrigger>
           <TabsTrigger value="users" className="text-xs flex-1 min-w-24"><Users className="w-3.5 h-3.5 ml-1" />المستخدمون</TabsTrigger>
           <TabsTrigger value="structure" className="text-xs flex-1 min-w-24"><Building2 className="w-3.5 h-3.5 ml-1" />الهيكل</TabsTrigger>
