@@ -12,6 +12,7 @@
 import * as React from "react";
 import { motion } from "framer-motion";
 import {
+  Calculator,
   ChevronLeft,
   Combine,
   Images,
@@ -24,8 +25,9 @@ import { cn } from "@/lib/utils";
 import { ImageToPdfTool } from "./image-to-pdf-tool";
 import { CompressPdfTool } from "./compress-pdf-tool";
 import { MergePdfTool } from "./merge-pdf-tool";
+import { GpaTool } from "./gpa-tool";
 
-type ToolId = "images" | "compress" | "merge";
+type ToolId = "images" | "compress" | "merge" | "gpa";
 
 const TOOLS: Array<{
   id: ToolId;
@@ -33,6 +35,12 @@ const TOOLS: Array<{
   title: string;
   desc: string;
 }> = [
+  {
+    id: "gpa",
+    icon: <Calculator className="w-6 h-6" />,
+    title: "حاسبة المعدل",
+    desc: "مقاييس تخصصك بمعاملاتها الحقيقية — ماذا يصبح معدلك لو…؟",
+  },
   {
     id: "images",
     icon: <Images className="w-6 h-6" />,
@@ -57,6 +65,9 @@ export function ToolsTab() {
   const { dir } = useI18n();
   const [activeTool, setActiveTool] = React.useState<ToolId | null>(null);
 
+  if (activeTool === "gpa") {
+    return <GpaTool onBack={() => setActiveTool(null)} />;
+  }
   if (activeTool === "images") {
     return <ImageToPdfTool onBack={() => setActiveTool(null)} />;
   }
