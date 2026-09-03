@@ -315,3 +315,70 @@ export async function notifyReportSubmitted(opts: {
     console.error("[notifications] report_new fan-out failed:", (e as Error).message);
   }
 }
+
+// ---------------------------------------------------------------
+// round 24 — content-publish fan-out. Every academic-content POST
+// (announcement / exam / assignment / library reference) now tells
+// the students who can see it, at the moment it appears. Recipient
+// routing mirrors the READ routes exactly: content is visible to
+// users with assigned_specialty_id == the content's specialty, so
+// that same set receives the notification (minus the actor, and
+// minus anyone who muted the category — see createNotifications).
+// ---------------------------------------------------------------
+
+/** Load the ids of every user routed to a specialty (both layers),
+ *  excluding the actor. Returns [] on any failure — a failed census
+ *  must never fail the publish action itself. */
+async function loadUsersOfSpecialty(specialtyId: number, excludeId: number): Promise<number[]> {
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data, error } = await supabase
+        .from("app_users")
+        .select("id")
+        .eq("assigned_specialty_id", specialtyId)
+        .neq("id", excludeId);
+      if (error) {
+        console.error("[notifications] specialty census failed:", error.message);
+        return [];
+      }
+      return (data ?? []).map((u: Record<string, unknown>) => Number(u.id));
+    }
+    const users = await db.appUser.findMany({
+      where: { assignedSpecialtyId: specialtyId, id: { not: excludeId } },
+      select: { id: true },
+    });
+    return users.map((u) => u.id);
+  } catch (e) {
+    console.error("[notifications] specialty census failed:", (e as Error).message);
+    return [];
+  }
+}
+
+/** Announce newly published academic content to every user of that
+ *  specialty (minus the actor; minus muted categories). Awaited by
+ *  the publish routes — one census query on a rare admin action. */
+export async function notifyContentPublished(opts: {
+  actorId: number;
+  actorName: string;
+  specialtyId: number;
+  type: "content_announcement" | "content_exam" | "content_assignment" | "content_library";
+  title: string;
+  body: string;
+  meta?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    const recipientIds = await loadUsersOfSpecialty(opts.specialtyId, opts.actorId);
+    await createNotifications(
+      recipientIds.map((userId) => ({
+        userId,
+        type: opts.type,
+        title: opts.title,
+        body: opts.body,
+        meta: { ...opts.meta, actorName: opts.actorName },
+      }))
+    );
+  } catch (e) {
+    console.error("[notifications] content fan-out failed:", (e as Error).message);
+  }
+}

@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canUploadContent } from "@/lib/auth/permissions";
+import { notifyContentPublished } from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -75,6 +76,17 @@ export async function POST(req: NextRequest) {
         download_url: downloadUrl?.trim() || "",
       }).select().single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      // round 24: a new library reference announces itself — before, a
+      // reference was invisible until a student happened to open المكتبة.
+      await notifyContentPublished({
+        actorId: user.id,
+        actorName: user.fullName,
+        specialtyId: Number(user.assignedSpecialtyId),
+        type: "content_library",
+        title: "مرجع جديد في المكتبة",
+        body: `«${title.trim()}»${category?.trim() ? ` (${category.trim()})` : ""}${author?.trim() ? ` — ${author.trim()}` : ` — ${user.fullName}`}`,
+        meta: { referenceId: data?.id },
+      });
       return NextResponse.json({ item: data });
     }
     const item = await db.libraryReference.create({
@@ -87,6 +99,15 @@ export async function POST(req: NextRequest) {
         fileFormat: fileFormat?.trim() || "PDF",
         downloadUrl: downloadUrl?.trim() || "",
       },
+    });
+    await notifyContentPublished({
+      actorId: user.id,
+      actorName: user.fullName,
+      specialtyId: Number(user.assignedSpecialtyId),
+      type: "content_library",
+      title: "مرجع جديد في المكتبة",
+      body: `«${title.trim()}»${category?.trim() ? ` (${category.trim()})` : ""}${author?.trim() ? ` — ${author.trim()}` : ` — ${user.fullName}`}`,
+      meta: { referenceId: item.id },
     });
     return NextResponse.json({ item });
   } catch (e) {

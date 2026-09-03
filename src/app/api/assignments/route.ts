@@ -12,6 +12,7 @@ import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canCreateModules } from "@/lib/auth/permissions";
+import { notifyContentPublished } from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -116,6 +117,22 @@ export async function POST(req: NextRequest) {
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
+      // round 24: a new assignment announces itself — with its deadline,
+      // because the deadline is the part students plan around.
+      const { data: mod } = await supabase
+        .from("module_courses")
+        .select("name, specialty_id")
+        .eq("id", Number(moduleId))
+        .maybeSingle();
+      await notifyContentPublished({
+        actorId: user.id,
+        actorName: user.fullName,
+        specialtyId: Number(mod?.specialty_id ?? user.assignedSpecialtyId),
+        type: "content_assignment",
+        title: "واجب جديد",
+        body: `«${String(title).trim()}»${mod?.name ? ` في ${mod.name}` : ""} — آخر موعد للتسليم: ${String(dueDate)}`,
+        meta: { assignmentId: data?.id, moduleId: Number(moduleId), dueDate: String(dueDate), urgency: "هام" },
+      });
       return NextResponse.json({ assignment: data });
     }
 
@@ -129,6 +146,19 @@ export async function POST(req: NextRequest) {
         visibilityScope: String(visibilityScope ?? "تخصص كامل"),
         targetGroup: String(targetGroup ?? "الكل"),
       },
+    });
+    const courseModule = await db.moduleCourse.findUnique({
+      where: { id: Number(moduleId) },
+      select: { name: true, specialtyId: true },
+    });
+    await notifyContentPublished({
+      actorId: user.id,
+      actorName: user.fullName,
+      specialtyId: courseModule?.specialtyId ?? user.assignedSpecialtyId,
+      type: "content_assignment",
+      title: "واجب جديد",
+      body: `«${String(title).trim()}»${courseModule?.name ? ` في ${courseModule.name}` : ""} — آخر موعد للتسليم: ${String(dueDate)}`,
+      meta: { assignmentId: assignment.id, moduleId: Number(moduleId), dueDate: String(dueDate), urgency: "هام" },
     });
     return NextResponse.json({ assignment });
   } catch (e) {
@@ -165,7 +195,7 @@ export async function PATCH(req: NextRequest) {
       const supabase = await createSupabaseServerClient();
       const { data: asg } = await supabase
         .from("assignments")
-        .select("id, title, module_id, module_courses!assignments_module_id_fkey(specialty_id)")
+        .select("id, title, due_date, module_id, module_courses!assignments_module_id_fkey(specialty_id, name)")
         .eq("id", Number(id))
         .maybeSingle();
       if (!asg) return NextResponse.json({ error: "الواجب غير موجود" }, { status: 404 });
@@ -173,6 +203,11 @@ export async function PATCH(req: NextRequest) {
         Array.isArray((asg as Record<string, unknown>).module_courses)
           ? ((asg as Record<string, unknown>).module_courses as Array<Record<string, unknown>>)[0]?.specialty_id
           : ((asg as Record<string, unknown>).module_courses as Record<string, unknown> | null)?.specialty_id
+      );
+      const moduleName = String(
+        (Array.isArray((asg as Record<string, unknown>).module_courses)
+          ? ((asg as Record<string, unknown>).module_courses as Array<Record<string, unknown>>)[0]?.name
+          : ((asg as Record<string, unknown>).module_courses as Record<string, unknown> | null)?.name) ?? ""
       );
       if (user.role !== "OWNER" && moduleSpecialty !== user.assignedSpecialtyId) {
         return NextResponse.json({ error: "هذا الواجب خارج نطاق تخصصك" }, { status: 403 });
@@ -187,11 +222,26 @@ export async function PATCH(req: NextRequest) {
       if (error || !data) {
         return NextResponse.json({ error: `فشل التحديث: ${error?.message ?? "خطأ"}` }, { status: 500 });
       }
+      // round 24: a moved deadline is news — students who planned around
+      // the old date must learn it changed.
+      const oldDue = String((asg as Record<string, unknown>).due_date ?? "");
+      const newDue = String(dueDate ?? "").trim();
+      if (newDue && newDue !== oldDue) {
+        await notifyContentPublished({
+          actorId: user.id,
+          actorName: user.fullName,
+          specialtyId: Number.isNaN(moduleSpecialty) ? user.assignedSpecialtyId : moduleSpecialty,
+          type: "content_assignment",
+          title: "تغيّر موعد تسليم واجب",
+          body: `«${trimTitle ?? String((asg as Record<string, unknown>).title ?? "")}»${moduleName ? ` في ${moduleName}` : ""} — من ${oldDue} إلى ${newDue}`,
+          meta: { assignmentId: Number(id), dueDate: newDue, urgency: "عاجل" },
+        });
+      }
       return NextResponse.json({ assignment: data });
     }
     const asg = await db.assignment.findUnique({
       where: { id: Number(id) },
-      select: { moduleId: true, module: { select: { specialtyId: true } } },
+      select: { title: true, dueDate: true, moduleId: true, module: { select: { name: true, specialtyId: true } } },
     });
     if (!asg) return NextResponse.json({ error: "الواجب غير موجود" }, { status: 404 });
     if (user.role !== "OWNER" && asg.module.specialtyId !== user.assignedSpecialtyId) {
@@ -206,6 +256,18 @@ export async function PATCH(req: NextRequest) {
         ...(maxScore !== undefined && !Number.isNaN(Number(maxScore)) ? { maxScore: Number(maxScore) } : {}),
       },
     });
+    const newDue = String(dueDate ?? "").trim();
+    if (newDue && newDue !== asg.dueDate) {
+      await notifyContentPublished({
+        actorId: user.id,
+        actorName: user.fullName,
+        specialtyId: asg.module.specialtyId,
+        type: "content_assignment",
+        title: "تغيّر موعد تسليم واجب",
+        body: `«${trimTitle ?? asg.title}»${asg.module.name ? ` في ${asg.module.name}` : ""} — من ${asg.dueDate} إلى ${newDue}`,
+        meta: { assignmentId: Number(id), dueDate: newDue, urgency: "عاجل" },
+      });
+    }
     return NextResponse.json({ assignment: updated });
   } catch (e) {
     return NextResponse.json(

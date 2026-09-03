@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canUploadContent } from "@/lib/auth/permissions";
+import { notifyContentPublished } from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -114,6 +115,17 @@ export async function POST(req: NextRequest) {
         coefficient: coefficient ?? 2,
       }).select().single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      // round 24: a scheduled exam announces itself to the students of
+      // that specialty — exams are the highest-stakes content in the app.
+      await notifyContentPublished({
+        actorId: user.id,
+        actorName: user.fullName,
+        specialtyId: Number(module.specialty_id),
+        type: "content_exam",
+        title: "اختبار جديد",
+        body: `«${title.trim()}» في ${module.name} — ${examDate.trim()}${time?.trim() ? ` الساعة ${time.trim()}` : ""}`,
+        meta: { examId: data?.id, moduleId: Number(moduleId), examDate: examDate.trim(), urgency: "هام" },
+      });
       return NextResponse.json({ exam: data });
     }
     const courseModule = await db.moduleCourse.findUnique({ where: { id: moduleId } });
@@ -127,6 +139,15 @@ export async function POST(req: NextRequest) {
         examDate: examDate.trim(), time: time?.trim() || "—",
         room: room?.trim() || "—", coefficient: coefficient ?? 2,
       },
+    });
+    await notifyContentPublished({
+      actorId: user.id,
+      actorName: user.fullName,
+      specialtyId: courseModule.specialtyId,
+      type: "content_exam",
+      title: "اختبار جديد",
+      body: `«${title.trim()}» في ${courseModule.name} — ${examDate.trim()}${time?.trim() ? ` الساعة ${time.trim()}` : ""}`,
+      meta: { examId: exam.id, moduleId: Number(moduleId), examDate: examDate.trim(), urgency: "هام" },
     });
     return NextResponse.json({ exam });
   } catch (e) {
@@ -189,6 +210,20 @@ export async function PATCH(req: NextRequest) {
       if (Object.keys(patch).length === 0) return NextResponse.json({ error: "لا توجد تغييرات" }, { status: 400 });
       const { data, error } = await supabase.from("exams").update(patch).eq("id", Number(id)).select().single();
       if (error || !data) return NextResponse.json({ error: `فشل التحديث: ${error?.message ?? "خطأ"}` }, { status: 500 });
+      // round 24: a changed exam date is news in itself — students who
+      // already noted the old date must learn it moved.
+      const oldDate = String(exam.exam_date ?? "");
+      if (d && d !== oldDate) {
+        await notifyContentPublished({
+          actorId: user.id,
+          actorName: user.fullName,
+          specialtyId: Number(mod?.specialty_id ?? user.assignedSpecialtyId),
+          type: "content_exam",
+          title: "تغيّر موعد اختبار",
+          body: `«${t ?? String(exam.title ?? "")}» — من ${oldDate} إلى ${d}`,
+          meta: { examId: Number(id), examDate: d, urgency: "عاجل" },
+        });
+      }
       return NextResponse.json({ exam: data });
     }
     const exam = await db.exam.findUnique({ where: { id: Number(id) } });
@@ -221,6 +256,17 @@ export async function PATCH(req: NextRequest) {
         ...(coefficient !== undefined ? { coefficient: coefficient ?? 2 } : {}),
       },
     });
+    if (d && d !== exam.examDate) {
+      await notifyContentPublished({
+        actorId: user.id,
+        actorName: user.fullName,
+        specialtyId: mod.specialtyId,
+        type: "content_exam",
+        title: "تغيّر موعد اختبار",
+        body: `«${t ?? exam.title}» — من ${exam.examDate} إلى ${d}`,
+        meta: { examId: Number(id), examDate: d, urgency: "عاجل" },
+      });
+    }
     return NextResponse.json({ exam: updated });
   } catch (e) {
     return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });

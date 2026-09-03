@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Bell, CheckCircle2, XCircle, UserPlus, Flag, CheckCheck, Loader2, Megaphone } from "lucide-react";
+import { Bell, CheckCircle2, XCircle, UserPlus, Flag, CheckCheck, Loader2, Megaphone, FlaskConical, ClipboardList, BookOpen, AlarmClock, Timer, Zap } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,13 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   join_approved: CheckCircle2,
   join_rejected: XCircle,
   report_new: Flag,
+  // round 24 — published content + temporal reminders
+  content_announcement: Megaphone,
+  content_exam: FlaskConical,
+  content_assignment: ClipboardList,
+  content_library: BookOpen,
+  exam_reminder: AlarmClock,
+  assignment_reminder: Timer,
   generic: Bell,
 };
 
@@ -44,8 +51,20 @@ const TYPE_COLORS: Record<string, string> = {
   join_approved: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10",
   join_rejected: "text-red-600 dark:text-red-400 bg-red-500/10",
   report_new: "text-amber-600 dark:text-amber-400 bg-amber-500/10",
+  content_announcement: "text-sky-600 dark:text-sky-400 bg-sky-500/10",
+  content_exam: "text-rose-600 dark:text-rose-400 bg-rose-500/10",
+  content_assignment: "text-violet-600 dark:text-violet-400 bg-violet-500/10",
+  content_library: "text-teal-600 dark:text-teal-400 bg-teal-500/10",
+  exam_reminder: "text-rose-600 dark:text-rose-400 bg-rose-500/10",
+  assignment_reminder: "text-violet-600 dark:text-violet-400 bg-violet-500/10",
   generic: "text-muted-foreground bg-muted",
 };
+
+/** round 24 — عاجل events get a red accent edge + chip so they are
+ *  visually separated from routine news while scrolling. */
+function isUrgent(n: AppNotificationItem): boolean {
+  return String(n.meta?.urgency ?? "") === "عاجل";
+}
 
 function timeAgo(iso: string | null): string {
   if (!iso) return "";
@@ -96,7 +115,7 @@ export function TalibNotificationsSheet({
             )}
           </SheetTitle>
           <SheetDescription className="text-xs">
-            تحديثات طلبات الانضمام والتبليغات — تصل لك فور حدوثها
+            نتائج طلباتك، المحتوى الجديد في تخصصك، والتذكيرات القادمة
           </SheetDescription>
           {unread.length > 0 && (
             <Button
@@ -124,7 +143,7 @@ export function TalibNotificationsSheet({
               </div>
               <p className="text-sm font-medium">لا توجد إشعارات بعد</p>
               <p className="text-xs text-muted-foreground">
-                ستظهر هنا نتائج طلبات الانضمام والتبليغات الجديدة فور وصولها
+                ستظهر هنا نتائج طلباتك، المحتوى الجديد في تخصصك، وتذكيرات الاختبارات
               </p>
             </div>
           ) : (
@@ -132,6 +151,7 @@ export function TalibNotificationsSheet({
               {notifications.map((n) => {
                 const Icon = TYPE_ICONS[n.type] ?? Bell;
                 const isUnread = n.readAt == null;
+                const urgent = isUrgent(n);
                 return (
                   <li key={n.id}>
                     <button
@@ -139,7 +159,8 @@ export function TalibNotificationsSheet({
                       onClick={() => onItemTap(n)}
                       className={cn(
                         "w-full text-right px-4 py-3 flex gap-3 items-start hover:bg-muted/60 transition-colors",
-                        isUnread && "bg-primary/5"
+                        isUnread && "bg-primary/5",
+                        urgent && "border-r-2 border-r-red-500"
                       )}
                     >
                       <span
@@ -148,14 +169,20 @@ export function TalibNotificationsSheet({
                           TYPE_COLORS[n.type] ?? TYPE_COLORS.generic
                         )}
                       >
-                        <Icon className="w-4 h-4" />
+                        <Icon className={cn("w-4 h-4", n.type === "exam_reminder" && isUnread && "animate-pulse")} />
                       </span>
                       <span className="flex-1 min-w-0">
                         <span className="flex items-center gap-2">
                           <span className={cn("text-sm truncate", isUnread ? "font-bold" : "font-medium")}>
                             {n.title}
                           </span>
-                          {isUnread && <span className="shrink-0 w-2 h-2 rounded-full bg-primary" />}
+                          {urgent && (
+                            <span className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-bold text-red-600 dark:text-red-400">
+                              <Zap className="w-3 h-3" />
+                              عاجل
+                            </span>
+                          )}
+                          {isUnread && !urgent && <span className="shrink-0 w-2 h-2 rounded-full bg-primary" />}
                         </span>
                         <span className="block text-xs text-muted-foreground mt-0.5 leading-relaxed line-clamp-3">
                           {n.body}

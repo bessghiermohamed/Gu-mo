@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
+import { notifyContentPublished } from "@/lib/notifications";
 import { canUploadContent } from "@/lib/auth/permissions";
 import { fetchAnnouncements } from "@/lib/data-layer";
 
@@ -88,6 +89,18 @@ export async function POST(req: NextRequest) {
         specialty_id: finalSpecialtyId,
       }).select().single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      // round 24: the announcement announces itself — students of this
+      // specialty hear about it the moment it exists (was: silent until
+      // they happened to open the announcements screen).
+      await notifyContentPublished({
+        actorId: user.id,
+        actorName: user.fullName,
+        specialtyId: Number(finalSpecialtyId),
+        type: "content_announcement",
+        title: validUrgency === "عاجل" ? "إعلان عاجل" : "إعلان جديد",
+        body: `«${title.trim()}» — ${user.fullName}`,
+        meta: { announcementId: data?.id, urgency: validUrgency },
+      });
       return NextResponse.json({ announcement: data });
     }
     const announcement = await db.announcement.create({
@@ -99,6 +112,15 @@ export async function POST(req: NextRequest) {
         urgency: validUrgency,
         specialtyId: finalSpecialtyId,
       },
+    });
+    await notifyContentPublished({
+      actorId: user.id,
+      actorName: user.fullName,
+      specialtyId: Number(finalSpecialtyId),
+      type: "content_announcement",
+      title: validUrgency === "عاجل" ? "إعلان عاجل" : "إعلان جديد",
+      body: `«${title.trim()}» — ${user.fullName}`,
+      meta: { announcementId: announcement.id, urgency: validUrgency },
     });
     return NextResponse.json({ announcement });
   } catch (e) {
