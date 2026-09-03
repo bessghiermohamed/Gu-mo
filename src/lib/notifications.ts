@@ -33,6 +33,12 @@ export type NotificationType =
   | "join_approved"
   | "join_rejected"
   | "report_new"
+  | "content_announcement"
+  | "content_exam"
+  | "content_assignment"
+  | "content_library"
+  | "exam_reminder"
+  | "assignment_reminder"
   | "generic";
 
 export interface NewNotification {
@@ -43,15 +49,115 @@ export interface NewNotification {
   meta?: Record<string, unknown>;
 }
 
-/** Insert notifications (both branches). Never throws — notification
- *  failure must not break the business action that triggered it. */
-export async function createNotifications(items: NewNotification[]): Promise<void> {
-  if (items.length === 0) return;
+// ---------------------------------------------------------------
+// round 24 — notification categories & preferences (anti-spam).
+// Every type maps to exactly one user-muteable category, or to
+// null = "never muteable" (transactional outcomes of the user's
+// own request, and internal generic events).
+// ---------------------------------------------------------------
+export const MUTABLE_CATEGORIES = [
+  "announcements",
+  "exams",
+  "assignments",
+  "library",
+  "reminders",
+  "group_events",
+  "reports",
+] as const;
+
+export type MuteableCategory = (typeof MUTABLE_CATEGORIES)[number];
+
+const TYPE_TO_CATEGORY: Record<string, MuteableCategory | null> = {
+  join_new: "group_events",
+  join_approved: null, // own request outcome — always delivered
+  join_rejected: null, // own request outcome — always delivered
+  report_new: "reports",
+  content_announcement: "announcements",
+  content_exam: "exams",
+  content_assignment: "assignments",
+  content_library: "library",
+  exam_reminder: "reminders",
+  assignment_reminder: "reminders",
+  generic: null,
+};
+
+export function categoryOf(type: string): MuteableCategory | null {
+  return TYPE_TO_CATEGORY[type] ?? null;
+}
+
+/** Parse a stored muted_types JSON string into a clean category set. */
+export function parseMutedTypes(raw: string): MuteableCategory[] {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((x) => String(x))
+      .filter((x): x is MuteableCategory =>
+        (MUTABLE_CATEGORIES as readonly string[]).includes(x)
+      );
+  } catch {
+    return [];
+  }
+}
+
+/** Load muted categories for a batch of users (both layers).
+ *  Graceful on every failure: a missing table or an error simply
+ *  means "nothing muted" — preferences must never break delivery. */
+async function loadMutedMap(userIds: number[]): Promise<Map<number, Set<MuteableCategory>>> {
+  const map = new Map<number, Set<MuteableCategory>>();
+  if (userIds.length === 0) return map;
   try {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
+      const { data, error } = await supabase
+        .from("notification_prefs")
+        .select("user_id, muted_types")
+        .in("user_id", userIds);
+      if (error) {
+        // missing table (PGRST205 etc.) or transient error → no mutes applied
+        return map;
+      }
+      for (const row of data ?? []) {
+        const id = Number((row as Record<string, unknown>).user_id);
+        const muted = parseMutedTypes(String((row as Record<string, unknown>).muted_types ?? "[]"));
+        if (muted.length > 0) map.set(id, new Set(muted));
+      }
+      return map;
+    }
+    const rows = await db.notificationPref.findMany({
+      where: { userId: { in: userIds } },
+      select: { userId: true, mutedTypes: true },
+    });
+    for (const row of rows) {
+      const muted = parseMutedTypes(row.mutedTypes);
+      if (muted.length > 0) map.set(row.userId, new Set(muted));
+    }
+    return map;
+  } catch (e) {
+    console.error("[notifications] prefs load failed:", (e as Error).message);
+    return map;
+  }
+}
+
+/** Insert notifications (both branches), FILTERED by recipient
+ *  preferences. Never throws — notification failure must not break
+ *  the business action that triggered it. */
+export async function createNotifications(items: NewNotification[]): Promise<void> {
+  if (items.length === 0) return;
+  try {
+    // round 24: drop items whose category the recipient has muted
+    const mutedMap = await loadMutedMap(Array.from(new Set(items.map((n) => n.userId))));
+    const deliverable = items.filter((n) => {
+      const cat = categoryOf(n.type);
+      if (cat == null) return true; // never muteable
+      return !mutedMap.get(n.userId)?.has(cat);
+    });
+    if (deliverable.length === 0) return;
+
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
       const { error } = await supabase.from("app_notifications").insert(
-        items.map((n) => ({
+        deliverable.map((n) => ({
           user_id: n.userId,
           type: n.type,
           title: n.title,
@@ -63,7 +169,7 @@ export async function createNotifications(items: NewNotification[]): Promise<voi
       return;
     }
     await db.appNotification.createMany({
-      data: items.map((n) => ({
+      data: deliverable.map((n) => ({
         userId: n.userId,
         type: n.type,
         title: n.title,

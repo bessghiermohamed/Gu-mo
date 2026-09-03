@@ -579,6 +579,7 @@ model AppUser {
   contentUploads        ContentUploadLog[]
   notificationReads    NotificationReadState[]
   appNotifications     AppNotification[]
+  notificationPref      NotificationPref?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -593,15 +594,30 @@ model AppUser {
 model AppNotification {
   id        Int       @id @default(autoincrement())
   userId    Int
-  type      String    // "join_new" | "join_approved" | "join_rejected" | "report_new" | "generic"
+  type      String    // "join_new" | "join_approved" | "join_rejected" | "report_new" | "generic" | "content_*" | "exam_reminder" | "assignment_reminder"
   title     String
   body      String    @default("")
-  meta      String    @default("{}") // JSON string: { requestId, cohortId, ... }
+  meta      String    @default("{}") // JSON string: { requestId, cohortId, examId, urgency, ... }
   readAt    DateTime?
   createdAt DateTime  @default(now())
   user      AppUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
+  @@index([userId, type, createdAt])
+}
+
+// =====================================================
+// 15c. تفضيلات الإشعارات (NotificationPref) - round 24
+// Per-user notification preferences: which CATEGORIES are muted.
+// Stored as a JSON array string of category names. Transactional
+// outcomes (join_approved / join_rejected) are NEVER muted — they
+// are the result of the user's own action, not ambient news.
+// =====================================================
+model NotificationPref {
+  userId     Int      @id
+  mutedTypes String   @default("[]") // JSON array: ["announcements", "reminders", ...]
+  updatedAt  DateTime @default(now()) @updatedAt
+  user       AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // =====================================================
