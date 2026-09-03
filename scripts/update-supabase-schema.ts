@@ -10,9 +10,16 @@
  */
 import { createClient } from "@supabase/supabase-js";
 
-const url = "https://ntdzvujhujnbazaqzuvo.supabase.co";
-const anonKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im50ZHp2dWpodWpuYmF6YXF6dXZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNTk0NzQsImV4cCI6MjEwMjgzNTQ3NH0.MD_tGI24lHf1RSrt6zhSru7E4VfmZP_VVASYDV8b-1Y";
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+
+if (!url || !anonKey) {
+  console.error(
+    "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.\n" +
+      "Copy .env.example to .env.local, fill in real values, and re-run."
+  );
+  process.exit(1);
+}
 
 const supabase = createClient(url, anonKey);
 
@@ -34,7 +41,9 @@ async function checkSchemaStatus() {
       console.log("❌ academic_tracks table does NOT exist.");
       console.log("");
       console.log("📋 Please run this SQL in Supabase SQL Editor:");
-      console.log("   https://supabase.com/dashboard/project/ntdzvujhujnbazaqzuvo/sql/new");
+      console.log(
+        `   https://supabase.com/dashboard/project/${url.replace(/^https?:\/\//, "").split(".")[0]}/sql/new`
+      );
       console.log("");
       console.log("=== SQL START ===");
       console.log(`
