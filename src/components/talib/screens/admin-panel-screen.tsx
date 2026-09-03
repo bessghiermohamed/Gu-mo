@@ -2,11 +2,11 @@
 
 import * as React from "react";
 import {
-  Users, Layers, BookOpen, Cloud, Plus, TestTube2,
-  CheckCircle2, XCircle, Loader2, FolderTree, UserPlus, Clock,
+  Users, Layers, Plus,
+  CheckCircle2, XCircle, Loader2, FolderTree, UserPlus,
   Check, X, Building2, GraduationCap, Shield, Trash2, Route, CalendarDays, Pencil,
   Flag, AlertTriangle, CheckCheck, RotateCcw, Send, Eye, EyeOff, Star, Link2, Sparkles, Power,
-  FlaskConical, RefreshCw, Zap, Database, ExternalLink, Mail, IdCard,
+  FlaskConical, Zap, ExternalLink, Mail, IdCard,
   Network, ChevronDown, ChevronLeft, Search, ArrowLeftRight, UserMinus, UserCog,
   LayoutDashboard, Inbox,
 } from "lucide-react";
@@ -24,7 +24,6 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
-import { canManageRoles, canCreateGroups, canCreateModules, canCreateCohorts, canAccessDevSettings } from "@/lib/auth/permissions";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -126,13 +125,14 @@ export function TalibAdminPanelScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
 
-  // fix (R12-06, P0): the permission helpers were imported but NEVER used —
-  // all 13 tabs rendered for every supervisory role, including «السحابة»
-  // (Supabase connection details — an OWNER-only tool per /api/dev/env's
-  // canAccessDevSettings gate). Tab visibility is now bound to the SAME
-  // helpers the APIs enforce.
-  const isOwner = canAccessDevSettings(user ?? null);
-
+  // round 11 (this round): the tab network was SLIMMED and MERGED at the
+  // owner's request —
+  //   • «الهيكل» + «الملامح» + «السنوات» → ONE «الهيكل» tab (sub-sections)
+  //   • «المجموعات» + «الأفواج» → ONE «المجموعات والأفواج» tab (sub-sections)
+  //   • «المقررات» removed from the panel — courses live on the student
+  //     Courses screen (add/edit/delete there, same APIs)
+  //   • «السحابة» removed — Supabase is infrastructure, not a daily tool
+  // 13 tabs → 8 destinations, every management capability preserved.
   // فتح التبويب المطلوب مباشرة (مثلاً «تيليجرام» من شاشة دروس تيليجرام)
   // round 10 (review §16): اللوحة تفتح افتراضياً على «مركز التحكم» —
   // نظرة عامة منظمة حسب الأولوية بدل الترام في بطاقات متساوية.
@@ -140,8 +140,8 @@ export function TalibAdminPanelScreen() {
     try {
       const wanted = sessionStorage.getItem("talib-admin-tab");
       sessionStorage.removeItem("talib-admin-tab");
-      // never restore into a tab this role cannot see
-      if (wanted === "cloud" && !canAccessDevSettings(user ?? null)) return "overview";
+      // tabs removed this round must never be restored from a stale session
+      if (wanted === "cloud" || wanted === "modules" || wanted === "cohorts" || wanted === "tracks" || wanted === "years") return "overview";
       return wanted ?? "overview";
     } catch {
       return "overview";
@@ -183,32 +183,28 @@ export function TalibAdminPanelScreen() {
       <div>
         <h1 className="text-2xl font-black mb-1">{t("admin.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          إدارة المؤسسات، التخصصات، الملامح، الأفواج، المقررات، والمحتوى الأكاديمي
+          إدارة الهيكل الأكاديمي، المجموعات والأفواج، الطلبات، التبليغات، والمحتوى
         </p>
       </div>
 
       <Tabs value={adminTab} onValueChange={setAdminTab}>
-        {/* design fix (organized grid): the tab bar IS the management
-            network — «مركز التحكم» (panel home) as a full-width bar on
-            top, the management destinations below as equal boxed cells in
-            aligned rows (4 columns on phones, 6 on larger screens). Every
-            tab stays visible and reachable (fix أ.5 preserved) and the
-            container still auto-sizes its height (h-auto — mobile overlap
-            fix kept). Badges on «الطلبات» و«التبليغات» (round 10, §16)
-            keep pending counts visible without opening the tab. */}
-        <TabsList className="grid w-full h-auto grid-cols-4 sm:grid-cols-6 gap-1.5 bg-transparent p-0 items-stretch">
+        {/* design fix (organized grid) + round 11 merge: the tab bar IS the
+            management network — «مركز التحكم» (panel home) as a full-width
+            bar on top, the management destinations below as equal boxed
+            cells in aligned rows (4 columns on phones, 7 on larger screens
+            — one clean row). Every capability stays visible and reachable
+            (fix أ.5 preserved). Badges on «الطلبات» و«التبليغات» (round 10,
+            §16) keep pending counts visible without opening the tab. */}
+        <TabsList className="grid w-full h-auto grid-cols-4 sm:grid-cols-7 gap-1.5 bg-transparent p-0 items-stretch">
           <TabsTrigger
             value="overview"
-            className="col-span-4 sm:col-span-6 h-12 rounded-lg border border-input bg-background text-xs data-[state=active]:border-primary data-[state=active]:bg-primary/10 dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/10 data-[state=active]:font-bold"
+            className="col-span-4 sm:col-span-7 h-12 rounded-lg border border-input bg-background text-xs data-[state=active]:border-primary data-[state=active]:bg-primary/10 dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/10 data-[state=active]:font-bold"
           >
             <LayoutDashboard className="w-4 h-4 ml-1" />مركز التحكم
           </TabsTrigger>
           <TabsTrigger value="users" className={TAB_BOX_CLS}><Users className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>المستخدمون</span></TabsTrigger>
           <TabsTrigger value="structure" className={TAB_BOX_CLS}><Building2 className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>الهيكل</span></TabsTrigger>
-          <TabsTrigger value="tracks" className={TAB_BOX_CLS}><Route className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>الملامح</span></TabsTrigger>
-          <TabsTrigger value="years" className={TAB_BOX_CLS}><CalendarDays className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>السنوات</span></TabsTrigger>
-          <TabsTrigger value="cohorts" className={TAB_BOX_CLS}><Layers className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>الأفواج</span></TabsTrigger>
-          <TabsTrigger value="groups" className={TAB_BOX_CLS}><FolderTree className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>المجموعات</span></TabsTrigger>
+          <TabsTrigger value="groups" className={TAB_BOX_CLS}><FolderTree className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>المجموعات والأفواج</span></TabsTrigger>
           <TabsTrigger value="requests" className={TAB_BOX_CLS}>
             <UserPlus className="w-4 h-4 text-primary" />
             <span className="flex items-center gap-1 text-[11px] font-bold leading-none">
@@ -221,7 +217,6 @@ export function TalibAdminPanelScreen() {
             </span>
           </TabsTrigger>
           <TabsTrigger value="subordinates" className={TAB_BOX_CLS}><Network className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>المرؤوسون</span></TabsTrigger>
-          <TabsTrigger value="modules" className={TAB_BOX_CLS}><BookOpen className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>المقررات</span></TabsTrigger>
           <TabsTrigger value="issues" className={TAB_BOX_CLS}>
             <Flag className="w-4 h-4 text-primary" />
             <span className="flex items-center gap-1 text-[11px] font-bold leading-none">
@@ -234,9 +229,6 @@ export function TalibAdminPanelScreen() {
             </span>
           </TabsTrigger>
           <TabsTrigger value="telegram" className={TAB_BOX_CLS}><Send className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>تيليجرام</span></TabsTrigger>
-          {isOwner && (
-            <TabsTrigger value="cloud" className={TAB_BOX_CLS}><Cloud className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>السحابة</span></TabsTrigger>
-          )}
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -250,18 +242,11 @@ export function TalibAdminPanelScreen() {
         </TabsContent>
         <TabsContent value="users" className="mt-4"><UsersManager /></TabsContent>
         <TabsContent value="structure" className="mt-4"><StructureManager /></TabsContent>
-        <TabsContent value="tracks" className="mt-4"><TracksManager /></TabsContent>
-        <TabsContent value="years" className="mt-4"><YearsManager /></TabsContent>
-        <TabsContent value="cohorts" className="mt-4"><CohortsManager /></TabsContent>
-        <TabsContent value="groups" className="mt-4"><GroupsManager /></TabsContent>
+        <TabsContent value="groups" className="mt-4"><GroupsAndCohortsManager /></TabsContent>
         <TabsContent value="requests" className="mt-4 space-y-4"><DirectAssignmentCard /><JoinRequestsManager /></TabsContent>
         <TabsContent value="subordinates" className="mt-4"><SubordinatesManager /></TabsContent>
-        <TabsContent value="modules" className="mt-4"><ModulesManager /></TabsContent>
         <TabsContent value="issues" className="mt-4"><IssuesManager /></TabsContent>
         <TabsContent value="telegram" className="mt-4"><TelegramManager /></TabsContent>
-        {isOwner && (
-          <TabsContent value="cloud" className="mt-4"><CloudManager /></TabsContent>
-        )}
       </Tabs>
     </div>
   );
@@ -408,7 +393,7 @@ function ControlCenterOverview({ stats, loading, error, onRetry, onGoToTab }: {
                 </div>
                 <p className="text-sm font-bold">تبليغ بانتظار المراجعة</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  مشاكل بلّغ عنها الطلاب من شاشتي المقررات والواجبات
+                  مشاكل بلّغ عنها الطلاب من شاشات المقررات والواجبات وحسابي
                 </p>
                 <span className="inline-flex items-center gap-1 mt-2 text-xs font-bold text-primary">
                   عرض التبليغات<ChevronLeft className="w-3 h-3" />
@@ -695,10 +680,28 @@ function PromoteDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: (
 }
 
 // =====================================================
-// Structure Manager — institutions + specialties (fix أ.1)
+// Structure Manager — MERGED destination (round 11, owner request):
+// «الهيكل» + «الملامح» + «السنوات» used to be three separate tabs of the
+// same hierarchy — one academic chain managed in three disconnected
+// places. They are now ONE tab with sub-sections in hierarchy order:
+//   المؤسسات → التخصصات → الملامح → السنوات
+// (same inner-Tabs pattern as the Telegram manager — established UI.)
 // =====================================================
 function StructureManager() {
-  return <div className="space-y-4"><InstitutionsPanel /><SpecialtiesPanel /></div>;
+  return (
+    <Tabs defaultValue="institutions">
+      <TabsList className="grid w-full grid-cols-4 gap-1">
+        <TabsTrigger value="institutions" className="text-xs data-[state=active]:font-bold">المؤسسات</TabsTrigger>
+        <TabsTrigger value="specialties" className="text-xs data-[state=active]:font-bold">التخصصات</TabsTrigger>
+        <TabsTrigger value="tracks" className="text-xs data-[state=active]:font-bold">الملامح</TabsTrigger>
+        <TabsTrigger value="years" className="text-xs data-[state=active]:font-bold">السنوات</TabsTrigger>
+      </TabsList>
+      <TabsContent value="institutions" className="mt-3"><InstitutionsPanel /></TabsContent>
+      <TabsContent value="specialties" className="mt-3"><SpecialtiesPanel /></TabsContent>
+      <TabsContent value="tracks" className="mt-3"><TracksManager /></TabsContent>
+      <TabsContent value="years" className="mt-3"><YearsManager /></TabsContent>
+    </Tabs>
+  );
 }
 
 function InstitutionsPanel() {
@@ -1689,6 +1692,26 @@ function CohortsManager() {
 }
 
 // =====================================================
+// Groups + Cohorts Manager — MERGED destination (round 11, owner request):
+// «المجموعات» و«الأفواج» were two tabs of one chain (a cohort lives INSIDE
+// a study group). They are now ONE tab with two sub-sections —
+// المجموعات (the container) → الأفواج (what students join) — so the
+// supervisor never has to hunt for the other half of the chain.
+// =====================================================
+function GroupsAndCohortsManager() {
+  return (
+    <Tabs defaultValue="groups">
+      <TabsList className="grid w-full grid-cols-2 gap-1">
+        <TabsTrigger value="groups" className="text-xs data-[state=active]:font-bold">المجموعات</TabsTrigger>
+        <TabsTrigger value="cohorts" className="text-xs data-[state=active]:font-bold">الأفواج</TabsTrigger>
+      </TabsList>
+      <TabsContent value="groups" className="mt-3"><GroupsManager /></TabsContent>
+      <TabsContent value="cohorts" className="mt-3"><CohortsManager /></TabsContent>
+    </Tabs>
+  );
+}
+
+// =====================================================
 // Groups Manager — fix ب: creation asks institution →
 // specialty → year → track → name (was year-only!)
 // =====================================================
@@ -1951,241 +1974,6 @@ function JoinRequestsManager() {
 }
 
 // =====================================================
-// Modules Manager — round 6: edit + delete (the flagship fix).
-// (Earlier fix: year + semester selectors — was hardcoded to year 1 /
-// semester 1, the exact cause of the "added to semester 1 but shows
-// under All" bug.)
-// Before: an "add course" button existed but NO way to correct or remove a
-// course — a typo in the name/code/professor was permanent for every
-// student. Now each course row has edit (pencil) and delete (trash).
-// Deletion is guarded server-side: blocked while exams/assignments/grades/
-// lectures still reference the course (the message explains what to clear).
-// =====================================================
-interface CourseRow {
-  id: number; name: string; code: string; professorName: string;
-  coefficient: number; semester: number; academicYearId: number;
-}
-
-function ModulesManager() {
-  const [courses, setCourses] = React.useState<CourseRow[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [open, setOpen] = React.useState(false);
-  const [name, setName] = React.useState(""); const [code, setCode] = React.useState("");
-  const [professor, setProfessor] = React.useState(""); const [coefficient, setCoefficient] = React.useState("2");
-  const [saving, setSaving] = React.useState(false);
-  const [years, setYears] = React.useState<Year[]>([]);
-  const [selYear, setSelYear] = React.useState<string>("");
-  const [selSemester, setSelSemester] = React.useState("1");
-  const { user } = useAuth();
-  // round 6: edit/delete state
-  const [editCourse, setEditCourse] = React.useState<CourseRow | null>(null);
-  const [editName, setEditName] = React.useState("");
-  const [editCode, setEditCode] = React.useState("");
-  const [editProfessor, setEditProfessor] = React.useState("");
-  const [editCoefficient, setEditCoefficient] = React.useState("2");
-  const [editYear, setEditYear] = React.useState("");
-  const [editSemester, setEditSemester] = React.useState("1");
-  const [editSaving, setEditSaving] = React.useState(false);
-  const [deleteCourse, setDeleteCourse] = React.useState<CourseRow | null>(null);
-  const [deleteError, setDeleteError] = React.useState<string | null>(null);
-  const [deleting, setDeleting] = React.useState(false);
-
-  React.useEffect(() => {
-    fetch(`/api/onboarding/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
-      .then((r) => r.json())
-      .then((data) => {
-        const l: Year[] = data.years ?? [];
-        setYears(l);
-        const own = l.find((y) => y.id === user?.scopeAcademicYearId);
-        setSelYear(own ? String(own.id) : (l.length > 0 ? String(l[0].id) : ""));
-      })
-      .catch(() => setYears([]));
-  }, [user]);
-
-  const fetchData = React.useCallback(async () => {
-    setLoading(true);
-    try { const res = await fetch("/api/courses", { cache: "no-store" }); const data = await res.json(); setCourses(data.courses ?? []); }
-    catch {} finally { setLoading(false); }
-  }, []);
-  React.useEffect(() => { fetchData(); }, [fetchData]);
-
-  async function handleCreate() {
-    if (!name.trim() || !code.trim()) { toast.error("الاسم والكود مطلوبان"); return; }
-    if (!selYear) { toast.error("اختر السنة الدراسية"); return; }
-    setSaving(true);
-    try {
-      const res = await fetch("/api/courses", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(), code: code.trim(), professorName: professor.trim(),
-          coefficient: parseFloat(coefficient) || 2,
-          specialtyId: user?.assignedSpecialtyId ?? 1,
-          academicYearId: parseInt(selYear),
-          semester: parseInt(selSemester),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تمت إضافة المقياس"); setOpen(false); setName(""); setCode(""); setProfessor(""); fetchData();
-    } finally { setSaving(false); }
-  }
-
-  function openEditCourse(c: CourseRow) {
-    setEditName(c.name); setEditCode(c.code);
-    setEditProfessor(c.professorName || "");
-    setEditCoefficient(String(c.coefficient ?? 2));
-    setEditYear(String(c.academicYearId ?? ""));
-    setEditSemester(String(c.semester ?? 1));
-    setEditCourse(c);
-  }
-
-  async function handleEditSave() {
-    if (!editCourse) return;
-    if (!editName.trim() || !editCode.trim()) { toast.error("الاسم والكود مطلوبان"); return; }
-    setEditSaving(true);
-    try {
-      const res = await fetch("/api/courses", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: editCourse.id, name: editName.trim(), code: editCode.trim(),
-          professorName: editProfessor.trim(), coefficient: parseFloat(editCoefficient) || 2,
-          semester: parseInt(editSemester),
-          ...(editYear ? { academicYearId: parseInt(editYear) } : {}),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم تعديل المقياس");
-      setEditCourse(null);
-      fetchData();
-    } catch { toast.error("فشل الاتصال"); }
-    finally { setEditSaving(false); }
-  }
-
-  async function handleDelete() {
-    if (!deleteCourse) return;
-    setDeleting(true);
-    try {
-      const res = await fetch(`/api/courses?id=${deleteCourse.id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) { setDeleteError(data.error); toast.error(data.error); return; }
-      toast.success("تم حذف المقياس");
-      setDeleteCourse(null); setDeleteError(null);
-      fetchData();
-    } catch { toast.error("فشل الحذف"); }
-    finally { setDeleting(false); }
-  }
-
-  const yearName = (id: number) => years.find((y) => y.id === id)?.yearName ?? "";
-
-  return (
-    <Card className="p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div><h3 className="font-bold text-sm flex items-center gap-2"><BookOpen className="w-4 h-4 text-primary" />المقاييس</h3><p className="text-xs text-muted-foreground">إدارة مقررات التخصص — حسب السنة والسداسي (تعديل وحذف متاحان)</p></div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button size="sm"><Plus className="w-4 h-4 ml-1" />مقياس</Button></DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>إضافة مقياس جديد</DialogTitle></DialogHeader>
-            <div className="space-y-3 py-2">
-              <div className="space-y-1.5"><Label>السنة الدراسية</Label>
-                <select value={selYear} onChange={(e) => setSelYear(e.target.value)} className={selectCls}>
-                  <option value="">— اختر —</option>
-                  {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5"><Label>السداسي</Label>
-                <select value={selSemester} onChange={(e) => setSelSemester(e.target.value)} className={selectCls}>
-                  <option value="1">السداسي الأول</option>
-                  <option value="2">السداسي الثاني</option>
-                </select>
-              </div>
-              <div className="space-y-1.5"><Label>اسم المقياس</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="مثال: الأدب الجاهلي" /></div>
-              <div className="space-y-1.5"><Label>الكود</Label><Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="مثال: AR-LIT-101" /></div>
-              <div className="space-y-1.5"><Label>الأستاذ</Label><Input value={professor} onChange={(e) => setProfessor(e.target.value)} placeholder="اسم الأستاذ" /></div>
-              <div className="space-y-1.5"><Label>المعامل</Label><Input type="number" value={coefficient} onChange={(e) => setCoefficient(e.target.value)} /></div>
-            </div>
-            <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button><Button onClick={handleCreate} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}إنشاء</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* round 6: edit dialog */}
-      {editCourse && (
-        <Dialog open onOpenChange={() => setEditCourse(null)}>
-          <DialogContent>
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5 text-primary" />تعديل المقياس</DialogTitle></DialogHeader>
-            <div className="space-y-3 py-2">
-              <div className="space-y-1.5"><Label>اسم المقياس</Label><Input value={editName} onChange={(e) => setEditName(e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>الكود</Label><Input value={editCode} onChange={(e) => setEditCode(e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>الأستاذ</Label><Input value={editProfessor} onChange={(e) => setEditProfessor(e.target.value)} placeholder="اسم الأستاذ" /></div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5"><Label>المعامل</Label><Input type="number" value={editCoefficient} onChange={(e) => setEditCoefficient(e.target.value)} /></div>
-                <div className="space-y-1.5"><Label>السداسي</Label>
-                  <select value={editSemester} onChange={(e) => setEditSemester(e.target.value)} className={selectCls}>
-                    <option value="1">السداسي الأول</option>
-                    <option value="2">السداسي الثاني</option>
-                  </select>
-                </div>
-              </div>
-              <div className="space-y-1.5"><Label>السنة الدراسية</Label>
-                <select value={editYear} onChange={(e) => setEditYear(e.target.value)} className={selectCls}>
-                  <option value="">— بدون تغيير —</option>
-                  {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
-                </select>
-              </div>
-            </div>
-            <DialogFooter><Button variant="outline" onClick={() => setEditCourse(null)}>إلغاء</Button><Button onClick={handleEditSave} disabled={editSaving}>{editSaving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* round 6: delete confirm (guarded server-side — shows blocker message) */}
-      {deleteCourse && (
-        <Dialog open onOpenChange={() => { setDeleteCourse(null); setDeleteError(null); }}>
-          <DialogContent>
-            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف مقياس</DialogTitle></DialogHeader>
-            <p className="text-sm">هل تريد حذف <strong>{deleteCourse.name}</strong>؟</p>
-            <p className="text-xs text-muted-foreground">الحذف محظور تلقائياً إذا كان المقياس مرتبطاً باختبارات أو واجبات أو نقاط أو محاضرات — حمايةً لبيانات الطلبة.</p>
-            {deleteError && (
-              <div className="rounded-lg bg-destructive/10 text-destructive text-xs p-3 mt-1">{deleteError}</div>
-            )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => { setDeleteCourse(null); setDeleteError(null); }}>إلغاء</Button>
-              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {loading ? <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div> : courses.length === 0 ? (
-        <div className="text-center py-4 text-sm text-muted-foreground">لا توجد مقاييس</div>
-      ) : (
-        <div className="space-y-2 max-h-[55vh] overflow-y-auto scrollbar-thin">
-          {courses.map((c) => (
-            <Card key={c.id} className="p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm">{c.name}</div>
-                  <div className="text-xs text-muted-foreground mt-1">{c.code} • الأستاذ: {c.professorName || "—"} • المعامل: {c.coefficient} • {c.semester === 2 ? "السداسي الثاني" : "السداسي الأول"}{yearName(c.academicYearId) ? ` • ${yearName(c.academicYearId)}` : ""}</div>
-                </div>
-                <div className="flex gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditCourse(c)} aria-label="تعديل المقياس">
-                    <Pencil className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => { setDeleteCourse(c); setDeleteError(null); }} aria-label="حذف المقياس">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// =====================================================
 // Issues Manager (التبليغات) — round 6, closes the feedback loop.
 // Students could report problems (POST /api/issues from the courses and
 // assignments screens) but NO supervisor could ever SEE the reports —
@@ -2255,7 +2043,7 @@ function IssuesManager() {
       <div>
         <h3 className="font-bold text-sm flex items-center gap-2"><Flag className="w-4 h-4 text-primary" />تبليغات الطلبة</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          مشاكل يبلّغ عنها الطلبة من شاشتي المقررات والواجبات — {pending} قيد المراجعة من أصل {reports.length}
+          مشاكل يبلّغ عنها الطلبة من شاشات المقررات والواجبات وحسابي — {pending} قيد المراجعة من أصل {reports.length}
         </p>
       </div>
 
@@ -2317,37 +2105,6 @@ function IssuesManager() {
           })}
         </div>
       )}
-    </Card>
-  );
-}
-
-// =====================================================
-// Cloud Manager (test connection)
-// =====================================================
-function CloudManager() {
-  const [testing, setTesting] = React.useState(false);
-  const [result, setResult] = React.useState<{ ok: boolean; message: string } | null>(null);
-  async function handleTest() {
-    setTesting(true); setResult(null);
-    try {
-      const res = await fetch("/api/test-connection", { cache: "no-store" });
-      const data = await res.json();
-      setResult({ ok: data.ok, message: data.message });
-      if (data.ok) toast.success(data.message); else toast.error(data.message);
-    } catch (e) { setResult({ ok: false, message: `خطأ: ${(e as Error).message}` }); }
-    finally { setTesting(false); }
-  }
-  return (
-    <Card className="p-4 space-y-3">
-      <div><h3 className="font-bold text-sm flex items-center gap-2"><Cloud className="w-4 h-4 text-primary" />السحابة والمزامنة</h3><p className="text-xs text-muted-foreground">اختبار الاتصال بـ Supabase</p></div>
-      <Button onClick={handleTest} disabled={testing} variant="outline" className="w-full">{testing ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <TestTube2 className="w-4 h-4 ml-1" />}اختبار الاتصال</Button>
-      {result && (
-        <div className={`rounded-lg p-3 flex items-start gap-2 ${result.ok ? "bg-emerald-500/10 text-emerald-700" : "bg-destructive/10 text-destructive"}`}>
-          {result.ok ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /> : <XCircle className="w-4 h-4 mt-0.5 shrink-0" />}
-          <span className="text-xs font-medium">{result.message}</span>
-        </div>
-      )}
-      <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-lg flex items-start gap-2"><Shield className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span>مفاتيح Supabase محفوظة بأمان في متغيرات البيئة.</span></div>
     </Card>
   );
 }

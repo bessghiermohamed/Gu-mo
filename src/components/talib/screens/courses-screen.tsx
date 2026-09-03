@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BookOpen, Plus, Flag, Loader2, ChevronDown, Send, AlertTriangle, RefreshCw } from "lucide-react";
+import { BookOpen, Plus, Flag, Loader2, ChevronDown, Send, AlertTriangle, RefreshCw, Pencil, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type CourseSummary } from "@/app/page";
-import { canManageRoles } from "@/lib/auth/permissions";
+import { canCreateModules } from "@/lib/auth/permissions";
 import { toast } from "sonner";
 
 interface Course extends CourseSummary {
@@ -86,13 +86,13 @@ export function TalibCoursesScreen() {
           <TabsTrigger value="s2" className="data-[state=active]:font-bold">{t("courses.semester2")}</TabsTrigger>
         </TabsList>
         <TabsContent value="all" className="mt-4">
-          <CoursesList courses={courses} loading={loading} onRefresh={fetchCourses} />
+          <CoursesList courses={courses} loading={loading} loadError={loadError} onRefresh={fetchCourses} />
         </TabsContent>
         <TabsContent value="s1" className="mt-4">
-          <CoursesList courses={s1Courses} loading={loading} onRefresh={fetchCourses} />
+          <CoursesList courses={s1Courses} loading={loading} loadError={loadError} onRefresh={fetchCourses} />
         </TabsContent>
         <TabsContent value="s2" className="mt-4">
-          <CoursesList courses={s2Courses} loading={loading} onRefresh={fetchCourses} />
+          <CoursesList courses={s2Courses} loading={loading} loadError={loadError} onRefresh={fetchCourses} />
         </TabsContent>
       </Tabs>
     </div>
@@ -103,9 +103,19 @@ function CoursesList({ courses, loading, loadError, onRefresh }: { courses: Cour
   const { t } = useI18n();
   const { user } = useAuth();
   const { navigateToCourse } = useShell();
-  const canManage = canManageRoles(user ?? null);
+  // round 11: course management moved OUT of the admin panel — add/edit/
+  // delete now live here, next to the list students actually browse.
+  // canCreateModules mirrors the /api/courses gate exactly (OWNER /
+  // SPECIALTY_ADMIN): a representative never sees buttons that 403.
+  const canCreate = canCreateModules(user ?? null);
   const [reportOpen, setReportOpen] = React.useState<number | null>(null);
   const [reportReason, setReportReason] = React.useState("");
+  // round 11: edit/delete state (ported from the removed admin tab)
+  const [editCourse, setEditCourse] = React.useState<Course | null>(null);
+  const [editSaving, setEditSaving] = React.useState(false);
+  const [deleteCourse, setDeleteCourse] = React.useState<Course | null>(null);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   function handleReport(courseName: string) {
     if (!reportReason.trim()) { toast.error("اكتب وصف المشكلة"); return; }
@@ -118,6 +128,39 @@ function CoursesList({ courses, loading, loadError, onRefresh }: { courses: Cour
         setReportOpen(null); setReportReason("");
       }
     });
+  }
+
+  // round 11: edit save (PATCH /api/courses — same call the admin panel made)
+  async function handleEditSave(update: { id: number; name: string; code: string; professorName: string; coefficient: number; semester: number }) {
+    setEditSaving(true);
+    try {
+      const res = await fetch("/api/courses", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(update),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+      toast.success("تم تعديل المقياس");
+      setEditCourse(null);
+      onRefresh();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setEditSaving(false); }
+  }
+
+  // round 11: delete (DELETE /api/courses — server blocks deletion while
+  // exams/assignments/grades/lectures still reference the course)
+  async function handleDelete() {
+    if (!deleteCourse) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/courses?id=${deleteCourse.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setDeleteError(data.error); toast.error(data.error); return; }
+      toast.success("تم حذف المقياس");
+      setDeleteCourse(null); setDeleteError(null);
+      onRefresh();
+    } catch { toast.error("فشل الحذف"); }
+    finally { setDeleting(false); }
   }
 
   if (loading) {
@@ -141,7 +184,7 @@ function CoursesList({ courses, loading, loadError, onRefresh }: { courses: Cour
             <RefreshCw className="w-3.5 h-3.5 ml-1" />إعادة المحاولة
           </Button>
         </Card>
-        {canManage && <AddModuleDialog onCreated={onRefresh} />}
+        {canCreate && <AddModuleDialog onCreated={onRefresh} />}
       </div>
     );
   }
@@ -190,6 +233,28 @@ function CoursesList({ courses, loading, loadError, onRefresh }: { courses: Cour
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  {canCreate && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        aria-label="تعديل المقياس"
+                        onClick={(e) => { e.stopPropagation(); setEditCourse(course); }}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:bg-destructive/10 h-8 w-8 shrink-0"
+                        aria-label="حذف المقياس"
+                        onClick={(e) => { e.stopPropagation(); setDeleteCourse(course); setDeleteError(null); }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </>
+                  )}
                   <Dialog open={reportOpen === course.id} onOpenChange={(open) => { setReportOpen(open ? course.id : null); if (!open) setReportReason(""); }}>
                     <DialogTrigger asChild>
                       <Button
@@ -224,8 +289,90 @@ function CoursesList({ courses, loading, loadError, onRefresh }: { courses: Cour
           );
         })
       )}
-      {canManage && <AddModuleDialog onCreated={onRefresh} />}
+      {canCreate && <AddModuleDialog onCreated={onRefresh} />}
+
+      {/* round 11: edit dialog — ported from the removed admin-panel tab so
+          a wrong name/code/professor/coefficient/semester stays fixable */}
+      {editCourse && (
+        <EditCourseDialog
+          course={editCourse}
+          onClose={() => setEditCourse(null)}
+          onSaved={handleEditSave}
+          saving={editSaving}
+        />
+      )}
+
+      {/* round 11: delete confirm — server-side guard shows blocker message */}
+      {deleteCourse && (
+        <Dialog open onOpenChange={() => { setDeleteCourse(null); setDeleteError(null); }}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف مقياس</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف <strong>{deleteCourse.name}</strong>؟</p>
+            <p className="text-xs text-muted-foreground">الحذف محظور تلقائياً إذا كان المقياس مرتبطاً باختبارات أو واجبات أو نقاط أو محاضرات — حمايةً لبيانات الطلبة.</p>
+            {deleteError && (
+              <div className="rounded-lg bg-destructive/10 text-destructive text-xs p-3 mt-1">{deleteError}</div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setDeleteCourse(null); setDeleteError(null); }}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
+  );
+}
+
+// round 11: course edit form (add/edit/delete moved from the supervisory
+// board to the screen where courses are actually browsed).
+function EditCourseDialog({ course, onClose, onSaved, saving }: {
+  course: Course;
+  onClose: () => void;
+  onSaved: (update: { id: number; name: string; code: string; professorName: string; coefficient: number; semester: number }) => void;
+  saving: boolean;
+}) {
+  const [name, setName] = React.useState(course.name);
+  const [code, setCode] = React.useState(course.code);
+  const [professor, setProfessor] = React.useState(course.professorName || "");
+  const [coefficient, setCoefficient] = React.useState(String(course.coefficient ?? 2));
+  const [semester, setSemester] = React.useState(String(course.semester ?? 1));
+
+  function handleSave() {
+    if (!name.trim() || !code.trim()) { toast.error("الاسم والكود مطلوبان"); return; }
+    onSaved({
+      id: course.id,
+      name: name.trim(),
+      code: code.trim(),
+      professorName: professor.trim(),
+      coefficient: parseFloat(coefficient) || 2,
+      semester: parseInt(semester),
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent>
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5 text-primary" />تعديل المقياس</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5"><Label>اسم المقياس</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <div className="space-y-1.5"><Label>الكود</Label><Input value={code} onChange={(e) => setCode(e.target.value)} /></div>
+          <div className="space-y-1.5"><Label>الأستاذ</Label><Input value={professor} onChange={(e) => setProfessor(e.target.value)} placeholder="اسم الأستاذ" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5"><Label>المعامل</Label><Input type="number" value={coefficient} onChange={(e) => setCoefficient(e.target.value)} /></div>
+            <div className="space-y-1.5"><Label>السداسي</Label>
+              <select value={semester} onChange={(e) => setSemester(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+                <option value="1">السداسي الأول</option>
+                <option value="2">السداسي الثاني</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

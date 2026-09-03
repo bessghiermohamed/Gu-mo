@@ -4,14 +4,17 @@ import * as React from "react";
 import {
   Mail, IdCard, Building, BookOpen, Users, Shield, LogOut,
   ChevronLeft, Trash2, AlertTriangle, Loader2, UserPlus, Layers,
-  Calendar, FolderTree,
+  Calendar, FolderTree, Flag,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell } from "@/app/page";
@@ -149,6 +152,12 @@ export function TalibProfileScreen({ onSignOut }: Props) {
           <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
         </Button>
 
+        {/* round 11 (review §14): التبليغ كان محتجزاً خلف أيقونات علم صغيرة
+            في شاشتي المقررات والواجبات — بلا مدخل واضح. الآن لكل مستخدم —
+            ومن بينهم الطالب العادي — زر «الإبلاغ عن مشكلة» واضح هنا، مع زر
+            «إرسال التبليغ» الظاهر دائماً. */}
+        <ReportIssueDialog />
+
         <Button variant="outline" className="w-full" onClick={onSignOut}>
           <LogOut className="w-4 h-4 ml-2" />
           تسجيل الخروج
@@ -244,5 +253,130 @@ function InfoRow({ icon, label, value, highlight }: { icon: React.ReactNode; lab
         </p>
       </div>
     </div>
+  );
+}
+
+// =====================================================
+// Report an Issue (الإبلاغ عن مشكلة) — round 11, review §14.
+// The reporting system existed (POST /api/issues accepts every logged-in
+// user) but its only entry points were tiny flag icons inside course and
+// assignment cards — easy to miss, invisible for anything that is not a
+// course/assignment (files, schedule, exams…). A clear, always-available
+// entry now lives on the حسابي screen FOR EVERY ROLE including the regular
+// STUDENT, with the four designed report types (the reportIssue i18n keys
+// existed since round 1 but were never wired to any UI) and an explicit
+// «إرسال التبليغ» submit button with loading/disabled states.
+// =====================================================
+function ReportIssueDialog() {
+  const { t } = useI18n();
+  const [open, setOpen] = React.useState(false);
+  const [type, setType] = React.useState("");
+  const [subject, setSubject] = React.useState("");
+  const [description, setDescription] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  const types = [
+    { value: "broken_file", label: t("reportIssue.typeBrokenFile") },
+    { value: "schedule_error", label: t("reportIssue.typeScheduleError") },
+    { value: "exam_error", label: t("reportIssue.typeExamError") },
+    { value: "other", label: t("reportIssue.typeOther") },
+  ];
+  const typeLabel = types.find((tp) => tp.value === type)?.label ?? "";
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (!next) { setType(""); setSubject(""); setDescription(""); }
+  }
+
+  async function handleSubmit() {
+    if (!type) { toast.error("اختر نوع المشكلة"); return; }
+    if (!description.trim()) { toast.error("اكتب وصف المشكلة"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/issues", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemType: typeLabel,
+          itemTitle: subject.trim() || typeLabel,
+          description: description.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الإرسال"); return; }
+      toast.success(t("reportIssue.submitted"));
+      handleOpenChange(false);
+    } catch {
+      toast.error("فشل الاتصال — أعد المحاولة");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="w-full justify-between">
+          <span className="flex items-center">
+            <Flag className="w-4 h-4 ml-2 text-amber-600" />
+            {t("reportIssue.title")}
+          </span>
+          <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Flag className="w-5 h-5 text-amber-600" />
+            {t("reportIssue.title")}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="issueType">نوع المشكلة</Label>
+            <select
+              id="issueType"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+            >
+              <option value="">— اختر —</option>
+              {types.map((tp) => (
+                <option key={tp.value} value={tp.value}>{tp.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="issueSubject">الموضوع (اختياري)</Label>
+            <Input
+              id="issueSubject"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="مثال: ملخص المحاضرة الثالثة لا يفتح"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="issueDescription">{t("reportIssue.description")}</Label>
+            <Textarea
+              id="issueDescription"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="اشرح المشكلة بالتفصيل..."
+              rows={3}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            يصل تبليغك إلى المشرفين المسؤولين عن نطاقك مباشرة، وستجدون الحالة في
+            لوحة الإشراف تحت «التبليغات».
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>إلغاء</Button>
+          <Button onClick={handleSubmit} disabled={saving || !type || !description.trim()}>
+            {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
+            {t("reportIssue.submit")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
