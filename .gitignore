@@ -64,3 +64,5 @@ Thumbs.db
 .zscripts/
 .env*
 dev-3100.log
+
+backups/
