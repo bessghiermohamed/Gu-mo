@@ -228,6 +228,50 @@ function ShellInner() {
     return () => clearInterval(interval);
   }, [refreshUnreadCount, refreshNotifications]);
 
+  // round 24 — temporal reminders: generate (idempotent) exam D-3/D-1/D-0
+  // and assignment D-2/D-1/D-0 reminders for THIS user, then re-fetch the
+  // feed if anything new was created. Triggered on mount + every 10 min —
+  // deliberately NOT on the 30s poll loop, so the round-13 polling-cost
+  // ceiling is not worsened (the 30s loop stays read-only).
+  const generateReminders = React.useCallback(async () => {
+    if (!user) return;
+    try {
+      // completion state lives in the student's localStorage — the server
+      // cannot know which assignments are already done, so we tell it.
+      let completedAssignmentIds: number[] = [];
+      try {
+        const raw = localStorage.getItem("talib-assignments-completed");
+        if (raw) {
+          const map = JSON.parse(raw) as Record<string, unknown>;
+          completedAssignmentIds = Object.entries(map)
+            .filter(([, v]) => !!v)
+            .map(([k]) => Number(k))
+            .filter((n) => Number.isFinite(n));
+        }
+      } catch {
+        // corrupted storage — generate without completion info
+      }
+      const res = await fetch("/api/notifications/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completedAssignmentIds }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Number(data.created) > 0) refreshNotifications();
+      }
+    } catch {
+      // silent — reminders retry on the next 10-min tick
+    }
+  }, [user, refreshNotifications]);
+
+  React.useEffect(() => {
+    if (!user || !onboardingDone) return;
+    generateReminders();
+    const interval = setInterval(generateReminders, 10 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [user, onboardingDone, generateReminders]);
+
   // fix (R12): the announcements screen marks its items read — the badge
   // refreshes IMMEDIATELY instead of waiting for the next 30s poll.
   React.useEffect(() => {
@@ -374,6 +418,14 @@ function ShellInner() {
         navigate("BROWSE_GROUPS");
       } else if (item.type === "join_new" || item.type === "report_new") {
         navigate("ADMIN");
+      } else if (item.type === "content_announcement") {
+        navigate("ANNOUNCEMENTS");
+      } else if (item.type === "content_exam" || item.type === "exam_reminder") {
+        navigate("EXAMS");
+      } else if (item.type === "content_assignment" || item.type === "assignment_reminder") {
+        navigate("ASSIGNMENTS");
+      } else if (item.type === "content_library") {
+        navigate("FILES");
       }
     },
     [navigate]
