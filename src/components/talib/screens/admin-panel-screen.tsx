@@ -244,12 +244,16 @@ export function TalibAdminPanelScreen() {
 // Control Center Overview — round 10, review §16
 //
 // The dashboard is no longer 12 equal tabs with no landing point. It
-// opens on a Control Center organized by the three zones the review
-// demands:
+// opens on a Control Center organized by the zones the review demands:
 //   1) يتطلب انتباهك — pending join requests + open reports (actionable)
 //   2) معلومات — caller-scoped counts (students, subordinates, groups,
 //      cohorts) — NOT global numbers a year-representative shouldn't see
-//   3) إدارة — quick links into the management tabs
+// design fix (dup. nav): the old Zone 3 «الإدارة» grid of 10 quick-links
+//   was removed — it repeated the exact same management destinations
+//   already reachable from the tab bar (poor design: duplicate boxes at
+//   top and bottom of the panel). It also leaked «السحابة» to non-owner
+//   roles (the tab is OWNER-only; clicking the orphan quick-link blanked
+//   the panel). The tab bar is now the single navigation source.
 // States: loading skeleton, attention-empty ("all clear"), stat error
 // tolerance (— placeholders).
 // =====================================================
@@ -400,40 +404,6 @@ function ControlCenterOverview({ stats, loading, error, onRetry, onGoToTab }: {
           <StatTile icon={FolderTree} label="مجموعات" value={stats?.groups ?? null} loading={loading} />
           <StatTile icon={Layers} label="أفواج" value={stats?.cohorts ?? null} loading={loading} />
         </div>
-      </section>
-
-      {/* ---- Zone 3: إدارة ---- */}
-      <section>
-        <h2 className="text-sm font-black mb-2 flex items-center gap-2">
-          <Building2 className="w-4 h-4 text-primary" />
-          الإدارة
-        </h2>
-        <Card className="p-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-            {([
-              { tab: "users", label: "المستخدمون", icon: Users },
-              { tab: "structure", label: "الهيكل", icon: Building2 },
-              { tab: "tracks", label: "الملامح", icon: Route },
-              { tab: "years", label: "السنوات", icon: CalendarDays },
-              { tab: "cohorts", label: "الأفواج", icon: Layers },
-              { tab: "groups", label: "المجموعات", icon: FolderTree },
-              { tab: "subordinates", label: "المرؤوسون", icon: Network },
-              { tab: "modules", label: "المقررات", icon: BookOpen },
-              { tab: "telegram", label: "تيليجرام", icon: Send },
-              { tab: "cloud", label: "السحابة", icon: Cloud },
-            ] as const).map(({ tab, label, icon: Icon }) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => onGoToTab(tab)}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-background hover:border-primary/50 hover:bg-primary/5 transition-colors text-right"
-              >
-                <Icon className="w-4 h-4 text-primary shrink-0" />
-                <span className="text-xs font-bold">{label}</span>
-              </button>
-            ))}
-          </div>
-        </Card>
       </section>
     </div>
   );
