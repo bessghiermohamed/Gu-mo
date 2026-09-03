@@ -24,14 +24,16 @@ import {
   BookOpen, FlaskConical, CheckSquare, Send, Loader2, ExternalLink,
   FileText, ImageIcon, Video, Headphones, File, MessageSquare, LinkIcon,
   CalendarDays, Clock, MapPin, User, GraduationCap, AlertTriangle,
-  RefreshCw, ChevronLeft, Star,
+  RefreshCw, ChevronLeft, Star, Sparkles,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
+import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type CourseSummary } from "@/app/page";
+import { cn } from "@/lib/utils";
 
 // Mirror of /api/telegram/items response (module-filtered)
 interface TgItem {
@@ -145,6 +147,12 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
   const [assignmentsState, setAssignmentsState] = React.useState<"loading" | "ok" | "error">("loading");
   const [assignmentsTick, setAssignmentsTick] = React.useState(0);
 
+  // round 24 — "جديد" tracking: which lesson items arrived since THIS
+  // user's last visit to this course. Key is per-user (the round-12
+  // lesson: browser-global keys leak across accounts on shared devices).
+  const { user } = useAuth();
+  const [newLessonIds, setNewLessonIds] = React.useState<Set<number>>(new Set());
+
   const moduleId = course?.id;
 
   React.useEffect(() => {
@@ -158,12 +166,33 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
       })
       .then((d) => {
         if (!alive) return;
-        setLessons(d.items ?? []);
+        const items: TgItem[] = d.items ?? [];
+        setLessons(items);
         setLessonsState("ok");
+        // mark what is new since the last visit, THEN advance the baseline
+        const visitKey = `talib-course-visit-${user?.id ?? 0}-${moduleId}`;
+        let lastVisit: string | null = null;
+        try {
+          lastVisit = localStorage.getItem(visitKey);
+        } catch {
+          // private mode — badges simply never show
+        }
+        const fresh = new Set<number>();
+        if (lastVisit) {
+          for (const it of items) {
+            if (it.postedAt && String(it.postedAt) > lastVisit) fresh.add(it.id);
+          }
+        }
+        setNewLessonIds(fresh);
+        try {
+          localStorage.setItem(visitKey, new Date().toISOString());
+        } catch {
+          // private mode — nothing to remember
+        }
       })
       .catch(() => alive && setLessonsState("error"));
     return () => { alive = false; };
-  }, [moduleId, lessonsTick]);
+  }, [moduleId, lessonsTick, user?.id]);
 
   React.useEffect(() => {
     if (!moduleId) return;
@@ -326,6 +355,12 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
           )}
           {lessonsState === "ok" && sortedLessons.length > 0 && (
             <>
+              {newLessonIds.size > 0 && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {newLessonIds.size} درساً جديداً منذ آخر زيارة
+                </p>
+              )}
               {featured.length > 0 && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <Star className="w-3 h-3 text-amber-500" />
@@ -333,7 +368,7 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
                 </p>
               )}
               {sortedLessons.map((item) => (
-                <Card key={item.id} className="p-3.5">
+                <Card key={item.id} className={cn("p-3.5", newLessonIds.has(item.id) && "border-primary/40")}>
                   <div className="flex items-start gap-3">
                     <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
                       {kindIcon(item.kind)}
@@ -341,6 +376,11 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <p className="font-bold text-sm truncate">{item.titleAr || item.fileName || "منشور"}</p>
+                        {newLessonIds.has(item.id) && (
+                          <Badge className="text-[10px] bg-primary text-primary-foreground shrink-0">
+                            جديد
+                          </Badge>
+                        )}
                         {item.isFeatured && <Star className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                       </div>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
