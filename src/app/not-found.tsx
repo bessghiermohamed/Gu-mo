@@ -33,12 +33,12 @@ export default function NotFound() {
           >
             العودة إلى الرئيسية
           </Link>
-          <a
-            href="https://gu-mo.vercel.app/"
+          <Link
+            href="/app"
             className="inline-flex items-center justify-center h-11 px-6 rounded-xl border border-border text-sm font-bold text-foreground hover:bg-accent/50 transition-colors"
           >
-            فتح التطبيق من جديد
-          </a>
+            فتح التطبيق
+          </Link>
         </div>
       </div>
     </div>

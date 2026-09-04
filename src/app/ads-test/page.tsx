@@ -43,7 +43,7 @@ export default function AdsTestPage() {
         </p>
 
         <Link
-          href="/"
+          href="/app"
           className="inline-block text-sm font-semibold text-primary underline-offset-4 hover:underline"
         >
           ← الرجوع إلى التطبيق

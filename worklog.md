@@ -86,3 +86,25 @@ Work Log:
 
 Stage Summary:
 - Meta tag live. Verdict: site is NOT ready for AdSense approval — no public content (login-walled SPA, raw HTML = "Loading..."). Recommendation delivered: build an SSR/SSG public landing page (hero/features/FAQ + mandatory privacy policy) as the approval target; hero-banner assets already exist in public/talib/.
+
+---
+Task ID: 6
+Agent: main (Super Z)
+Task: Build the public, server-rendered website to prepare the site for Google AdSense approval (the blocker identified in task 5).
+
+Work Log:
+- Read shared chat context (rounds 1-27 + ads rounds); cloned Gu-mo repo, verified commits 0bb52fe..beabf1e lineage.
+- Moved the login-walled SPA from src/app/page.tsx → src/app/app/page.tsx (git mv); updated 8 files importing useShell/ScreenRoute/CourseSummary from @/app/page → @/app/app/page.
+- Built the public site: landing / (hero + 8 features + real app screenshots + 3 steps + FAQ preview + ad slot), /features, /guide, /faq, /about, /contact, /privacy, /terms — all SSG, Arabic RTL, same academic design system (emerald/cream/bronze, Cairo font).
+- AdSense-critical privacy policy: Google third-party cookies + DoubleClick disclosure, ads settings opt-out link, minors/TFUA note, full user rights (access/export/delete).
+- SEO: src/app/sitemap.ts (8 public URLs), src/app/robots.ts replacing static file (allows bots; disallows /app /ads-test /api; sitemap ref), canonical per page, metadataBase in layout, JSON-LD (WebSite + SoftwareApplication + FAQPage).
+- Copied 5 real app screenshots to public/talib/screens/ for the landing showcase.
+- Real-mode AdUnit placements (slot 4214645931) on /, /features, /guide — serve automatically after Google approval.
+- Updated /ads-test + not-found links to /app; kept /ads-test noindex.
+- New src/lib/site.ts: SITE_URL (NEXT_PUBLIC_SITE_URL env, fallback https://gu-mo.vercel.app — confirmed real domain from not-found.tsx), SITE_NAME, CONTACT_EMAIL single source.
+- Verification: tsc = 0 errors; build green (all public routes static); curl confirms google-adsense-account meta + AdSense loader + canonical + JSON-LD in raw HTML; indexable words: / = 722, /features = 800, /guide = 598, /faq = 697, /about = 434, /contact = 279, /privacy = 807, /terms = 499 (~4,800 total, was 15 chars); /ads.txt + /robots.txt + /sitemap.xml serve correctly.
+- Browser 390×844: no horizontal overflow on any page, all images load (lazy below fold), /app SPA login intact; screenshots in download/verify-site/r28-*.png; Arabic report تقرير-إصلاحات-الجولة-28.md.
+
+Stage Summary:
+- Deliverable: public AdSense-ready website (8 content pages, ~4,800 words) deployed around the login-walled app at /app. All technical AdSense prerequisites verified live: script, meta, ads.txt, robots, sitemap, content, legal pages, contact, nav, mobile-ready.
+- Owner actions: set NEXT_PUBLIC_SITE_URL in Vercel for custom domain; confirm CONTACT_EMAIL in src/lib/site.ts; then submit for AdSense review + Search Console.

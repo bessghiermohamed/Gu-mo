@@ -9,6 +9,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/talib/theme-provider";
 import { I18nProvider } from "@/components/talib/i18n-provider";
 import { ADSENSE_CLIENT } from "@/lib/ads";
+import { SITE_URL } from "@/lib/site";
 // AdSense loader is global (afterInteractive, non-blocking) — publisher id in
 // src/lib/ads.ts, verified via public/ads.txt. NOTE: browser-only; if Talib is
 // ever wrapped in an APK/WebView (TWA), switch to AdMob or risk account ban.
@@ -30,6 +31,7 @@ const cairo = Cairo({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "طالب | Talib — رفيقك الأكاديمي",
   description:
     "رفيقك الأكاديمي الشامل للطلاب: المقررات، المحاضرات، الجدول، العلامات، ومزامنة سحابية على Supabase.",
