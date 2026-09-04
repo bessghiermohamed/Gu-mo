@@ -56,3 +56,18 @@ Stage Summary:
 - Deliverable: 6 commits a3dcf0f..c20ad46 on local main, one per part + fixes, ready to push.
 - Key decisions: personal classes are a SEPARATE table (never mixed with official schedule — §7 wording); tour flag is localStorage-only (UI concern, not academic data); box reduction scoped to HOME (settings/profile keep intentional card structure); ignoreBuildErrors removed now that tsc is clean.
 - Production note: run download/supabase_personal_schedule.sql once in Supabase SQL editor (app degrades gracefully until then).
+
+---
+Task ID: 4
+Agent: main (Super Z)
+Task: Add Google AdSense (publisher ca-pub-8081529487869617) + ads strategy advice.
+
+Work Log:
+- Verified no CSP headers in project (external script loads freely); Round 27 was already complete on main (a3dcf0f..c20ad46).
+- layout.tsx: added next/script loader — src=pagead2.googlesyning...adsbygoogle.js?client=ca-pub-8081529487869617, crossOrigin=anonymous, strategy=afterInteractive (non-blocking, after hydration), client id in ADSENSE_CLIENT const + policy note comment (AdSense=web only, AdMob if ever wrapped in APK).
+- public/ads.txt: standard AdSense verification line (google.com, pub-8081529487869617, DIRECT, f08c47fec0942fa0).
+- Verification: tsc --noEmit = 0 errors; bun run build green; no UI change (script is invisible).
+- Pushed commit beabf1e to main.
+
+Stage Summary:
+- Deliverable: AdSense loader live on every page + ads.txt for domain verification. No ad slots placed yet (owner to decide placements after AdSense site approval).
