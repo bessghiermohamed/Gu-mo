@@ -276,6 +276,27 @@ model ScheduleItem {
   updatedAt DateTime @updatedAt
 }
 
+// round 27 (review §7): the PERSONAL timetable — classes a student adds for
+// themselves (day/time/course/location/notes). Per-user data, deliberately
+// a separate table from ScheduleItem (which stays the OFFICIAL specialty
+// schedule managed by supervisors) so the two can never be confused.
+model PersonalScheduleItem {
+  id         Int     @id @default(autoincrement())
+  userId     Int
+  dayOfWeek  Int     // 1: Sun .. 5: Thu (same convention as ScheduleItem)
+  startTime  String
+  endTime    String  @default("")
+  moduleName String
+  type       String  @default("محاضرة") // محاضرة / TD / TP
+  room       String  @default("")       // المكان / القاعة
+  notes      String  @default("")       // optional personal notes (review §7)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
 // =====================================================
 // 5. الامتحانات
 // =====================================================

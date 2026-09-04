@@ -16,11 +16,14 @@ import {
   ChevronDown,
   ChevronLeft,
   CheckCircle2,
+  StickyNote,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -54,6 +57,19 @@ interface ScheduleItem {
   professor: string;
 }
 
+// round 27 (review §7): the user's OWN classes — private, editable by
+// them, visually distinguished from the official specialty schedule.
+interface PersonalItem {
+  id: number;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  moduleName: string;
+  type: string;
+  room: string;
+  notes: string;
+}
+
 export function TalibScheduleScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
@@ -63,6 +79,12 @@ export function TalibScheduleScreen() {
   // (a clearly separated tab), never inside "My Files".
   const [mode, setMode] = React.useState<"manual" | "image" | "attendance">("manual");
   const [items, setItems] = React.useState<ScheduleItem[]>([]);
+  // round 27 (review §7): personal classes live alongside the official ones
+  const [personalItems, setPersonalItems] = React.useState<PersonalItem[]>([]);
+  const [personalAddOpen, setPersonalAddOpen] = React.useState(false);
+  const [personalToEdit, setPersonalToEdit] = React.useState<PersonalItem | null>(null);
+  const [personalToDelete, setPersonalToDelete] = React.useState<PersonalItem | null>(null);
+  const [deletingPersonal, setDeletingPersonal] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [addOpen, setAddOpen] = React.useState(false);
   // round 5: dialog-based delete (replaced native confirm) + edit dialog
@@ -70,12 +92,21 @@ export function TalibScheduleScreen() {
   const [deletingItem, setDeletingItem] = React.useState(false);
   const [itemToEdit, setItemToEdit] = React.useState<ScheduleItem | null>(null);
 
-  const fetchItems = React.useCallback(async () => {
+  // round 27: official + personal are fetched together so the day cards
+  // render once, fully merged. The personal endpoint degrades to an empty
+  // list (e.g. before the production table exists) without breaking the
+  // official schedule.
+  const fetchAll = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/schedule", { cache: "no-store" });
-      const data = await res.json();
-      setItems(data.items ?? []);
+      const [offRes, perRes] = await Promise.all([
+        fetch("/api/schedule", { cache: "no-store" }),
+        fetch("/api/schedule/personal", { cache: "no-store" }),
+      ]);
+      const off = await offRes.json().catch(() => ({ items: [] }));
+      const per = await perRes.json().catch(() => ({ items: [] }));
+      setItems(off.items ?? []);
+      setPersonalItems(per.items ?? []);
     } catch {
       // silent
     } finally {
@@ -84,8 +115,8 @@ export function TalibScheduleScreen() {
   }, []);
 
   React.useEffect(() => {
-    fetchItems();
-  }, [fetchItems]);
+    fetchAll();
+  }, [fetchAll]);
 
   async function handleDelete() {
     if (!itemToDelete) return;
@@ -96,11 +127,29 @@ export function TalibScheduleScreen() {
       if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
       toast.success("تم حذف الحصة");
       setItemToDelete(null);
-      fetchItems();
+      fetchAll();
     } catch {
       toast.error("فشل الحذف");
     } finally {
       setDeletingItem(false);
+    }
+  }
+
+  // round 27 (review §7): delete one of MY personal classes
+  async function handleDeletePersonal() {
+    if (!personalToDelete) return;
+    setDeletingPersonal(true);
+    try {
+      const res = await fetch(`/api/schedule/personal?id=${personalToDelete.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
+      toast.success("تم حذف الحصة الشخصية");
+      setPersonalToDelete(null);
+      fetchAll();
+    } catch {
+      toast.error("فشل الحذف");
+    } finally {
+      setDeletingPersonal(false);
     }
   }
 
@@ -110,7 +159,7 @@ export function TalibScheduleScreen() {
         <h1 className="text-2xl font-black mb-1">{t("schedule.title")}</h1>
         <p className="text-sm text-muted-foreground">
           {mode === "manual"
-            ? "أدخل حصصك يدوياً أو عدّلها"
+            ? "الجدول الرسمي لتخصصك وحصصك الشخصية في مكان واحد"
             : mode === "image"
             ? "ارفع صورة جدولك الخاص"
             : "سجل غياباتك الشخصية لكل مقياس"}
@@ -133,13 +182,26 @@ export function TalibScheduleScreen() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="manual" className="mt-4 space-y-4">
-          {canManage && (
-            <AddSlotDialog
-              open={addOpen}
-              onOpenChange={setAddOpen}
-              onCreated={fetchItems}
+          {/* round 27 (review §7): everyone gets the personal-class button;
+              the OFFICIAL add stays supervisor-only. Two side-by-side
+              buttons for supervisors, one full-width for students. */}
+          <div className={canManage ? "grid grid-cols-2 gap-2" : ""}>
+            {canManage && (
+              <AddSlotDialog
+                open={addOpen}
+                onOpenChange={setAddOpen}
+                onCreated={fetchAll}
+              />
+            )}
+            <PersonalSlotDialog
+              open={personalAddOpen}
+              onOpenChange={setPersonalAddOpen}
+              onSaved={fetchAll}
             />
-          )}
+          </div>
+          <p className="text-[11px] text-muted-foreground -mt-1">
+            الحصص المُظلّلة بالبرتقالي هي حصصك الشخصية — تظهر لك فقط ولا تُخل بالجدول الرسمي.
+          </p>
           {loading ? (
             <Card className="p-8 text-center">
               <Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground mb-2" />
@@ -148,10 +210,11 @@ export function TalibScheduleScreen() {
           ) : (
             DAYS.map((day) => {
               const dayItems = items.filter((i) => i.dayOfWeek === day.key);
+              const dayPersonal = personalItems.filter((i) => i.dayOfWeek === day.key);
               return (
                 <Card key={day.key} className="p-4">
                   <h3 className="font-bold text-sm mb-2">{t(day.label)}</h3>
-                  {dayItems.length === 0 ? (
+                  {dayItems.length === 0 && dayPersonal.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-3">
                       {t("schedule.noSlots")}
                     </p>
@@ -215,6 +278,67 @@ export function TalibScheduleScreen() {
                           )}
                         </div>
                       ))}
+                      {/* round 27 (review §7): personal rows — amber-tinted,
+                          explicitly badged «شخصية», always editable by their
+                          owner (the API only ever returns the caller's rows). */}
+                      {dayPersonal.map((item) => (
+                        <div
+                          key={`p-${item.id}`}
+                          className="flex items-center gap-3 p-2 rounded-lg bg-amber-500/5 border border-amber-500/20"
+                        >
+                          <div className="flex flex-col items-center justify-center w-14 h-14 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 shrink-0">
+                            <span className="text-xs">يبدأ</span>
+                            <span className="text-xs font-bold">{item.startTime}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-sm truncate flex items-center gap-1.5">
+                              <span className="truncate">{item.moduleName}</span>
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] px-1.5 py-0 shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10"
+                              >
+                                شخصية
+                              </Badge>
+                            </div>
+                            <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5 flex-wrap">
+                              <span>{item.type}</span>
+                              {item.room && (
+                                <span className="flex items-center gap-0.5">
+                                  <MapPin className="w-2.5 h-2.5" />
+                                  {item.room}
+                                </span>
+                              )}
+                              {item.endTime && <span>حتى {item.endTime}</span>}
+                            </div>
+                            {item.notes && (
+                              <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1 min-w-0">
+                                <StickyNote className="w-2.5 h-2.5 shrink-0" />
+                                <span className="truncate">{item.notes}</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-1 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground hover:text-primary h-8 w-8"
+                              onClick={() => setPersonalToEdit(item)}
+                              aria-label="تعديل الحصة الشخصية"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground hover:text-destructive h-8 w-8"
+                              onClick={() => setPersonalToDelete(item)}
+                              aria-label="حذف الحصة الشخصية"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </Card>
@@ -233,7 +357,17 @@ export function TalibScheduleScreen() {
         <EditSlotDialog
           item={itemToEdit}
           onClose={() => setItemToEdit(null)}
-          onSaved={() => { setItemToEdit(null); fetchItems(); }}
+          onSaved={() => { setItemToEdit(null); fetchAll(); }}
+        />
+      )}
+
+      {/* round 27: edit dialog for one of MY personal classes */}
+      {personalToEdit && (
+        <PersonalSlotDialog
+          item={personalToEdit}
+          open
+          onOpenChange={(v) => { if (!v) setPersonalToEdit(null); }}
+          onSaved={() => { setPersonalToEdit(null); fetchAll(); }}
         />
       )}
 
@@ -245,6 +379,20 @@ export function TalibScheduleScreen() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setItemToDelete(null)}>إلغاء</Button>
               <Button variant="destructive" onClick={handleDelete} disabled={deletingItem}>{deletingItem && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* round 27: delete dialog for one of MY personal classes */}
+      {personalToDelete && (
+        <Dialog open onOpenChange={() => setPersonalToDelete(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف حصة شخصية</DialogTitle></DialogHeader>
+            <p className="text-sm">هل تريد حذف حصتك الشخصية <strong>{personalToDelete.moduleName}</strong> ({personalToDelete.startTime})؟</p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPersonalToDelete(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDeletePersonal} disabled={deletingPersonal}>{deletingPersonal && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -262,7 +410,6 @@ function AddSlotDialog({
   onOpenChange: (v: boolean) => void;
   onCreated: () => void;
 }) {
-  const { t } = useI18n();
   const [dayOfWeek, setDayOfWeek] = React.useState("1");
   const [startTime, setStartTime] = React.useState("");
   const [endTime, setEndTime] = React.useState("");
@@ -315,12 +462,12 @@ function AddSlotDialog({
       <DialogTrigger asChild>
         <Button className="w-full">
           <Plus className="w-4 h-4 ml-2" />
-          {t("schedule.addSlot")}
+          حصة رسمية
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>إضافة حصة جديدة</DialogTitle>
+          <DialogTitle>إضافة حصة رسمية للجدول</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
@@ -401,6 +548,189 @@ function AddSlotDialog({
           <Button onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
             حفظ الحصة
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// round 27 (review §7): add OR edit a PERSONAL class — one form, two
+// modes. item == null → POST (add); item != null → PATCH (edit). The
+// dialog states explicitly that personal classes stay private, per the
+// review's requirement that personal data is never mistaken for the
+// official institutional schedule.
+function PersonalSlotDialog({
+  item,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  item?: PersonalItem | null; // when set → edit mode
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSaved: () => void;
+}) {
+  const editing = !!item;
+  const [dayOfWeek, setDayOfWeek] = React.useState(String(item?.dayOfWeek ?? 1));
+  const [startTime, setStartTime] = React.useState(item?.startTime ?? "");
+  const [endTime, setEndTime] = React.useState(item?.endTime ?? "");
+  const [moduleName, setModuleName] = React.useState(item?.moduleName ?? "");
+  const [type, setType] = React.useState(item?.type ?? "محاضرة");
+  const [room, setRoom] = React.useState(item?.room ?? "");
+  const [notes, setNotes] = React.useState(item?.notes ?? "");
+  const [saving, setSaving] = React.useState(false);
+
+  async function handleSave() {
+    if (!startTime.trim() || !moduleName.trim()) {
+      toast.error("وقت البداية واسم المقياس مطلوبان");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/schedule/personal", {
+        method: editing ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(editing ? { id: item!.id } : {}),
+          dayOfWeek: parseInt(dayOfWeek),
+          startTime: startTime.trim(),
+          endTime: endTime.trim(),
+          moduleName: moduleName.trim(),
+          type,
+          room: room.trim(),
+          notes: notes.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "فشل الحفظ");
+        return;
+      }
+      toast.success(editing ? "تم تعديل الحصة الشخصية" : "تمت إضافة الحصة الشخصية");
+      onOpenChange(false);
+      if (!editing) {
+        // reset the add form for next time (mirrors AddSlotDialog)
+        setStartTime("");
+        setEndTime("");
+        setModuleName("");
+        setRoom("");
+        setNotes("");
+      }
+      onSaved();
+    } catch {
+      toast.error("فشل الاتصال");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {!editing && (
+        <DialogTrigger asChild>
+          <Button variant="outline" className="w-full">
+            <Plus className="w-4 h-4 ml-2" />
+            حصة شخصية
+          </Button>
+        </DialogTrigger>
+      )}
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {editing ? (
+              <>
+                <Pencil className="w-5 h-5" />
+                تعديل الحصة الشخصية
+              </>
+            ) : (
+              "إضافة حصة شخصية"
+            )}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>اليوم</Label>
+            <select
+              value={dayOfWeek}
+              onChange={(e) => setDayOfWeek(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+            >
+              <option value="1">الأحد</option>
+              <option value="2">الإثنين</option>
+              <option value="3">الثلاثاء</option>
+              <option value="4">الأربعاء</option>
+              <option value="5">الخميس</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label>وقت البداية</Label>
+              <Input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>وقت النهاية</Label>
+              <Input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>اسم المقياس</Label>
+            <Input
+              value={moduleName}
+              onChange={(e) => setModuleName(e.target.value)}
+              placeholder="مثال: الأدب الجاهلي"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label>النوع</Label>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+              >
+                <option value="محاضرة">محاضرة</option>
+                <option value="أعمال موجهة TD">أعمال موجهة (TD)</option>
+                <option value="أعمال تطبيقية TP">أعمال تطبيقية (TP)</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>المكان</Label>
+              <Input
+                value={room}
+                onChange={(e) => setRoom(e.target.value)}
+                placeholder="مثال: A12"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>ملاحظات (اختياري)</Label>
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="مثال: سأحضر مع تمارين المجموعة الثانية"
+              rows={2}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            الحصة الشخصية تظهر لك فقط — لا يراها زملاؤك ولا تُعدّل الجدول الرسمي للتخصص.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            إلغاء
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
+            {editing ? "حفظ التعديل" : "حفظ الحصة"}
           </Button>
         </DialogFooter>
       </DialogContent>
