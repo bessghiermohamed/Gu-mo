@@ -26,15 +26,6 @@ import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type ScreenRoute } from "@/app/page";
 import { computeGpa } from "@/lib/grades";
 
-interface UpcomingExam {
-  id: number;
-  title: string;
-  moduleName: string;
-  examDate: string;
-  time: string;
-  isFinished: boolean;
-}
-
 interface LatestAnnouncement {
   id: number;
   title: string;
@@ -82,37 +73,9 @@ export function TalibHomeScreen() {
     }
   }, []);
 
-  // fix (R12-01): Home could not answer "what's next?" — the dead i18n keys
-  // home.upcomingClasses / home.upcomingAnnouncements prove the intent was
-  // designed but never shipped. Upcoming exams + latest announcements now
-  // render as tappable previews.
-  const [upcomingExams, setUpcomingExams] = React.useState<UpcomingExam[]>([]);
-  const [examsState, setExamsState] = React.useState<"loading" | "ok" | "error">("loading");
-  const [examsTick, setExamsTick] = React.useState(0);
-  React.useEffect(() => {
-    let alive = true;
-    setExamsState("loading");
-    fetch("/api/exams", { cache: "no-store" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => {
-        if (!alive) return;
-        const all: UpcomingExam[] = d.exams ?? [];
-        const today = new Date().toISOString().slice(0, 10);
-        setUpcomingExams(
-          all
-            .filter((e) => !e.isFinished && (!e.examDate || e.examDate >= today))
-            .sort((a, b) => (a.examDate || "9999").localeCompare(b.examDate || "9999"))
-            .slice(0, 2)
-        );
-        setExamsState("ok");
-      })
-      .catch(() => alive && setExamsState("error"));
-    return () => { alive = false; };
-  }, [examsTick]);
-
+  // fix (R12-01): latest announcements preview (round 26: the "القادم قريباً"
+  // exams widget was removed by owner request — exam schedules live in the
+  // الاختبارات service tile, one tap away, instead of a duplicated home widget).
   const [latestAnnouncements, setLatestAnnouncements] = React.useState<LatestAnnouncement[]>([]);
   const [annState, setAnnState] = React.useState<"loading" | "ok" | "error">("loading");
   const [annTick, setAnnTick] = React.useState(0);
@@ -312,61 +275,6 @@ export function TalibHomeScreen() {
           </Card>
         </motion.button>
       )}
-
-      {/* fix (R12-01): "ما القادم؟" — upcoming exams preview. Tapping goes
-          straight to the exams screen. Silent failure shows a retry line
-          instead of pretending everything is fine. */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-black">القادم قريباً</h2>
-          <button
-            onClick={() => navigate("EXAMS" as ScreenRoute)}
-            className="text-xs text-primary font-bold flex items-center gap-0.5"
-          >
-            كل الاختبارات
-            <ChevronLeft className="w-3.5 h-3.5 rotate-180" />
-          </button>
-        </div>
-        {examsState === "loading" && (
-          <Card className="p-4 text-center text-xs text-muted-foreground">جارٍ التحميل…</Card>
-        )}
-        {examsState === "error" && (
-          <Card className="p-4 flex items-center justify-between gap-2 bg-red-500/5 border-red-500/30">
-            <span className="text-xs text-muted-foreground">تعذّر تحميل الاختبارات القادمة</span>
-            <Button variant="outline" size="sm" onClick={() => setExamsTick((n) => n + 1)}>
-              <RefreshCw className="w-3.5 h-3.5" />إعادة المحاولة
-            </Button>
-          </Card>
-        )}
-        {examsState === "ok" && upcomingExams.length === 0 && (
-          <Card className="p-4 text-center bg-muted/30 border-dashed">
-            <p className="text-xs text-muted-foreground">لا توجد اختبارات قادمة مسجّلة — راجع شاشة الاختبارات لاحقاً.</p>
-          </Card>
-        )}
-        {examsState === "ok" && upcomingExams.map((exam) => (
-          <motion.button
-            key={exam.id}
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
-            onClick={() => navigate("EXAMS" as ScreenRoute)}
-            className="w-full text-right mb-2"
-          >
-            <Card className="p-3.5 flex items-center gap-3 hover:border-primary/40 transition-colors">
-              <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
-                <FlaskConical className="w-4.5 h-4.5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold truncate">{exam.title}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {exam.moduleName}{exam.examDate ? ` • ${exam.examDate}` : ""}{exam.time ? ` • ${exam.time}` : ""}
-                </p>
-              </div>
-              <ChevronLeft className="w-4 h-4 text-muted-foreground/40 shrink-0 rotate-180" />
-            </Card>
-          </motion.button>
-        ))}
-      </section>
 
       {/* fix (R12-01): latest announcements preview — the "تنبيهات الفوج"
           tile used to be the ONLY hint that announcements existed. */}
