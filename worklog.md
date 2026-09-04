@@ -108,3 +108,20 @@ Work Log:
 Stage Summary:
 - Deliverable: public AdSense-ready website (8 content pages, ~4,800 words) deployed around the login-walled app at /app. All technical AdSense prerequisites verified live: script, meta, ads.txt, robots, sitemap, content, legal pages, contact, nav, mobile-ready.
 - Owner actions: set NEXT_PUBLIC_SITE_URL in Vercel for custom domain; confirm CONTACT_EMAIL in src/lib/site.ts; then submit for AdSense review + Search Console.
+
+---
+Task ID: 7
+Agent: main (Super Z)
+Task: Round 29 — owner email update, configurable ads-test path, remove student calculator, more tools, clarify box boundaries.
+
+Work Log:
+- Pulled latest (user's local ads-test removal was NOT pushed — repo still had it; handled here). Updated CONTACT_EMAIL to besseghiermohamed719@gmail.com in src/lib/site.ts (propagates to contact + privacy pages).
+- Ads test page: deleted fixed src/app/ads-test/, built src/app/[slug]/page.tsx — renders the test page only when slug === ADS_TEST_PATH env (default "ads-test"), otherwise notFound(); ADS_TEST_REAL=true switches to real ads; page keeps noindex; robots.ts disallows the same env path; .env.example documents both vars. Verified live with default AND custom path (old path 404s, new path 200, all public routes unaffected).
+- Removed حاسبة الطالب: deleted grades-screen.tsx, GRADES route/hash/render, nav.grades + grades.* i18n keys (ar+en); home tile replaced by أدواتي (Wrench icon, t("nav.tools")) → new TOOLS route renders TalibFilesScreen initialTab="tools" (#/tools); gpa-tool user-facing strings updated (save toast/button now reference home hero, not the removed screen); public site pages (landing/features/guide/faq) reworded to point the calculator to أدواتي.
+- New tools (4 → 7): extract-pdf-tool.tsx (pdf-lib copyPages, "1-3, 5, 8-10" ranges with Arabic-Indic digit normalization + full validation), word-counter-tool.tsx (live words/chars/sentences/paragraphs/reading-time, tashkeel-stripped, paste/copy/clear), study-timer-tool.tsx (pomodoro with SVG ring, timestamp-based ticking, WebAudio beep, long break every 4th session, daily focus total in localStorage). All follow the established tool pattern (privacy banner, back chevron, share/download outputs).
+- Box boundaries: subtle borders added to home quick-action tiles (border-border/70, hover deepens), Telegram card + both group banners (tinted borders), onboarding hint, and schedule official class rows (bg-muted/40 + border) to match personal rows.
+- Verification: tsc clean, build green; seeded acceptance structure + created account via real signup, walked onboarding + tour, opened all 7 tools at 390×844: word counter stats correct (11 words/3 sentences), timer ticking (24:57 after 3s), GPA tool loads real specialty courses; VLM confirms clear box boundaries; dark mode + no horizontal overflow + no console errors; test account wiped via updated cleanup script. Screenshots download/verify-390/r29-*.png; Arabic report تقرير-إصلاحات-الجولة-29.md.
+
+Stage Summary:
+- Deliverables: configurable-path ads test page (ADS_TEST_PATH/ADS_TEST_REAL), calculator consolidated into أدواتي with direct #/tools route from home, 3 new offline tools (7 total), clarified box boundaries across home + schedule.
+- Owner actions: set ADS_TEST_PATH in Vercel (path of choice); set ADS_TEST_REAL=true after AdSense approval.

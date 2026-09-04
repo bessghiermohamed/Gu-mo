@@ -1,9 +1,9 @@
 /**
  * round 27 housekeeping: remove local test artifacts from the dev DB.
  *
- * Removes the round-26 acceptance-test account (test-student-26@talib.dev)
- * and every data row it owns. FK-cascaded rows (notification prefs, read
- * states, notifications) go automatically; personal schedule items have no
+ * Removes the acceptance-test accounts (rounds 26–29) and every data row
+ * they own. FK-cascaded rows (notification prefs, read states,
+ * notifications) go automatically; personal schedule items have no
  * FK relation, so they are deleted explicitly first.
  *
  * Run: bun run scripts/cleanup-test-accounts.ts
@@ -12,7 +12,11 @@ import { PrismaClient } from "@prisma/client";
 
 const db = new PrismaClient();
 
-const TEST_EMAILS = ["test-student-26@talib.dev", "round27-test@talib.dev"];
+const TEST_EMAILS = [
+  "test-student-26@talib.dev",
+  "round27-test@talib.dev",
+  "test-student-29@talib.dev",
+];
 
 async function main() {
   for (const email of TEST_EMAILS) {
