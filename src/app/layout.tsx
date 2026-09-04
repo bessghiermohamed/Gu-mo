@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Cairo, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 // round 4: removed the unused radix <Toaster /> from the old shadcn toast
@@ -7,6 +8,11 @@ import "./globals.css";
 // hooks/use-toast.ts were deleted with it (safety grep: no other importers).
 import { ThemeProvider } from "@/components/talib/theme-provider";
 import { I18nProvider } from "@/components/talib/i18n-provider";
+
+// Google AdSense — loads after hydration (non-blocking), publisher ca-pub-8081529487869617.
+// Verified via public/ads.txt. NOTE: AdSense is valid for BROWSER usage only —
+// if Talib is ever wrapped in an APK/WebView (TWA), switch to AdMob or risk account ban.
+const ADSENSE_CLIENT = "ca-pub-8081529487869617";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -59,6 +65,12 @@ export default function RootLayout({
         >
           <I18nProvider>{children}</I18nProvider>
         </ThemeProvider>
+        <Script
+          id="google-adsense"
+          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`}
+          crossOrigin="anonymous"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );
