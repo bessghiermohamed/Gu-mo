@@ -125,56 +125,56 @@ export function TalibHomeScreen() {
     {
       title: t("nav.courses"),
       subtitle: "مقاييس ومحاضرات",
-      icon: <BookOpen className="w-6 h-6" />,
+      icon: <BookOpen className="w-5 h-5" />,
       route: "COURSES",
       delay: 0,
     },
     {
       title: t("nav.schedule"),
       subtitle: "حصص الأسبوع",
-      icon: <CalendarDays className="w-6 h-6" />,
+      icon: <CalendarDays className="w-5 h-5" />,
       route: "SCHEDULE",
       delay: 0.05,
     },
     {
       title: t("nav.exams"),
       subtitle: "مواعيد الاختبارات",
-      icon: <FlaskConical className="w-6 h-6" />,
+      icon: <FlaskConical className="w-5 h-5" />,
       route: "EXAMS",
       delay: 0.1,
     },
     {
       title: t("nav.grades"),
       subtitle: "احسب معدلك",
-      icon: <Calculator className="w-6 h-6" />,
+      icon: <Calculator className="w-5 h-5" />,
       route: "GRADES",
       delay: 0.15,
     },
     {
       title: t("nav.files"),
       subtitle: "محفوظات وملاحظات",
-      icon: <FolderOpen className="w-6 h-6" />,
+      icon: <FolderOpen className="w-5 h-5" />,
       route: "FILES",
       delay: 0.2,
     },
     {
       title: t("nav.announcements"),
       subtitle: "تنبيهات الفوج",
-      icon: <Megaphone className="w-6 h-6" />,
+      icon: <Megaphone className="w-5 h-5" />,
       route: "ANNOUNCEMENTS",
       delay: 0.25,
     },
     {
       title: t("nav.assignments"),
       subtitle: "واجبات وتكليفات",
-      icon: <CheckSquare className="w-6 h-6" />,
+      icon: <CheckSquare className="w-5 h-5" />,
       route: "ASSIGNMENTS",
       delay: 0.3,
     },
     {
       title: t("nav.group"),
       subtitle: "زملاء الفوج",
-      icon: <Users className="w-6 h-6" />,
+      icon: <Users className="w-5 h-5" />,
       route: "GROUP",
       delay: 0.35,
     },
@@ -331,7 +331,9 @@ export function TalibHomeScreen() {
       {/* Quick actions grid */}
       <section>
         <h2 className="text-lg font-black mb-3">{t("home.quickActions")}</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {/* round 26 — compact cards: same icon+label+subtitle structure at a
+            smaller footprint so the grid fits without heavy scrolling. */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
           {actions.map((action, i) => (
             <motion.button
               key={action.route}
@@ -341,9 +343,9 @@ export function TalibHomeScreen() {
               onClick={() => navigate(action.route)}
               className="group text-right"
             >
-              <Card className="p-4 h-full hover:border-primary/50 hover:shadow-md transition-all hover:-translate-y-0.5">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+              <Card className="p-3 h-full hover:border-primary/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
                     {action.icon}
                   </div>
                   <ChevronLeft className="w-4 h-4 text-muted-foreground/40 group-hover:text-primary transition-colors" />
