@@ -71,3 +71,18 @@ Work Log:
 
 Stage Summary:
 - Deliverable: AdSense loader live on every page + ads.txt for domain verification. No ad slots placed yet (owner to decide placements after AdSense site approval).
+
+---
+Task ID: 5
+Agent: main (Super Z)
+Task: Add google-adsense-account meta tag + check the public page for AdSense readiness.
+
+Work Log:
+- layout.tsx metadata: added other: { "google-adsense-account": ADSENSE_CLIENT } — reuses the existing const (single source of truth).
+- Readiness check: robots.txt allows all bots; middleware is pass-through (no edge redirects); page.tsx is a "use client" SPA at the single root URL.
+- Built + started prod server on :3210, curl-verified: /ads.txt serves the correct line; <meta name="google-adsense-account" content="ca-pub-8081529487869617"/> renders in head; AdSense loader script present; <title> renders.
+- Extracted indexable body text of the served HTML: 15 chars total — "جاري التحميل..." only. Anonymous visitors get a pure client-rendered shell + login screen; zero indexable content.
+- Pushed commit 3dfb45b to main.
+
+Stage Summary:
+- Meta tag live. Verdict: site is NOT ready for AdSense approval — no public content (login-walled SPA, raw HTML = "Loading..."). Recommendation delivered: build an SSR/SSG public landing page (hero/features/FAQ + mandatory privacy policy) as the approval target; hero-banner assets already exist in public/talib/.
