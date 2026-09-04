@@ -22,6 +22,7 @@ import { TalibGradesScreen } from "@/components/talib/screens/grades-screen";
 import { TalibFilesScreen } from "@/components/talib/screens/files-screen";
 import { TalibProfileScreen } from "@/components/talib/screens/profile-screen";
 import { TalibSettingsScreen } from "@/components/talib/screens/settings-screen";
+import { TalibTourOverlay } from "@/components/talib/tour-overlay";
 import { TalibAnnouncementsScreen } from "@/components/talib/screens/announcements-screen";
 import { TalibAdminPanelScreen } from "@/components/talib/screens/admin-panel-screen";
 import { TalibGroupScreen } from "@/components/talib/screens/group-screen";
@@ -623,8 +624,10 @@ function ShellInner() {
 
                 {/* Settings gear (round 26): opens the app settings screen
                     — notification preferences live here now, more sections
-                    can be added later. Previously it only jumped to حسابي. */}
+                    can be added later. Previously it only jumped to حسابي.
+                    id used by the first-run tour (review §15). */}
                 <Button
+                  id="talib-tour-gear"
                   variant="ghost"
                   size="icon"
                   onClick={() => navigate("SETTINGS")}
@@ -705,6 +708,10 @@ function ShellInner() {
         )}
 
         <SonnerToaster position="top-center" dir={dir} />
+
+        {/* round 27 (review §15): first-run tour — three steps (services
+            grid → gear → حسابي), shown once, dismissible at every step. */}
+        <TalibTourOverlay currentScreen={currentScreen} />
 
         {/* round 10 (review §3/§4): unified notifications panel */}
         <TalibNotificationsSheet

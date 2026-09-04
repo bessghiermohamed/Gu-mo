@@ -328,8 +328,8 @@ export function TalibHomeScreen() {
         ))}
       </section>
 
-      {/* Quick actions grid */}
-      <section>
+      {/* Quick actions grid — id used by the first-run tour (review §15) */}
+      <section id="talib-tour-services">
         <h2 className="text-lg font-black mb-3">{t("home.quickActions")}</h2>
         {/* round 26 — compact cards: same icon+label+subtitle structure at a
             smaller footprint so the grid fits without heavy scrolling. */}

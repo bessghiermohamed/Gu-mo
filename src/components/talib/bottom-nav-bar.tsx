@@ -68,6 +68,7 @@ export function TalibBottomNavBar({ currentScreen, onNavigate }: Props) {
           return (
             <button
               key={item.route}
+              id={item.route === "PROFILE" ? "talib-tour-profile" : undefined}
               onClick={() => onNavigate(item.route)}
               className={cn(
                 "flex flex-col items-center justify-center gap-1 py-2 px-3 rounded-xl transition-all min-w-16 min-h-14",
