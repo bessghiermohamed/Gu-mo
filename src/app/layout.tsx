@@ -45,6 +45,10 @@ export const metadata: Metadata = {
     type: "website",
     locale: "ar_DZ",
   },
+  // AdSense ownership verification (alternative to the DNS/site-review method).
+  other: {
+    "google-adsense-account": ADSENSE_CLIENT,
+  },
 };
 
 export default function RootLayout({
