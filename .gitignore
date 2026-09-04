@@ -66,3 +66,7 @@ Thumbs.db
 dev-3100.log
 
 backups/
+
+# verification screenshots stay local-only since round 33
+download/verify-*/
+tsconfig.tsbuildinfo
