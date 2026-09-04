@@ -19,6 +19,7 @@ import { TalibCoursesScreen } from "@/components/talib/screens/courses-screen";
 import { TalibScheduleScreen } from "@/components/talib/screens/schedule-screen";
 import { TalibExamsScreen } from "@/components/talib/screens/exams-screen";
 import { TalibFilesScreen } from "@/components/talib/screens/files-screen";
+import { TalibToolsScreen } from "@/components/talib/screens/tools-screen";
 import { TalibProfileScreen } from "@/components/talib/screens/profile-screen";
 import { TalibSettingsScreen } from "@/components/talib/screens/settings-screen";
 import { TalibTourOverlay } from "@/components/talib/tour-overlay";
@@ -673,13 +674,13 @@ function ShellInner() {
               {effectiveScreen === "COURSES" && <TalibCoursesScreen />}
               {effectiveScreen === "SCHEDULE" && <TalibScheduleScreen />}
               {effectiveScreen === "EXAMS" && <TalibExamsScreen />}
-              {/* round 29: the standalone حاسبة الطالب screen was removed by
-                  owner request — the calculator now lives in أدواتي (the GPA
-                  tool reads/writes the same talib-grades storage). TOOLS opens
-                  ملفاتي straight on the أدواتي tab. */}
-              {effectiveScreen === "TOOLS" && <TalibFilesScreen initialTab="tools" />}
+              {/* round 31: tools got their own standalone screen — the TOOLS
+                  tile no longer opens the files screen on a pre-selected tab
+                  (owner feedback: the files/tools split had duplicated
+                  navigation — tools were both a tile and a files tab). */}
+              {effectiveScreen === "TOOLS" && <TalibToolsScreen />}
               {effectiveScreen === "ASSIGNMENTS" && <TalibAssignmentsScreen />}
-              {effectiveScreen === "FILES" && <TalibFilesScreen />}
+              {effectiveScreen === "FILES" && <TalibFilesScreen />} {/* tabs: المكتبة / ملاحظاتي / سحابتي */}
               {effectiveScreen === "TELEGRAM" && <TalibTelegramScreen />}
               {effectiveScreen === "GROUP" && <TalibGroupScreen />}
               {effectiveScreen === "BROWSE_GROUPS" && <TalibBrowseGroupsScreen />}

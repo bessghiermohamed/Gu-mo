@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { StickyNote, Plus, Trash2, BookMarked, ExternalLink, Loader2, Pencil, Wrench } from "lucide-react";
+import { StickyNote, Plus, Trash2, BookMarked, ExternalLink, Loader2, Pencil, HardDrive } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,7 +15,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { canManageRoles } from "@/lib/auth/permissions";
-import { ToolsTab } from "@/components/talib/tools/tools-tab";
+import { DriveTab } from "@/components/talib/cloud/drive-tab";
 import { toast } from "sonner";
 
 // fix ج: the Files screen had no way to add files. A new "المكتبة" tab shows
@@ -39,13 +39,10 @@ interface LibraryItem {
   downloadUrl: string;
 }
 
-// round 29: initialTab lets the shell open ملفاتي directly on the أدواتي
-// tab (the TOOLS route from the home services grid / #/tools hash).
-export function TalibFilesScreen({
-  initialTab = "library",
-}: {
-  initialTab?: "library" | "notes" | "tools";
-}) {
+// round 31: أدواتي was extracted into its own standalone screen (tools-screen.tsx)
+// — it used to be a tab here AND a home tile, which duplicated navigation.
+// Its place in this screen is taken by سحابتي (Google Drive, drive-tab.tsx).
+export function TalibFilesScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
   const [notes, setNotes] = React.useState<Note[]>([]);
@@ -128,11 +125,11 @@ export function TalibFilesScreen({
       <div>
         <h1 className="text-2xl font-black mb-1">{t("files.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          مكتبة الملفات، محفوظاتك، ملاحظاتك، وأدواتك في مكان واحد
+          المكتبة، ملاحظاتك، وملفاتك السحابية في مكان واحد
         </p>
       </div>
 
-      <Tabs defaultValue={initialTab}>
+      <Tabs defaultValue="library">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="library">
             <BookMarked className="w-3.5 h-3.5 ml-1.5" />
@@ -142,9 +139,9 @@ export function TalibFilesScreen({
             <StickyNote className="w-3.5 h-3.5 ml-1.5" />
             {t("files.tabNotes")}
           </TabsTrigger>
-          <TabsTrigger value="tools">
-            <Wrench className="w-3.5 h-3.5 ml-1.5" />
-            أدواتي
+          <TabsTrigger value="cloud">
+            <HardDrive className="w-3.5 h-3.5 ml-1.5" />
+            سحابتي
           </TabsTrigger>
         </TabsList>
 
@@ -287,10 +284,11 @@ export function TalibFilesScreen({
           )}
         </TabsContent>
 
-        {/* أدواتي — offline client-side file tools (images→PDF, compress,
-            merge). Zero server round-trips: see src/components/talib/tools/. */}
-        <TabsContent value="tools" className="mt-4 space-y-3">
-          <ToolsTab />
+        {/* سحابتي — Google Drive connector (round 31): the student's own
+            15 GB Drive instead of the small Supabase instance. Files go
+            browser → Drive directly; see src/lib/drive.ts. */}
+        <TabsContent value="cloud" className="mt-4 space-y-3">
+          <DriveTab />
         </TabsContent>
       </Tabs>
     </div>

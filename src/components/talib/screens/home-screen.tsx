@@ -153,7 +153,7 @@ export function TalibHomeScreen() {
     },
     {
       title: t("nav.files"),
-      subtitle: "محفوظات وملاحظات",
+      subtitle: "المكتبة، الملاحظات وسحابتي",
       icon: <FolderOpen className="w-5 h-5" />,
       route: "FILES",
       delay: 0.2,

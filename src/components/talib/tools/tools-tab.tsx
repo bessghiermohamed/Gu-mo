@@ -1,13 +1,15 @@
 "use client";
 
 /**
- * أدواتي — the tools tab inside ملفاتي.
+ * أدواتي — the tools list (round 31: standalone screen, no longer a tab
+ * inside ملفاتي — the duplication owner reported is fixed by giving tools
+ * their own screen via tools-screen.tsx).
  *
  * Seven offline-capable student utilities (round 29: 4 → 7 — extract-pages,
  * word counter and study timer joined), shown as simple full-width row
  * cards (the same card pattern as the "دروس تيليجرام" feature card on the
  * home screen — no new design patterns). Tapping a card swaps to the tool's
- * dedicated sub-screen with a back chevron, all inside the same tab.
+ * dedicated sub-screen with a back chevron.
  */
 
 import * as React from "react";
