@@ -223,7 +223,7 @@ export function TalibScheduleScreen() {
                       {dayItems.map((item) => (
                         <div
                           key={item.id}
-                          className="flex items-center gap-3 p-2 rounded-lg bg-muted/40"
+                          className="flex items-center gap-3 p-2 rounded-lg bg-muted/40 border border-border/70"
                         >
                           <div className="flex flex-col items-center justify-center w-14 h-14 rounded-lg bg-primary/10 text-primary shrink-0">
                             <span className="text-xs">يبدأ</span>
