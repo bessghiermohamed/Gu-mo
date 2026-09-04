@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ADSENSE_CLIENT } from "@/lib/ads";
 
 declare global {
@@ -25,16 +25,30 @@ type AdUnitProps = {
  */
 export function AdUnit({ adSlot, adTest = false, className }: AdUnitProps) {
   const pushed = useRef(false);
+  const [canRender, setCanRender] = useState(false);
 
   useEffect(() => {
-    if (pushed.current) return;
+    // AdSense cannot initialize inside the v0 preview iframe. Rendering an
+    // <ins> there makes the vendor script throw TagError on every refresh.
+    const inPreviewFrame = window.self !== window.top;
+    if (inPreviewFrame) return;
+
+    setCanRender(true);
+  }, []);
+
+  useEffect(() => {
+    if (!canRender || pushed.current) return;
     pushed.current = true;
+
     try {
       (window.adsbygoogle = window.adsbygoogle || []).push({});
-    } catch (error) {
-      console.error("adsbygoogle push failed:", error);
+    } catch {
+      // AdSense failures are vendor-side; never turn them into app errors.
+      pushed.current = false;
     }
-  }, []);
+  }, [canRender]);
+
+  if (!canRender) return null;
 
   return (
     <ins
