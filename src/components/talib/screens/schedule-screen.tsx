@@ -292,7 +292,7 @@ export function TalibScheduleScreen() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="font-bold text-sm truncate flex items-center gap-1.5">
-                              <span className="truncate">{item.moduleName}</span>
+                              <span className="truncate" title={item.moduleName}>{item.moduleName}</span>
                               <Badge
                                 variant="outline"
                                 className="text-[9px] px-1.5 py-0 shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10"
