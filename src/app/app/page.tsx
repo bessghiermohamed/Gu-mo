@@ -18,7 +18,6 @@ import { TalibHomeScreen } from "@/components/talib/screens/home-screen";
 import { TalibCoursesScreen } from "@/components/talib/screens/courses-screen";
 import { TalibScheduleScreen } from "@/components/talib/screens/schedule-screen";
 import { TalibExamsScreen } from "@/components/talib/screens/exams-screen";
-import { TalibGradesScreen } from "@/components/talib/screens/grades-screen";
 import { TalibFilesScreen } from "@/components/talib/screens/files-screen";
 import { TalibProfileScreen } from "@/components/talib/screens/profile-screen";
 import { TalibSettingsScreen } from "@/components/talib/screens/settings-screen";
@@ -42,7 +41,7 @@ export type ScreenRoute =
   | "COURSES"
   | "SCHEDULE"
   | "EXAMS"
-  | "GRADES"
+  | "TOOLS"
   | "ASSIGNMENTS"
   | "FILES"
   | "GROUP"
@@ -69,7 +68,7 @@ const ROUTE_TO_HASH: Record<ScreenRoute, string> = {
   COURSES: "courses",
   SCHEDULE: "schedule",
   EXAMS: "exams",
-  GRADES: "grades",
+  TOOLS: "tools",
   ASSIGNMENTS: "assignments",
   FILES: "files",
   GROUP: "group",
@@ -674,7 +673,11 @@ function ShellInner() {
               {effectiveScreen === "COURSES" && <TalibCoursesScreen />}
               {effectiveScreen === "SCHEDULE" && <TalibScheduleScreen />}
               {effectiveScreen === "EXAMS" && <TalibExamsScreen />}
-              {effectiveScreen === "GRADES" && <TalibGradesScreen />}
+              {/* round 29: the standalone حاسبة الطالب screen was removed by
+                  owner request — the calculator now lives in أدواتي (the GPA
+                  tool reads/writes the same talib-grades storage). TOOLS opens
+                  ملفاتي straight on the أدواتي tab. */}
+              {effectiveScreen === "TOOLS" && <TalibFilesScreen initialTab="tools" />}
               {effectiveScreen === "ASSIGNMENTS" && <TalibAssignmentsScreen />}
               {effectiveScreen === "FILES" && <TalibFilesScreen />}
               {effectiveScreen === "TELEGRAM" && <TalibTelegramScreen />}

@@ -10,13 +10,12 @@
  * Design decisions:
  *  - Starts from the REAL module list of the student's specialty
  *    (/api/courses — name + coefficient), so the weight of each course
- *    is real, not guessed. Existing estimates from «حاسبة الطالب»
- *    (localStorage talib-grades) are imported by module name so the
- *    student continues from their own numbers, not from zero.
+ *    is real, not guessed. Existing saved rows from localStorage
+ *    (talib-grades — also read by the home hero) are imported by module
+ *    name so the student continues from their own numbers, not from zero.
  *  - Fully offline after the first course fetch: all math is local.
- *  - The save action writes BACK to talib-grades (same row shape as
- *    the grades screen), so one source of truth keeps both views in
- *    sync — editing here updates حاسبة الطالب, not a shadow copy.
+ *  - The save action writes BACK to talib-grades, so one source of truth
+ *    keeps the tool and the home-hero GPA in sync.
  *  - Same weighted-average rule as lib/grades.ts computeGpa: module
  *    score = (continuous + exam) / 2, weighted by coefficient. Empty
  *    modules are excluded from the current average and feed the
@@ -84,7 +83,7 @@ export function GpaTool({ onBack }: { onBack: () => void }) {
   const [target, setTarget] = React.useState<string>("10");
   const [saved, setSaved] = React.useState(false);
 
-  // Load: real courses ∪ imported estimates from حاسبة الطالب.
+  // Load: real courses ∪ previously saved estimates (talib-grades).
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -157,7 +156,7 @@ export function GpaTool({ onBack }: { onBack: () => void }) {
         }
         setRows(courseRows);
         setLoading(false);
-        if (imported > 0) setSaved(true); // already in sync with حاسبة الطالب
+        if (imported > 0) setSaved(true); // already in sync with saved rows
       }
     })();
     return () => {
@@ -199,7 +198,7 @@ export function GpaTool({ onBack }: { onBack: () => void }) {
     solver = { needed: Math.round(needed * 100) / 100, possible: needed >= 0 && needed <= 20 };
   }
 
-  // Rows worth persisting to حاسبة الطالب: anything with a name or a
+  // Rows worth persisting (talib-grades): anything with a name or a
   // score (unnamed+unscored placeholders are dropped).
   const filled = rows.filter(
     (r) => r.continuousScore != null || r.examScore != null || r.moduleName.trim() !== ""
@@ -235,7 +234,7 @@ export function GpaTool({ onBack }: { onBack: () => void }) {
       }));
       localStorage.setItem("talib-grades", JSON.stringify(payload));
       setSaved(true);
-      toast.success("تم الحفظ — افتح «حاسبة الطالب» من الرئيسية لترى النتائج نفسها");
+      toast.success("تم الحفظ — معدلك سيظهر في الصفحة الرئيسية");
     } catch {
       toast.error("تعذّر الحفظ في هذا الجهاز");
     }
@@ -428,7 +427,7 @@ export function GpaTool({ onBack }: { onBack: () => void }) {
       <div className="flex gap-2">
         <Button className="flex-1" onClick={saveToCalculator} disabled={filled.length === 0}>
           <Save className="w-4 h-4 ml-1" />
-          {saved ? "محفوظ في حاسبة الطالب" : "حفظ في حاسبة الطالب"}
+          {saved ? "محفوظ — المعدل يظهر في الرئيسية" : "حفظ المعدل"}
         </Button>
         <Button
           variant="outline"

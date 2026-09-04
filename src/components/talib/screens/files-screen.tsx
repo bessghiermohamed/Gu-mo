@@ -39,7 +39,13 @@ interface LibraryItem {
   downloadUrl: string;
 }
 
-export function TalibFilesScreen() {
+// round 29: initialTab lets the shell open ملفاتي directly on the أدواتي
+// tab (the TOOLS route from the home services grid / #/tools hash).
+export function TalibFilesScreen({
+  initialTab = "library",
+}: {
+  initialTab?: "library" | "notes" | "tools";
+}) {
   const { t } = useI18n();
   const { user } = useAuth();
   const [notes, setNotes] = React.useState<Note[]>([]);
@@ -126,7 +132,7 @@ export function TalibFilesScreen() {
         </p>
       </div>
 
-      <Tabs defaultValue="library">
+      <Tabs defaultValue={initialTab}>
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="library">
             <BookMarked className="w-3.5 h-3.5 ml-1.5" />

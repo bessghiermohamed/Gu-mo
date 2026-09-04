@@ -6,7 +6,7 @@ import {
   BookOpen,
   CalendarDays,
   FlaskConical,
-  Calculator,
+  Wrench,
   FolderOpen,
   Megaphone,
   Users,
@@ -143,10 +143,12 @@ export function TalibHomeScreen() {
       delay: 0.1,
     },
     {
-      title: t("nav.grades"),
-      subtitle: "احسب معدلك",
-      icon: <Calculator className="w-5 h-5" />,
-      route: "GRADES",
+      // round 29: حاسبة الطالب screen removed — the tile now opens أدواتي
+      // (whose first tool IS the GPA calculator, same talib-grades storage).
+      title: t("nav.tools"),
+      subtitle: "حاسبة، PDF، عدّاد ومؤقت",
+      icon: <Wrench className="w-5 h-5" />,
+      route: "TOOLS",
       delay: 0.15,
     },
     {
@@ -237,7 +239,7 @@ export function TalibHomeScreen() {
           className="w-full text-right"
           aria-label="متابعة طلب الانضمام"
         >
-          <div className="p-3.5 flex items-center gap-3 rounded-2xl bg-amber-500/5 transition-colors hover:bg-amber-500/10">
+          <div className="p-3.5 flex items-center gap-3 rounded-2xl bg-amber-500/5 border border-amber-500/25 transition-colors hover:bg-amber-500/10">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
               <Clock className="w-5 h-5" />
             </div>
@@ -260,7 +262,7 @@ export function TalibHomeScreen() {
           className="w-full text-right"
           aria-label="تصفح المجموعات"
         >
-          <div className="p-3.5 flex items-center gap-3 rounded-2xl bg-primary/5 transition-colors hover:bg-primary/10">
+          <div className="p-3.5 flex items-center gap-3 rounded-2xl bg-primary/5 border border-primary/15 transition-colors hover:bg-primary/10">
             <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
               <Users className="w-5 h-5" />
             </div>
@@ -342,7 +344,7 @@ export function TalibHomeScreen() {
               onClick={() => navigate(action.route)}
               className="group text-right"
             >
-              <div className="h-full rounded-2xl bg-muted/40 p-3 transition-colors group-hover:bg-muted/70">
+              <div className="h-full rounded-2xl bg-muted/40 border border-border/70 p-3 transition-colors group-hover:bg-muted/70 group-hover:border-border">
                 <div className="flex items-start justify-between mb-2">
                   <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
                     {action.icon}
@@ -368,7 +370,7 @@ export function TalibHomeScreen() {
         className="group w-full text-right"
         aria-label="دروس تيليجرام"
       >
-        <div className="p-4 flex items-center gap-3 rounded-2xl bg-primary/5 transition-colors group-hover:bg-primary/10">
+        <div className="p-4 flex items-center gap-3 rounded-2xl bg-primary/5 border border-primary/15 transition-colors group-hover:bg-primary/10">
           <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0 group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
             <Send className="w-6 h-6" />
           </div>
@@ -382,7 +384,7 @@ export function TalibHomeScreen() {
 
       {/* Onboarding hint — only for users whose profile is not yet linked (was permanent) */}
       {user?.assignedSpecialtyId == null && (
-      <div className="p-5 rounded-2xl bg-muted/30">
+      <div className="p-5 rounded-2xl bg-muted/30 border border-border/70">
         <div className="flex items-start gap-3">
           <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
             <BookMarked className="w-4 h-4" />

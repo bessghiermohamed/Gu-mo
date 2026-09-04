@@ -32,7 +32,6 @@
     "profile": "Profile",
     "lectures": "Lectures",
     "exams": "Exams",
-    "grades": "Grade Calculator",
     "assignments": "Assignments",
     "files": "My Files",
     "group": "Group",
@@ -42,7 +41,8 @@
     "calendar": "Calendar",
     "attendance": "Attendance",
     "admin": "Admin Panel",
-    "onboarding": "Onboarding"
+    "onboarding": "Onboarding",
+    "tools": "My Tools"
   },
   "auth": {
     "login": "Sign In",
@@ -142,20 +142,6 @@
     "examRoom": "Room",
     "coefficient": "Coefficient",
     "noExams": "No exams scheduled"
-  },
-  "grades": {
-    "title": "Grade Calculator",
-    "subtitle": "Auto-calculate your GPA",
-    "continuousScore": "Continuous (TD/TP)",
-    "examScore": "Exam score",
-    "finalScore": "Final score",
-    "coefficient": "Coefficient",
-    "credits": "Credits",
-    "gpa": "Overall GPA",
-    "targetScore": "Target score",
-    "isOfficial": "Official",
-    "isEstimated": "Estimated",
-    "noGrades": "No grades recorded"
   },
   "files": {
     "title": "My Files",

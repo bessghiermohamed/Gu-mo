@@ -32,7 +32,6 @@
     "profile": "حسابي",
     "lectures": "المحاضرات",
     "exams": "الاختبارات",
-    "grades": "حاسبة الطالب",
     "assignments": "الواجبات",
     "files": "ملفاتي",
     "group": "الفوج",
@@ -42,7 +41,8 @@
     "calendar": "التقويم",
     "attendance": "الغيابات",
     "admin": "لوحة الإشراف",
-    "onboarding": "الإعداد الأولي"
+    "onboarding": "الإعداد الأولي",
+    "tools": "أدواتي"
   },
   "auth": {
     "login": "تسجيل الدخول",
@@ -142,20 +142,6 @@
     "examRoom": "القاعة",
     "coefficient": "المعامل",
     "noExams": "لا توجد امتحانات مجدولة"
-  },
-  "grades": {
-    "title": "حاسبة الطالب",
-    "subtitle": "احسب معدلك التقديري تلقائياً",
-    "continuousScore": "نقطة المتابعة (TD/TP)",
-    "examScore": "نقطة الامتحان",
-    "finalScore": "المعدل النهائي",
-    "coefficient": "المعامل",
-    "credits": "الأرصدة",
-    "gpa": "المعدل التقديري العام",
-    "targetScore": "الدرجة المستهدفة",
-    "isOfficial": "رسمي من الإدارة",
-    "isEstimated": "تقديري",
-    "noGrades": "لا توجد علامات مسجّلة"
   },
   "files": {
     "title": "ملفاتي",
