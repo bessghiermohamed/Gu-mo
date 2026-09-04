@@ -18,7 +18,6 @@ import {
   Clock,
   RefreshCw,
 } from "lucide-react";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/talib/i18n-provider";
@@ -238,7 +237,7 @@ export function TalibHomeScreen() {
           className="w-full text-right"
           aria-label="متابعة طلب الانضمام"
         >
-          <Card className="p-3.5 flex items-center gap-3 bg-amber-500/5 border-amber-500/30 hover:border-amber-500/50 transition-colors">
+          <div className="p-3.5 flex items-center gap-3 rounded-2xl bg-amber-500/5 transition-colors hover:bg-amber-500/10">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
               <Clock className="w-5 h-5" />
             </div>
@@ -249,7 +248,7 @@ export function TalibHomeScreen() {
               </p>
             </div>
             <ChevronLeft className="w-4 h-4 text-muted-foreground/40 shrink-0" />
-          </Card>
+          </div>
         </motion.button>
       )}
       {!pendingRequest && noGroupNoRequests && (
@@ -261,7 +260,7 @@ export function TalibHomeScreen() {
           className="w-full text-right"
           aria-label="تصفح المجموعات"
         >
-          <Card className="p-3.5 flex items-center gap-3 bg-primary/5 border-primary/20 hover:border-primary/40 transition-colors">
+          <div className="p-3.5 flex items-center gap-3 rounded-2xl bg-primary/5 transition-colors hover:bg-primary/10">
             <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
               <Users className="w-5 h-5" />
             </div>
@@ -272,7 +271,7 @@ export function TalibHomeScreen() {
               </p>
             </div>
             <ChevronLeft className="w-4 h-4 text-muted-foreground/40 shrink-0" />
-          </Card>
+          </div>
         </motion.button>
       )}
 
@@ -290,42 +289,42 @@ export function TalibHomeScreen() {
           </button>
         </div>
         {annState === "loading" && (
-          <Card className="p-4 text-center text-xs text-muted-foreground">جارٍ التحميل…</Card>
+          <p className="py-2 text-center text-xs text-muted-foreground">جارٍ التحميل…</p>
         )}
         {annState === "error" && (
-          <Card className="p-4 flex items-center justify-between gap-2 bg-red-500/5 border-red-500/30">
+          <div className="py-2 flex items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground">تعذّر تحميل الإعلانات</span>
             <Button variant="outline" size="sm" onClick={() => setAnnTick((n) => n + 1)}>
               <RefreshCw className="w-3.5 h-3.5" />إعادة المحاولة
             </Button>
-          </Card>
+          </div>
         )}
         {annState === "ok" && latestAnnouncements.length === 0 && (
-          <Card className="p-4 text-center bg-muted/30 border-dashed">
-            <p className="text-xs text-muted-foreground">لا توجد إعلانات جديدة حالياً.</p>
-          </Card>
+          <p className="py-2 text-center text-xs text-muted-foreground">لا توجد إعلانات جديدة حالياً.</p>
         )}
-        {annState === "ok" && latestAnnouncements.map((ann) => (
-          <motion.button
-            key={ann.id}
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
-            onClick={() => navigate("ANNOUNCEMENTS" as ScreenRoute)}
-            className="w-full text-right mb-2"
-          >
-            <Card className="p-3.5 flex items-center gap-3 hover:border-primary/40 transition-colors">
-              <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                <Megaphone className="w-4.5 h-4.5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold truncate">{ann.title}</p>
-                {ann.date && <p className="text-xs text-muted-foreground truncate">{ann.date}</p>}
-              </div>
-              <ChevronLeft className="w-4 h-4 text-muted-foreground/40 shrink-0 rotate-180" />
-            </Card>
-          </motion.button>
-        ))}
+        {annState === "ok" && latestAnnouncements.length > 0 && (
+          <div className="divide-y divide-border/70">
+            {latestAnnouncements.map((ann) => (
+              <motion.button
+                key={ann.id}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25 }}
+                onClick={() => navigate("ANNOUNCEMENTS" as ScreenRoute)}
+                className="w-full text-right flex items-center gap-3 py-2.5 first:pt-0 last:pb-0"
+              >
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                  <Megaphone className="w-4.5 h-4.5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold truncate">{ann.title}</p>
+                  {ann.date && <p className="text-xs text-muted-foreground truncate">{ann.date}</p>}
+                </div>
+                <ChevronLeft className="w-4 h-4 text-muted-foreground/40 shrink-0 rotate-180" />
+              </motion.button>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Quick actions grid — id used by the first-run tour (review §15) */}
@@ -343,7 +342,7 @@ export function TalibHomeScreen() {
               onClick={() => navigate(action.route)}
               className="group text-right"
             >
-              <Card className="p-3 h-full hover:border-primary/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+              <div className="h-full rounded-2xl bg-muted/40 p-3 transition-colors group-hover:bg-muted/70">
                 <div className="flex items-start justify-between mb-2">
                   <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
                     {action.icon}
@@ -354,7 +353,7 @@ export function TalibHomeScreen() {
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {action.subtitle}
                 </p>
-              </Card>
+              </div>
             </motion.button>
           ))}
         </div>
@@ -369,7 +368,7 @@ export function TalibHomeScreen() {
         className="group w-full text-right"
         aria-label="دروس تيليجرام"
       >
-        <Card className="p-4 flex items-center gap-3 bg-primary/5 border-primary/20 hover:border-primary/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+        <div className="p-4 flex items-center gap-3 rounded-2xl bg-primary/5 transition-colors group-hover:bg-primary/10">
           <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0 group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
             <Send className="w-6 h-6" />
           </div>
@@ -378,12 +377,12 @@ export function TalibHomeScreen() {
             <p className="text-xs text-muted-foreground mt-0.5">قنوات ومساحة الفوج — محاضرات وتمارين مرتبة حسب المقياس</p>
           </div>
           <ChevronLeft className="w-4 h-4 text-muted-foreground/40 group-hover:text-primary transition-colors shrink-0" />
-        </Card>
+        </div>
       </motion.button>
 
       {/* Onboarding hint — only for users whose profile is not yet linked (was permanent) */}
       {user?.assignedSpecialtyId == null && (
-      <Card className="p-5 bg-muted/30 border-dashed">
+      <div className="p-5 rounded-2xl bg-muted/30">
         <div className="flex items-start gap-3">
           <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
             <BookMarked className="w-4 h-4" />
@@ -404,7 +403,7 @@ export function TalibHomeScreen() {
             </Button>
           </div>
         </div>
-      </Card>
+      </div>
       )}
     </div>
   );
