@@ -3,8 +3,9 @@
 /**
  * أدواتي — the tools tab inside ملفاتي.
  *
- * Three offline-capable file utilities for students, shown as simple full-width
- * row cards (the same card pattern as the "دروس تيليجرام" feature card on the
+ * Seven offline-capable student utilities (round 29: 4 → 7 — extract-pages,
+ * word counter and study timer joined), shown as simple full-width row
+ * cards (the same card pattern as the "دروس تيليجرام" feature card on the
  * home screen — no new design patterns). Tapping a card swaps to the tool's
  * dedicated sub-screen with a back chevron, all inside the same tab.
  */
@@ -14,10 +15,13 @@ import { motion } from "framer-motion";
 import {
   Calculator,
   ChevronLeft,
+  Coffee,
   Combine,
   Images,
+  Scissors,
   ShieldCheck,
   Shrink,
+  Type,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useI18n } from "@/components/talib/i18n-provider";
@@ -26,8 +30,11 @@ import { ImageToPdfTool } from "./image-to-pdf-tool";
 import { CompressPdfTool } from "./compress-pdf-tool";
 import { MergePdfTool } from "./merge-pdf-tool";
 import { GpaTool } from "./gpa-tool";
+import { ExtractPdfTool } from "./extract-pdf-tool";
+import { WordCounterTool } from "./word-counter-tool";
+import { StudyTimerTool } from "./study-timer-tool";
 
-type ToolId = "images" | "compress" | "merge" | "gpa";
+type ToolId = "gpa" | "images" | "compress" | "merge" | "extract" | "counter" | "timer";
 
 const TOOLS: Array<{
   id: ToolId;
@@ -59,6 +66,24 @@ const TOOLS: Array<{
     title: "دمج ملفات PDF",
     desc: "اجمع عدة ملفات في ملف واحد مرتّب كما تختار",
   },
+  {
+    id: "extract",
+    icon: <Scissors className="w-6 h-6" />,
+    title: "استخراج صفحات PDF",
+    desc: "شارك فقط الصفحات التي تهمّ زميلك من ملف ضخم",
+  },
+  {
+    id: "counter",
+    icon: <Type className="w-6 h-6" />,
+    title: "عدّاد الكلمات",
+    desc: "كلمات، أحرف، جمل وزمن قراءة — قبل تسليم التقرير",
+  },
+  {
+    id: "timer",
+    icon: <Coffee className="w-6 h-6" />,
+    title: "مؤقّت المراجعة",
+    desc: "جلسات تركيز قصيرة واستراحات — تقنية بومودورو",
+  },
 ];
 
 export function ToolsTab() {
@@ -76,6 +101,15 @@ export function ToolsTab() {
   }
   if (activeTool === "merge") {
     return <MergePdfTool onBack={() => setActiveTool(null)} />;
+  }
+  if (activeTool === "extract") {
+    return <ExtractPdfTool onBack={() => setActiveTool(null)} />;
+  }
+  if (activeTool === "counter") {
+    return <WordCounterTool onBack={() => setActiveTool(null)} />;
+  }
+  if (activeTool === "timer") {
+    return <StudyTimerTool onBack={() => setActiveTool(null)} />;
   }
 
   return (
