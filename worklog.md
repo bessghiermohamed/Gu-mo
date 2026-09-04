@@ -173,3 +173,20 @@ Work Log:
 
 Stage Summary:
 - Lectures now flow: admin's 15 GB Drive → whole specialty, students need no account. Vercel 4.5 MB body limit irrelevant (browser→Drive direct). Optional 2-line SQL (file_size/storage_path columns) documented in تقرير-إصلاحات-الجولة-32.md — app works without it (badges hidden).
+
+---
+Task ID: 11
+Agent: main (Super Z)
+Task: Round 33 — owner feedback: (1) no upload button in course materials, (2) Drive disconnect needs a warning, (3) project review + bugfix, (4) repo cleanup with backup-clone procedure then delete the copy.
+
+Work Log:
+- Root cause: course detail had 3 tabs only (الدروس/الاختبارات/الواجبات) — no materials UI at all. Added 4th tab «المواد»: module-scoped library view + «إضافة مادة للمقياس» publish-from-Drive button for supervisors; material appears in course tab AND specialty library.
+- PublishToLibraryDialog extracted to cloud/publish-dialog.tsx (single source for المكتبة + المواد; moduleId/defaultCategory props); local copy removed from files-screen (−358 lines).
+- library API: ?moduleId= filter (needsSchema flag when column absent → graceful empty + hint), module_id insert with same try-full/fallback-base pattern; Prisma LibraryReference.moduleId?.
+- سحابتي: disconnect now requires confirmation (files stay in Drive explained in-dialog).
+- Review: fixed missing Plus import (would break build); removed dead useI18n in course-detail; eslint clean on changed files; no console.log leftovers; genuine tsc 0 errors; build green.
+- Cleanup per owner protocol (upload/تنظيف-وقاعدة-حماية-git.md): per-candidate reference greps (comments only, zero code refs); tool-results/ (6 agent-log files) + 34 verify PNGs removed from git (screenshots preserved outside repo + remain in git history); all 7 download/*.sql kept (md5-unique, no duplicates); upload/, scripts/, Caddyfile, root configs untouched; local env audited (no dev.db; node_modules 1.3G + tsbuildinfo deleted post-push; skills/ = 61M platform infra, kept).
+- Backup clone (275 files incl. round-33 commits) → cleaned tree diff = exactly 40 deletions + 2 intended edits; screens-folder rule-10 check: 17 files before/after; backup deleted after verification.
+
+Stage Summary:
+- Courses now own their materials: upload inside المقياس via supervisor's 15 GB Drive, students download with zero setup; disconnect is guarded. Repo HEAD clean (275 → 235 tracked files). Optional SQL for full course-linking: ALTER TABLE library_references ADD COLUMN IF NOT EXISTS module_id INTEGER;
