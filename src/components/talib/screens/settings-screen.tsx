@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { Bell, VolumeX, Info, Loader2 } from "lucide-react";
+import { Bell, VolumeX, Info, Loader2, Palette, Moon, Sun, Sparkles } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/components/talib/auth-provider";
+import { usePalette } from "@/components/talib/theme-provider";
+import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
 // round 26 — the app-level settings screen. Opened from the header gear
@@ -41,6 +43,8 @@ function isSupervisor(role: string | undefined): boolean {
 
 export function TalibSettingsScreen() {
   const { user } = useAuth();
+  const { theme, setTheme } = useTheme();
+  const { palette, togglePalette } = usePalette();
 
   // notification preferences state (moved unchanged from profile-screen)
   const [prefsAvailable, setPrefsAvailable] = React.useState<boolean | null>(null);
@@ -162,6 +166,70 @@ export function TalibSettingsScreen() {
             })}
           </div>
         )}
+      </Card>
+
+      {/* round 26 — appearance: the dark-mode and palette toggles existed
+          only as unlabeled header icons. They keep their one-tap header
+          shortcuts, and gain a labeled home here. */}
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <Palette className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-sm">المظهر</h3>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              طابع التطبيق الليلي وهوية ألوانه
+            </p>
+          </div>
+        </div>
+
+        <div className="divide-y divide-border rounded-lg border">
+          <div className="flex items-center gap-3 px-3 py-2.5">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">الوضع الليلي</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                {theme === "dark" ? "مُفعّل حالياً — مريح للعين ليلاً" : "غير مُفعّل — الوضع الفاتح مستخدم"}
+              </p>
+            </div>
+            <Switch
+              checked={theme === "dark"}
+              onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+              aria-label="الوضع الليلي"
+            />
+          </div>
+          <div className="flex items-center gap-3 px-3 py-2.5">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">نمط الألوان</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                {palette === "academic" ? "أكاديمي — الهوية الرسمية للتطبيق" : "عصري — ألوان حيوية وأنيقة"}
+              </p>
+            </div>
+            <Switch
+              checked={palette === "modern"}
+              onCheckedChange={() => togglePalette()}
+              aria-label="نمط الألوان"
+            />
+          </div>
+        </div>
+      </Card>
+
+      {/* round 26 — about: a quiet identity card. Deliberately version-free
+          (same rule as the M-6 fix that removed the internal tag from
+          حسابي) and free of external links. */}
+      <Card className="p-5">
+        <div className="flex flex-col items-center text-center gap-2">
+          <img src="/talib/icon.svg" alt="طالب" className="w-12 h-12" />
+          <h3 className="font-black text-base flex items-center gap-1.5">
+            طالب
+            <Sparkles className="w-3.5 h-3.5 text-primary" />
+          </h3>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            طالب | Talib — رفيقك الأكاديمي
+            <br />
+            جدولك ومقرراتك واختباراتك وإعلانات فوجك في مكان واحد
+          </p>
+        </div>
       </Card>
     </div>
   );
