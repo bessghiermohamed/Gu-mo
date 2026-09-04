@@ -9,6 +9,26 @@ declare global {
   }
 }
 
+let adsenseLoader: Promise<void> | undefined;
+
+function loadAdsense() {
+  if (window.adsbygoogle) return Promise.resolve();
+  if (adsenseLoader) return adsenseLoader;
+
+  adsenseLoader = new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.id = "google-adsense";
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("AdSense failed to load"));
+    document.head.appendChild(script);
+  });
+
+  return adsenseLoader;
+}
+
 type AdUnitProps = {
   /** AdSense ad-unit slot id (e.g. "4214645931" for Mimo). */
   adSlot: string;
@@ -38,14 +58,26 @@ export function AdUnit({ adSlot, adTest = false, className }: AdUnitProps) {
 
   useEffect(() => {
     if (!canRender || pushed.current) return;
-    pushed.current = true;
 
-    try {
-      (window.adsbygoogle = window.adsbygoogle || []).push({});
-    } catch {
-      // AdSense failures are vendor-side; never turn them into app errors.
-      pushed.current = false;
-    }
+    let cancelled = false;
+    loadAdsense()
+      .then(() => {
+        if (cancelled || pushed.current) return;
+        pushed.current = true;
+        try {
+          (window.adsbygoogle = window.adsbygoogle || []).push({});
+        } catch {
+          // AdSense failures are vendor-side; never turn them into app errors.
+          pushed.current = false;
+        }
+      })
+      .catch(() => {
+        // Keep ad provider failures isolated from the application.
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [canRender]);
 
   if (!canRender) return null;
