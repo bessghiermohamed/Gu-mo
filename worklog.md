@@ -140,3 +140,20 @@ Work Log:
 
 Stage Summary:
 - Native add-ons wired at root: audience analytics (AdSense traffic evidence) + Core Web Vitals (page-experience signal). Owner: after deploy, click Enable on Project → Analytics tab (free).
+
+---
+Task ID: 9
+Agent: main (Super Z)
+Task: Round 31 — fix files/tools duplication (owner feedback) + Google Drive cloud storage for personal files (owner request: Supabase is small).
+
+Work Log:
+- Duplication diagnosis: أدواتي was BOTH a home tile and a tab inside ملفاتي; the TOOLS tile opened the files screen pre-selected on the tools tab (wrong title/subtitle). Verified via live code reading (files-screen.tsx, page.tsx TOOLS/FILES routes, home grid).
+- Fix: new standalone TalibToolsScreen (tools-screen.tsx); FILES route renders TalibFilesScreen without initialTab prop; files tabs now المكتبة/ملاحظاتي/سحابتي; #/tools hash unchanged.
+- سحابتي (Google Drive): src/lib/drive.ts (GIS OAuth drive.file scope, find-or-create «طالب — Talib» folder, XHR multipart upload with progress, list/download/share-anyone-with-link/delete/quota, localStorage token + silent re-auth + expired-session recovery) + cloud/drive-tab.tsx (connect card with privacy note, quota bar, multi-upload progress, file actions) + 7-step Arabic self-service setup guide when NEXT_PUBLIC_GOOGLE_CLIENT_ID is unset.
+- Added typescript@5 as real devDependency (previous tsc checks ran through a bogus npx shim — now genuine ./node_modules/.bin/tsc = 0 errors); next build green, public routes still SSG.
+- Live verification on production with a real test account (talib.round31.test@example.com — wipe via scripts/cleanup-test-accounts.ts): onboarding walked; ملفاتي tabs = [المكتبة, ملاحظاتي, سحابتي] with the Drive setup guide rendering (7 steps, no console errors); أدواتي = standalone screen with 7 tools + privacy banner; #/tools restores after reload; screenshots download/verify-390/r31-*.png at 390×844.
+- Radix note: programmatic .click() does not switch tabs (pointer-event activation) — used real browser clicks for verification.
+
+Stage Summary:
+- Tools live in exactly one place (أدواتي screen); ملفاتي owns library/notes/cloud. Personal files now have a 15 GB home in each student's own Google Drive with zero Supabase usage.
+- Owner action (one-time, 5 min): create Google OAuth Web Client ID (origins: https://gu-mo.vercel.app) → set NEXT_PUBLIC_GOOGLE_CLIENT_ID in Vercel → Redeploy. In-app guide walks through it.
