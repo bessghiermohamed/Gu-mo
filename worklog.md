@@ -38,3 +38,21 @@ Work Log:
 
 Stage Summary:
 - Deliverable: 5 isolated commits on bessghiermohamed/Gu-mo main — one per part, reviewable independently. Zero API/schema/data-fetch changes (verified: only page.tsx routing + 2 screens + home layout touched). Test artifact: local dev DB has 1 test account (OWNER test-student-26@talib.dev, role restored after STUDENT gating test) — wipe via scripts/seed-acceptance.ts anytime.
+
+---
+Task ID: 3
+Agent: main (Super Z)
+Task: Round 27 — review §7 (personal schedule classes) + §15 (first-run tour) + owner requests: reduce boxes, clean.
+
+Work Log:
+- Part F (§7): new PersonalScheduleItem model (per-user, indexed; schema + prisma db push). New /api/schedule/personal GET/POST/PATCH/DELETE — dual-branch (Supabase/prisma), every query scoped to caller id + ownership checks on PATCH/DELETE. Manual tab now merges official rows + amber «شخصية» rows (badge, notes line with StickyNote icon, edit/delete for owner); students get single «حصة شخصية» button, supervisors get «حصة رسمية» + «حصة شخصية» side-by-side; legend line explains the amber rows; PersonalSlotDialog covers add+edit (day/time/type/place/notes + privacy note). download/supabase_personal_schedule.sql for production (IF NOT EXISTS, permissive RLS per repo pattern). Commit a3dcf0f.
+- Part G (§15): tour-overlay.tsx — 3 steps (talib-tour-services grid → talib-tour-gear → talib-tour-profile), spotlight ring + dim via huge box-shadow (no deps), scroll/resize tracking, above/below tooltip placement, step dots, تخطّي/التالي/يلا نبدأ. Once per user (localStorage talib-tour-<userId>), only on HOME after onboarding, dismissible. Anchors tagged in home-screen/page.tsx/bottom-nav-bar. Wired into ShellInner next to SonnerToaster. Commit a8072e3.
+- Part H: home flattened — 8 service tiles Card→borderless bg-muted/40, announcements per-row Cards→divide-y list + plain-text states, join banners/Telegram/onboarding hint→borderless tinted rounded-2xl; Card import removed. Commit c00eadf.
+- Part I: fixed 3 suppressed TS errors (mark-read as-never/skipDuplicates → plain createMany with in-code dedup; telegram/setup select{head,limit}→.limit(1); verify-review2 role cast to UserRole); tsconfig excludes platform skills/; next.config ignoreBuildErrors REMOVED — build now fails on type errors; tsc --noEmit = 0 errors, production build green. cleanup-test-accounts.ts wiped round-26+27 test users (dev DB: 0 users). Commits ede6a2e, ef78128 (title tooltip), c20ad46.
+- Verification (390×844 real browser, port 3100, seeded structure): signed up round27-test@talib.dev through the UI, completed 6-step onboarding → tour auto-opened on HOME, all 3 steps + dots + skip verified via screenshots; flag persisted (talib-tour-2: done), reload does NOT re-show. Schedule: added personal class (Mon 08:00–09:30 TD B12 + notes) → amber row + badge + notes rendered; edit room→C20 persisted; delete confirmed → gone. Student gating re-checked by DB role flip (OWNER saw both buttons, STUDENT sees one). Dark mode amber rows legible. scrollWidth=390 (no overflow) on home+schedule; zero console/page errors. Screenshots: download/verify-390/r27-*.png.
+- Report: تقرير-إصلاحات-الجولة-27.md (repo convention).
+
+Stage Summary:
+- Deliverable: 6 commits a3dcf0f..c20ad46 on local main, one per part + fixes, ready to push.
+- Key decisions: personal classes are a SEPARATE table (never mixed with official schedule — §7 wording); tour flag is localStorage-only (UI concern, not academic data); box reduction scoped to HOME (settings/profile keep intentional card structure); ignoreBuildErrors removed now that tsc is clean.
+- Production note: run download/supabase_personal_schedule.sql once in Supabase SQL editor (app degrades gracefully until then).
