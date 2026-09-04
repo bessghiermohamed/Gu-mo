@@ -4,12 +4,11 @@ import * as React from "react";
 import {
   Mail, IdCard, Building, BookOpen, Users, Shield, LogOut,
   ChevronLeft, Trash2, AlertTriangle, Loader2, UserPlus, Layers,
-  Calendar, FolderTree, Flag, Bell, VolumeX, Info,
+  Calendar, FolderTree, Flag, Settings,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -23,28 +22,6 @@ import { toast } from "sonner";
 
 interface Props {
   onSignOut: () => void;
-}
-
-// round 24 — notification preference categories (mirrors
-// src/lib/notifications.ts MUTABLE_CATEGORIES; kept local so the
-// screen stays a pure presentational unit).
-const CATEGORY_META: Array<{
-  key: string;
-  label: string;
-  desc: string;
-  supervisorOnly?: boolean;
-}> = [
-  { key: "announcements", label: "الإعلانات", desc: "إشعار عند نشر إعلان جديد في تخصصك" },
-  { key: "exams", label: "الاختبارات", desc: "إشعار عند جدولة اختبار أو تغيير موعده" },
-  { key: "assignments", label: "الواجبات", desc: "إشعار عند إضافة واجب أو تغيير موعد تسليمه" },
-  { key: "library", label: "المكتبة", desc: "إشعار عند إضافة مرجع جديد للمكتبة" },
-  { key: "reminders", label: "التذكيرات", desc: "تذكير قبل الاختبارات ومواعيد تسليم الواجبات" },
-  { key: "group_events", label: "طلبات الانضمام", desc: "تنبيه عند وصول طلب انضمام جديد بانتظار مراجعتك", supervisorOnly: true },
-  { key: "reports", label: "التبليغات", desc: "تنبيه عند وصول تبليغ جديد من طالب", supervisorOnly: true },
-];
-
-function isSupervisor(role: string | undefined): boolean {
-  return role === "REPRESENTATIVE" || role === "SPECIALTY_ADMIN" || role === "OWNER";
 }
 
 export function TalibProfileScreen({ onSignOut }: Props) {
@@ -70,55 +47,6 @@ export function TalibProfileScreen({ onSignOut }: Props) {
       })
       .catch(() => {});
   }, [user]);
-
-  // round 24 — notification preferences state
-  const [prefsAvailable, setPrefsAvailable] = React.useState<boolean | null>(null);
-  const [muted, setMuted] = React.useState<string[]>([]);
-  const [savingPref, setSavingPref] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!user) return;
-    setPrefsAvailable(null);
-    fetch("/api/notifications/preferences", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((data) => {
-        setPrefsAvailable(data.available === true);
-        setMuted(Array.isArray(data.mutedTypes) ? data.mutedTypes : []);
-      })
-      .catch(() => setPrefsAvailable(false));
-  }, [user]);
-
-  const toggleCategory = React.useCallback(
-    async (key: string, nextMuted: boolean) => {
-      if (savingPref) return;
-      const prev = muted;
-      const next = nextMuted
-        ? Array.from(new Set([...prev, key]))
-        : prev.filter((k) => k !== key);
-      setMuted(next); // optimistic
-      setSavingPref(true);
-      try {
-        const res = await fetch("/api/notifications/preferences", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mutedTypes: next }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setMuted(prev); // revert
-          toast.error(data.error ?? "تعذّر حفظ التفضيل");
-          return;
-        }
-        setMuted(Array.isArray(data.mutedTypes) ? data.mutedTypes : next);
-      } catch {
-        setMuted(prev); // revert
-        toast.error("تعذّر حفظ التفضيل — تحقق من الاتصال");
-      } finally {
-        setSavingPref(false);
-      }
-    },
-    [muted, savingPref]
-  );
 
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [deleteConfirm, setDeleteConfirm] = React.useState("");
@@ -153,10 +81,6 @@ export function TalibProfileScreen({ onSignOut }: Props) {
     : user.scopeCohortGroupId
     ? `فوج #${user.scopeCohortGroupId}`
     : "بلا فوج (قيد الإلحاق)";
-
-  const visibleCategories = CATEGORY_META.filter(
-    (c) => !c.supervisorOnly || isSupervisor(user.role)
-  );
 
   return (
     <div className="space-y-4">
@@ -201,66 +125,8 @@ export function TalibProfileScreen({ onSignOut }: Props) {
         <InfoRow icon={<Users className="w-4 h-4" />} label="الفوج" value={cohortDisplay} highlight={cohortDisplay.startsWith("بلا فوج")} />
       </Card>
 
-      {/* round 24 — notification preferences: the anti-spam control
-          center. Muted categories stop at the emitter, so unread
-          counts and the 30s poll payload shrink too. Transactional
-          outcomes (join request results) are always delivered. */}
-      <Card className="p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-            <Bell className="w-4 h-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-sm">تفضيلات الإشعارات</h3>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              أطفئ ما لا يهمّك — يصل تنبيه «طلبات الانضمام» ونتائجها دائماً
-            </p>
-          </div>
-          {muted.length > 0 && (
-            <Badge variant="secondary" className="text-[10px] shrink-0">
-              <VolumeX className="w-3 h-3 ml-0.5" />
-              {muted.length} مكتوم
-            </Badge>
-          )}
-        </div>
-
-        {prefsAvailable === null ? (
-          <div className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            جارٍ تحميل تفضيلاتك…
-          </div>
-        ) : prefsAvailable === false ? (
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/5 border border-amber-500/30 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-            <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            <span>
-              التفضيلات تحتاج تحديثاً واحداً لقاعدة البيانات (جدول notification_prefs —
-              نفّذ download/supabase_notification_prefs.sql من محرر SQL). حالياً تصلك
-              كل الإشعارات.
-            </span>
-          </div>
-        ) : (
-          <div className="divide-y divide-border rounded-lg border">
-            {visibleCategories.map((c) => {
-              const isOn = !muted.includes(c.key);
-              return (
-                <div key={c.key} className="flex items-center gap-3 px-3 py-2.5">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">{c.label}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.1 leading-snug">{c.desc}</p>
-                  </div>
-                  <Switch
-                    checked={isOn}
-                    disabled={savingPref}
-                    onCheckedChange={(checked) => toggleCategory(c.key, !checked)}
-                    aria-label={c.label}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-
+      {/* round 26: notification preferences moved to the settings screen
+          (gear icon). A link stays here for discoverability. */}
       <div className="space-y-2">
         {user.scopeCohortGroupId == null && (
           <Button
@@ -293,6 +159,18 @@ export function TalibProfileScreen({ onSignOut }: Props) {
             ومن بينهم الطالب العادي — زر «الإبلاغ عن مشكلة» واضح هنا، مع زر
             «إرسال التبليغ» الظاهر دائماً. */}
         <ReportIssueDialog />
+
+        <Button
+          variant="outline"
+          className="w-full justify-between"
+          onClick={() => navigate("SETTINGS")}
+        >
+          <span className="flex items-center">
+            <Settings className="w-4 h-4 ml-2" />
+            الإعدادات
+          </span>
+          <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
+        </Button>
 
         <Button variant="outline" className="w-full" onClick={onSignOut}>
           <LogOut className="w-4 h-4 ml-2" />

@@ -21,6 +21,7 @@ import { TalibExamsScreen } from "@/components/talib/screens/exams-screen";
 import { TalibGradesScreen } from "@/components/talib/screens/grades-screen";
 import { TalibFilesScreen } from "@/components/talib/screens/files-screen";
 import { TalibProfileScreen } from "@/components/talib/screens/profile-screen";
+import { TalibSettingsScreen } from "@/components/talib/screens/settings-screen";
 import { TalibAnnouncementsScreen } from "@/components/talib/screens/announcements-screen";
 import { TalibAdminPanelScreen } from "@/components/talib/screens/admin-panel-screen";
 import { TalibGroupScreen } from "@/components/talib/screens/group-screen";
@@ -46,6 +47,7 @@ export type ScreenRoute =
   | "GROUP"
   | "BROWSE_GROUPS"
   | "PROFILE"
+  | "SETTINGS"
   | "ANNOUNCEMENTS"
   | "ADMIN"
   | "TELEGRAM"
@@ -72,6 +74,7 @@ const ROUTE_TO_HASH: Record<ScreenRoute, string> = {
   GROUP: "group",
   BROWSE_GROUPS: "browse-groups",
   PROFILE: "profile",
+  SETTINGS: "settings",
   ANNOUNCEMENTS: "announcements",
   ADMIN: "admin",
   TELEGRAM: "telegram",
@@ -618,13 +621,15 @@ function ShellInner() {
                   )}
                 </Button>
 
-                {/* Admin / Profile menu */}
+                {/* Settings gear (round 26): opens the app settings screen
+                    — notification preferences live here now, more sections
+                    can be added later. Previously it only jumped to حسابي. */}
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => navigate("PROFILE")}
+                  onClick={() => navigate("SETTINGS")}
                   className="shrink-0 h-10 w-10"
-                  aria-label={t("nav.profile")}
+                  aria-label="الإعدادات"
                 >
                   <Settings className="w-4 h-4" />
                 </Button>
@@ -685,6 +690,7 @@ function ShellInner() {
                   }}
                 />
               )}
+              {effectiveScreen === "SETTINGS" && <TalibSettingsScreen />}
               {effectiveScreen === "ADMIN" && <TalibAdminPanelScreen />}
             </motion.div>
           </AnimatePresence>
