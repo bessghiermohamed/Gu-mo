@@ -8,11 +8,10 @@ import "./globals.css";
 // hooks/use-toast.ts were deleted with it (safety grep: no other importers).
 import { ThemeProvider } from "@/components/talib/theme-provider";
 import { I18nProvider } from "@/components/talib/i18n-provider";
-
-// Google AdSense — loads after hydration (non-blocking), publisher ca-pub-8081529487869617.
-// Verified via public/ads.txt. NOTE: AdSense is valid for BROWSER usage only —
-// if Talib is ever wrapped in an APK/WebView (TWA), switch to AdMob or risk account ban.
-const ADSENSE_CLIENT = "ca-pub-8081529487869617";
+import { ADSENSE_CLIENT } from "@/lib/ads";
+// AdSense loader is global (afterInteractive, non-blocking) — publisher id in
+// src/lib/ads.ts, verified via public/ads.txt. NOTE: browser-only; if Talib is
+// ever wrapped in an APK/WebView (TWA), switch to AdMob or risk account ban.
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
