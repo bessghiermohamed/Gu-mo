@@ -433,6 +433,10 @@ model LibraryReference {
   fileSize        Int?     // bytes
   storagePath     String?  // Google Drive fileId
 
+  // round 33 — المواد: optional course link; when set, the material shows
+  // in that course's المواد tab (تفاصيل المقياس) as well as the library.
+  moduleId        Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

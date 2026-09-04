@@ -20,19 +20,30 @@ import { notifyContentPublished } from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ items: [] });
+  // round 33: optional course filter — تفاصيل المقياس → المواد tab fetches
+  // /api/library?moduleId=N. Without the param the specialty-wide list is
+  // returned exactly as before.
+  const moduleId = req.nextUrl.searchParams.get("moduleId");
   try {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      const { data, error } = await supabase
+      let query = supabase
         .from("library_references")
         .select("*")
-        .eq("specialty_id", user.assignedSpecialtyId)
+        .eq("specialty_id", user.assignedSpecialtyId);
+      if (moduleId) query = query.eq("module_id", Number(moduleId));
+      const { data, error } = await query
         .order("id", { ascending: false })
         .limit(100);
-      if (error) return NextResponse.json({ items: [] });
+      if (error) {
+        // module_id column may not exist yet (owner hasn't run the SQL) —
+        // course view degrades to an empty list + setup hint, never a 500.
+        if (moduleId) return NextResponse.json({ items: [], needsSchema: true });
+        return NextResponse.json({ items: [] });
+      }
       const items = (data ?? []).map((r: Record<string, unknown>) => ({
         id: Number(r.id), title: String(r.title ?? ""), author: String(r.author ?? ""),
         category: String(r.category ?? "كتاب مرجعي"), description: String(r.description ?? ""),
@@ -40,11 +51,15 @@ export async function GET() {
         // round 32: optional Drive-publish metadata (missing column → null)
         fileSize: r.file_size != null ? Number(r.file_size) : null,
         driveFileId: r.storage_path ? String(r.storage_path) : null,
+        moduleId: r.module_id != null ? Number(r.module_id) : null,
       }));
       return NextResponse.json({ items });
     }
     const rows = await db.libraryReference.findMany({
-      where: { specialtyId: user.assignedSpecialtyId },
+      where: {
+        specialtyId: user.assignedSpecialtyId,
+        ...(moduleId ? { moduleId: Number(moduleId) } : {}),
+      },
       orderBy: { id: "desc" },
       take: 100,
     });
@@ -53,6 +68,7 @@ export async function GET() {
         id: r.id, title: r.title, author: r.author, category: r.category,
         description: r.description, fileFormat: r.fileFormat, downloadUrl: r.downloadUrl,
         fileSize: r.fileSize ?? null, driveFileId: r.storagePath ?? null,
+        moduleId: r.moduleId ?? null,
       })),
     });
   } catch (e) {
@@ -67,7 +83,7 @@ export async function POST(req: NextRequest) {
   }
   try {
     const body = await req.json();
-    const { title, author, category, description, fileFormat, downloadUrl, driveFileId, fileSize } = body;
+    const { title, author, category, description, fileFormat, downloadUrl, driveFileId, fileSize, moduleId } = body;
     if (!title?.trim()) {
       return NextResponse.json({ error: "العنوان مطلوب" }, { status: 400 });
     }
@@ -82,19 +98,21 @@ export async function POST(req: NextRequest) {
         file_format: fileFormat?.trim() || "PDF",
         download_url: downloadUrl?.trim() || "",
       };
-      // round 32: publish-from-Drive metadata. The columns are optional —
-      // if the owner hasn't run the 2-line ALTER yet, insert the base row
-      // anyway instead of failing the whole publish.
+      // round 32/33: publish-from-Drive + course-scoping metadata. The
+      // columns are optional — if the owner hasn't run the ALTER yet, the
+      // base row is inserted anyway instead of failing the whole publish.
+      const wantsExtra = driveFileId || fileSize != null || moduleId != null;
       let data: Record<string, unknown> | null = null;
       let error: { message: string } | null = null;
-      if (driveFileId || fileSize != null) {
+      if (wantsExtra) {
         const full = await supabase.from("library_references").insert({
           ...base,
           storage_path: driveFileId ? String(driveFileId) : null,
           file_size: fileSize != null ? Number(fileSize) : null,
+          module_id: moduleId != null ? Number(moduleId) : null,
         }).select().single();
         data = full.data; error = full.error;
-        if (error && !/file_size|storage_path|column/i.test(error.message)) {
+        if (error && !/file_size|storage_path|module_id|column/i.test(error.message)) {
           return NextResponse.json({ error: error.message }, { status: 500 });
         }
       }
@@ -127,6 +145,7 @@ export async function POST(req: NextRequest) {
         downloadUrl: downloadUrl?.trim() || "",
         ...(driveFileId ? { storagePath: String(driveFileId) } : {}),
         ...(fileSize != null ? { fileSize: Number(fileSize) } : {}),
+        ...(moduleId != null ? { moduleId: Number(moduleId) } : {}),
       },
     });
     await notifyContentPublished({

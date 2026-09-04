@@ -24,16 +24,17 @@ import {
   BookOpen, FlaskConical, CheckSquare, Send, Loader2, ExternalLink,
   FileText, ImageIcon, Video, Headphones, File, MessageSquare, LinkIcon,
   CalendarDays, Clock, MapPin, User, GraduationCap, AlertTriangle,
-  RefreshCw, ChevronLeft, Star, Sparkles,
+  RefreshCw, ChevronLeft, Star, Sparkles, Download, HardDrive,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type CourseSummary } from "@/app/app/page";
-import { cn } from "@/lib/utils";
+import { canManageRoles } from "@/lib/auth/permissions";
+import { PublishToLibraryDialog } from "@/components/talib/cloud/publish-dialog";
+import { cn, formatBytes } from "@/lib/utils";
 
 // Mirror of /api/telegram/items response (module-filtered)
 interface TgItem {
@@ -68,6 +69,19 @@ interface AssignmentItem {
   dueDate: string;
   description: string;
   maxScore: number;
+}
+
+// round 33 — المواد: library references scoped to THIS course
+interface MaterialItem {
+  id: number;
+  title: string;
+  author: string;
+  category: string;
+  description: string;
+  fileFormat: string;
+  downloadUrl: string;
+  fileSize: number | null;
+  driveFileId: string | null;
 }
 
 function kindIcon(kind: string, className = "w-4 h-4") {
@@ -130,7 +144,6 @@ function SectionEmpty({ icon, title, hint }: { icon: React.ReactNode; title: str
 }
 
 export function TalibCourseDetailScreen({ course }: { course: CourseSummary | null }) {
-  const { t } = useI18n();
   const { navigate, navigateBack } = useShell();
 
   // ---- الدروس (telegram items linked to this module) ----
@@ -153,6 +166,16 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
   // lesson: browser-global keys leak across accounts on shared devices).
   const { user } = useAuth();
   const [newLessonIds, setNewLessonIds] = React.useState<Set<number>>(new Set());
+  const canManage = canManageRoles(user ?? null);
+
+  // round 33 — المواد (library references linked to this module).
+  // Owner request: "in the course materials I couldn't find a file upload
+  // button" — this tab is exactly that: every course gets its own materials
+  // list + a publish-from-Drive button for supervisors.
+  const [materials, setMaterials] = React.useState<MaterialItem[]>([]);
+  const [materialsState, setMaterialsState] = React.useState<"loading" | "ok" | "error">("loading");
+  const [materialsNeedsSchema, setMaterialsNeedsSchema] = React.useState(false);
+  const [materialsTick, setMaterialsTick] = React.useState(0);
 
   const moduleId = course?.id;
 
@@ -231,6 +254,25 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
       .catch(() => alive && setAssignmentsState("error"));
     return () => { alive = false; };
   }, [moduleId, assignmentsTick]);
+
+  React.useEffect(() => {
+    if (!moduleId) return;
+    let alive = true;
+    setMaterialsState("loading");
+    fetch(`/api/library?moduleId=${moduleId}`, { cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        if (!alive) return;
+        setMaterials(d.items ?? []);
+        setMaterialsNeedsSchema(Boolean(d.needsSchema));
+        setMaterialsState("ok");
+      })
+      .catch(() => alive && setMaterialsState("error"));
+    return () => { alive = false; };
+  }, [moduleId, materialsTick]);
 
   // Deep link with an expired/absent course context
   if (!course) {
@@ -324,14 +366,17 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
 
       {/* Content tabs */}
       <Tabs defaultValue="lessons">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="lessons" className="data-[state=active]:font-bold text-xs">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="lessons" className="data-[state=active]:font-bold text-xs px-1">
             <Send className="w-3.5 h-3.5 ml-1" />الدروس
           </TabsTrigger>
-          <TabsTrigger value="exams" className="data-[state=active]:font-bold text-xs">
+          <TabsTrigger value="materials" className="data-[state=active]:font-bold text-xs px-1">
+            <FileText className="w-3.5 h-3.5 ml-1" />المواد
+          </TabsTrigger>
+          <TabsTrigger value="exams" className="data-[state=active]:font-bold text-xs px-1">
             <FlaskConical className="w-3.5 h-3.5 ml-1" />الاختبارات
           </TabsTrigger>
-          <TabsTrigger value="assignments" className="data-[state=active]:font-bold text-xs">
+          <TabsTrigger value="assignments" className="data-[state=active]:font-bold text-xs px-1">
             <CheckSquare className="w-3.5 h-3.5 ml-1" />الواجبات
           </TabsTrigger>
         </TabsList>
@@ -419,6 +464,80 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
                 <Send className="w-4 h-4 ml-1" />تصفّح دروس تيليجرام الكاملة
               </Button>
             </>
+          )}
+        </TabsContent>
+
+        {/* ---- المواد (round 33) ---- */}
+        <TabsContent value="materials" className="mt-4 space-y-3">
+          {canManage && (
+            <PublishToLibraryDialog
+              onCreated={() => setMaterialsTick((n) => n + 1)}
+              moduleId={course.id}
+              defaultCategory="محاضرة"
+              triggerLabel="إضافة مادة للمقياس"
+            />
+          )}
+
+          {materialsState === "loading" && <SectionLoading />}
+          {materialsState === "error" && (
+            <SectionError onRetry={() => setMaterialsTick((n) => n + 1)} />
+          )}
+          {materialsState === "ok" && materialsNeedsSchema && (
+            <Card className="p-4 border-amber-500/30 bg-amber-500/5">
+              <p className="text-xs leading-relaxed">
+                لربط المواد بهذا المقياس يحتاج عمود واحد في قاعدة البيانات
+                (لمرة واحدة فقط). بعد إضافته تظهر المواد هنا تلقائياً — حتى
+                ذلك الحين تُحفظ المواد الجديدة في المكتبة العامة.
+              </p>
+            </Card>
+          )}
+          {materialsState === "ok" && !materialsNeedsSchema && materials.length === 0 && (
+            <SectionEmpty
+              icon={<FileText className="w-10 h-10" />}
+              title="لا توجد مواد مرفوعة لهذا المقياس بعد"
+              hint={canManage
+                ? "ارفع محاضرات وملخصات المقياس بزر «إضافة مادة للمقياس» — تُحفظ في حساب Drive الخاص بك ويحمّلها الطلبة مباشرة."
+                : "ستظهر محاضرات وملخصات هذا المقياس هنا عند رفعها من طرف المشرفين."}
+            />
+          )}
+          {materialsState === "ok" && materials.length > 0 && (
+            <div className="space-y-2">
+              {materials.map((m) => (
+                <Card key={m.id} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-bold text-sm">{m.title}</h3>
+                        <Badge variant="outline" className="text-xs">{m.fileFormat}</Badge>
+                        {m.fileSize != null && (
+                          <Badge variant="outline" className="text-xs">{formatBytes(m.fileSize)}</Badge>
+                        )}
+                        {m.driveFileId && (
+                          <Badge className="text-[10px] bg-primary/10 text-primary border border-primary/20">
+                            <HardDrive className="w-3 h-3 ml-1" />على Drive
+                          </Badge>
+                        )}
+                      </div>
+                      {m.description && (
+                        <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{m.description}</p>
+                      )}
+                      {m.author && (
+                        <p className="text-xs text-muted-foreground mt-2">بواسطة: {m.author}</p>
+                      )}
+                    </div>
+                    {m.downloadUrl && (
+                      <a href={m.downloadUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                        {m.driveFileId ? (
+                          <Button size="sm" variant="outline"><Download className="w-3.5 h-3.5 ml-1" />تنزيل</Button>
+                        ) : (
+                          <Button size="sm" variant="outline"><ExternalLink className="w-3.5 h-3.5 ml-1" />فتح</Button>
+                        )}
+                      </a>
+                    )}
+                  </div>
+                </Card>
+              ))}
+            </div>
           )}
         </TabsContent>
 

@@ -91,6 +91,10 @@ export function DriveTab() {
   const [uploading, setUploading] = React.useState(false);
   const [deletingFile, setDeletingFile] = React.useState<DriveFileMeta | null>(null);
   const [shareBusy, setShareBusy] = React.useState<string | null>(null);
+  // round 33: owner request — disconnecting Drive must warn first, not act
+  // silently. The dialog below spells out that files stay in the user's
+  // account and only the connection is removed.
+  const [confirmDisconnect, setConfirmDisconnect] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const folderIdRef = React.useRef<string | null>(null);
 
@@ -248,12 +252,19 @@ export function DriveTab() {
     }
   }
 
+  // opens the confirmation dialog — actual disconnect happens only after
+  // the user confirms (round 33)
   function handleDisconnect() {
+    setConfirmDisconnect(true);
+  }
+
+  function handleDisconnectConfirm() {
     disconnectDrive();
     setConnected(false);
     setFiles([]);
     setQuota(null);
     folderIdRef.current = null;
+    setConfirmDisconnect(false);
     toast.info("تم فصل Google Drive — ملفاتك ما تزال في Drive نفسه");
   }
 
@@ -526,6 +537,34 @@ export function DriveTab() {
               </Button>
               <Button variant="destructive" onClick={handleDeleteConfirm}>
                 حذف
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* round 33: disconnect confirmation — files stay in Drive, only the
+          app's access is removed; user must confirm before it happens */}
+      {confirmDisconnect && (
+        <Dialog open onOpenChange={() => setConfirmDisconnect(false)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="text-destructive flex items-center gap-2">
+                <LogOut className="w-5 h-5" />
+                فصل Google Drive
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm leading-relaxed">
+              هل تريد فصل حساب Drive؟ <strong>ملفاتك لن تُحذف</strong> — ستبقى
+              في مجلد «طالب — Talib» داخل حسابك على Google. ستحتاج فقط إلى
+              إعادة الربط لعرض ملفاتك أو رفع ملفات جديدة من هنا.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmDisconnect(false)}>
+                إلغاء
+              </Button>
+              <Button variant="destructive" onClick={handleDisconnectConfirm}>
+                فصل الاتصال
               </Button>
             </DialogFooter>
           </DialogContent>
