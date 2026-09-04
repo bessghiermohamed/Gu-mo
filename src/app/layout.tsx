@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Cairo, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 // round 4: removed the unused radix <Toaster /> from the old shadcn toast
@@ -76,6 +78,11 @@ export default function RootLayout({
           crossOrigin="anonymous"
           strategy="afterInteractive"
         />
+        {/* Vercel native add-ons: Web Analytics (audience, referrers, paths) +
+            Speed Insights (Core Web Vitals — page-experience signal for
+            AdSense). Both defer to Vercel's edge, zero config, Hobby-free. */}
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
