@@ -4,7 +4,7 @@ import * as React from "react";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/talib/auth-provider";
-import type { ScreenRoute } from "@/app/page";
+import type { ScreenRoute } from "@/app/app/page";
 
 /**
  * round 27 (review §15): first-run guidance tour.

@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
-import { useShell, type ScreenRoute } from "@/app/page";
+import { useShell, type ScreenRoute } from "@/app/app/page";
 import { computeGpa } from "@/lib/grades";
 
 interface LatestAnnouncement {

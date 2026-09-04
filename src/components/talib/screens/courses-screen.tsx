@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
-import { useShell, type CourseSummary } from "@/app/page";
+import { useShell, type CourseSummary } from "@/app/app/page";
 import { canCreateModules } from "@/lib/auth/permissions";
 import { toast } from "sonner";
 

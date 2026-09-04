@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { canManageRoles } from "@/lib/auth/permissions";
-import type { ScreenRoute } from "@/app/page";
+import type { ScreenRoute } from "@/app/app/page";
 
 interface Props {
   currentScreen: ScreenRoute;

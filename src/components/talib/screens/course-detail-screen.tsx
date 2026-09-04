@@ -32,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
-import { useShell, type CourseSummary } from "@/app/page";
+import { useShell, type CourseSummary } from "@/app/app/page";
 import { cn } from "@/lib/utils";
 
 // Mirror of /api/telegram/items response (module-filtered)

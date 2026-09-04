@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
-import { useShell } from "@/app/page";
+import { useShell } from "@/app/app/page";
 import { toast } from "sonner";
 
 interface Props {

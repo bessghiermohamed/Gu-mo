@@ -29,7 +29,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/components/talib/auth-provider";
-import { useShell } from "@/app/page";
+import { useShell } from "@/app/app/page";
 import { canManageRoles } from "@/lib/auth/permissions";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
