@@ -12,7 +12,7 @@ import { PrismaClient } from "@prisma/client";
 
 const db = new PrismaClient();
 
-const TEST_EMAILS = ["test-student-26@talib.dev"];
+const TEST_EMAILS = ["test-student-26@talib.dev", "round27-test@talib.dev"];
 
 async function main() {
   for (const email of TEST_EMAILS) {
