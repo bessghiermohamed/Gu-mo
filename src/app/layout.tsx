@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Cairo, Geist, Geist_Mono } from "next/font/google";
@@ -72,12 +71,6 @@ export default function RootLayout({
         >
           <I18nProvider>{children}</I18nProvider>
         </ThemeProvider>
-        <Script
-          id="google-adsense"
-          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`}
-          crossOrigin="anonymous"
-          strategy="afterInteractive"
-        />
         {/* Vercel native add-ons: Web Analytics (audience, referrers, paths) +
             Speed Insights (Core Web Vitals — page-experience signal for
             AdSense). Both defer to Vercel's edge, zero config, Hobby-free. */}

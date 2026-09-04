@@ -26,6 +26,7 @@ import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { AcademicPathDialog } from "@/components/talib/screens/academic-path-dialog";
 
 // =====================================================
 // Shared types + cascade hook (fix أ.1/أ.2/ب)
@@ -427,7 +428,7 @@ function ControlCenterOverview({ stats, loading, error, onRetry, onGoToTab }: {
 interface AppUserRow {
   id: number; fullName: string; email: string; studentId: string;
   role: string; specialtyName: string; yearName: string; groupNumber: string;
-  assignedSpecialtyId: number; scopeCohortGroupId: number | null;
+  assignedSpecialtyId: number; scopeAcademicYearId: number | null; scopeTrackId: number | null; scopeGroupId: number | null; scopeCohortGroupId: number | null;
   scopeInstitutionId: number | null;
   representativeScope: string;
 }
@@ -441,6 +442,7 @@ function UsersManager() {
   const [deleteUser, setDeleteUser] = React.useState<AppUserRow | null>(null);
   // round 9 (spec §4 — Method B): direct assignment dialog per student row
   const [assignUser, setAssignUser] = React.useState<AppUserRow | null>(null);
+  const [pathUser, setPathUser] = React.useState<AppUserRow | null>(null);
 
   const fetchUsers = React.useCallback(async () => {
     setLoading(true);
@@ -548,6 +550,9 @@ function UsersManager() {
                                     </div>
                                   </div>
                                   <div className="flex gap-1 shrink-0">
+                                    <Button size="sm" variant="outline" onClick={() => setPathUser(u)} title="تغيير المسار الأكاديمي">
+                                      <Route className="w-3.5 h-3.5 ml-1" />المسار
+                                    </Button>
                                     {u.role === "STUDENT" && (
                                       <Button size="sm" variant="outline" onClick={() => setAssignUser(u)} title="إلحاق مباشر بفوج">
                                         <ArrowLeftRight className="w-3.5 h-3.5 ml-1" />إلحاق
@@ -578,6 +583,7 @@ function UsersManager() {
       )}
       {promoteUser && <PromoteDialog user={promoteUser} onClose={() => setPromoteUser(null)} onDone={() => { setPromoteUser(null); fetchUsers(); }} />}
       {assignUser && <AssignDialog user={assignUser} onClose={() => setAssignUser(null)} onDone={() => { setAssignUser(null); fetchUsers(); }} />}
+      {pathUser && <AcademicPathDialog user={pathUser} onClose={() => setPathUser(null)} onDone={() => { setPathUser(null); fetchUsers(); }} />}
       {deleteUser && (
         <Dialog open onOpenChange={() => setDeleteUser(null)}>
           <DialogContent>
