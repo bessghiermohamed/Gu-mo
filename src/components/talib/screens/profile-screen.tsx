@@ -115,14 +115,25 @@ export function TalibProfileScreen({ onSignOut }: Props) {
         </div>
       </Card>
 
-      <Card className="p-2 divide-y divide-border">
-        <InfoRow icon={<IdCard className="w-4 h-4" />} label="الرقم التسلسلي" value={user.studentId} />
-        <InfoRow icon={<Building className="w-4 h-4" />} label="المؤسسة" value={profileDetails?.institution ?? "—"} />
-        <InfoRow icon={<BookOpen className="w-4 h-4" />} label="التخصص" value={profileDetails?.specialtyName ?? "—"} />
-        <InfoRow icon={<Layers className="w-4 h-4" />} label="الملمح" value={profileDetails?.trackName ?? "—"} />
-        <InfoRow icon={<Calendar className="w-4 h-4" />} label="السنة" value={profileDetails?.yearName ?? "—"} />
-        <InfoRow icon={<FolderTree className="w-4 h-4" />} label="المجموعة" value={profileDetails?.groupName ?? "—"} />
-        <InfoRow icon={<Users className="w-4 h-4" />} label="الفوج" value={cohortDisplay} highlight={cohortDisplay.startsWith("بلا فوج")} />
+      {/* round 26 — compact academic-identity card: a 2-column key-value
+          grid instead of one full-width row per field. All 7 fields kept;
+          ~45% shorter so it fits a 390px screen without scrolling. */}
+      <Card className="p-3">
+        <div className="grid grid-cols-2 gap-2">
+          <InfoCell icon={<IdCard className="w-3 h-3" />} label="الرقم التسلسلي" value={user.studentId} />
+          <InfoCell icon={<Building className="w-3 h-3" />} label="المؤسسة" value={profileDetails?.institution ?? ""} />
+          <InfoCell icon={<BookOpen className="w-3 h-3" />} label="التخصص" value={profileDetails?.specialtyName ?? ""} />
+          <InfoCell icon={<Layers className="w-3 h-3" />} label="الملمح" value={profileDetails?.trackName ?? ""} />
+          <InfoCell icon={<Calendar className="w-3 h-3" />} label="السنة" value={profileDetails?.yearName ?? ""} />
+          <InfoCell icon={<FolderTree className="w-3 h-3" />} label="المجموعة" value={profileDetails?.groupName ?? ""} />
+          <InfoCell
+            icon={<Users className="w-3 h-3" />}
+            label="الفوج"
+            value={cohortDisplay}
+            highlight={cohortDisplay.startsWith("بلا فوج")}
+            wide
+          />
+        </div>
       </Card>
 
       {/* round 26: notification preferences moved to the settings screen
@@ -254,18 +265,31 @@ export function TalibProfileScreen({ onSignOut }: Props) {
   );
 }
 
-function InfoRow({ icon, label, value, highlight }: { icon: React.ReactNode; label: string; value: string; highlight?: boolean }) {
+function InfoCell({
+  icon,
+  label,
+  value,
+  highlight,
+  wide,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  highlight?: boolean;
+  wide?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-3 p-3">
-      <div className="w-9 h-9 rounded-xl bg-muted text-muted-foreground flex items-center justify-center shrink-0">
+    <div className={`rounded-lg bg-muted/50 px-2.5 py-2 min-w-0 ${wide ? "col-span-2" : ""}`}>
+      <p className="text-[11px] text-muted-foreground flex items-center gap-1">
         {icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className={`text-sm font-bold truncate ${highlight ? "text-amber-600 dark:text-amber-400" : ""}`}>
-          {value || "—"}
-        </p>
-      </div>
+        {label}
+      </p>
+      <p
+        title={value}
+        className={`text-[13px] font-bold truncate mt-0.5 ${highlight ? "text-amber-600 dark:text-amber-400" : ""}`}
+      >
+        {value || "—"}
+      </p>
     </div>
   );
 }
