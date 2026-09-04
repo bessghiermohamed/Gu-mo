@@ -426,6 +426,13 @@ model LibraryReference {
   isSavedOffline  Boolean  @default(true)
   visibilityScope String   @default("تخصص كامل")
 
+  // round 32 — نشر إلى المكتبة: when a supervisor publishes a file from
+  // their own Google Drive, the bytes live in Drive (15 GB, not Supabase);
+  // these optional columns keep the size for display + the Drive fileId so
+  // the publisher can clean the Drive copy when removing the library entry.
+  fileSize        Int?     // bytes
+  storagePath     String?  // Google Drive fileId
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

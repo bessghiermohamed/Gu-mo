@@ -293,13 +293,14 @@ export function uploadToDrive(
   token: string,
   folderId: string,
   file: File,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  sourceTag: string = "talib-web"
 ): Promise<DriveFileMeta> {
   return new Promise((resolve, reject) => {
     const metadata = {
       name: file.name,
       parents: [folderId],
-      appProperties: { app: "talib", source: "talib-web" },
+      appProperties: { app: "talib", source: sourceTag },
     };
     const boundary = "talib-drv-" + Math.random().toString(36).slice(2);
     const pre =
@@ -411,6 +412,77 @@ export async function shareDriveFile(
   }
   const data = await meta.json();
   return data.webViewLink as string;
+}
+
+// ---------------------------------------------------------------------------
+// Library publishing (round 32) — نشر إلى المكتبة
+//
+// An administrator publishes a lecture file from THEIR OWN 15 GB Drive into
+// the shared المكتبة: the bytes live in the admin's Drive (a «مكتبة طالب»
+// subfolder of the app folder), the file becomes anyone-with-link, and only
+// a small metadata row goes to the database — Supabase stores zero bytes.
+// ---------------------------------------------------------------------------
+
+const LIBRARY_FOLDER_NAME = "📚 مكتبة طالب";
+
+/** Find-or-create the library subfolder inside the app folder. */
+export async function findOrCreateLibraryFolder(
+  token: string,
+  appFolderId: string
+): Promise<string> {
+  const q =
+    `name='${LIBRARY_FOLDER_NAME.replace(/'/g, "\\'")}' and ` +
+    `'${appFolderId}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`;
+  const search = await driveFetch(
+    token,
+    `drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)&pageSize=1`
+  );
+  if (search.ok) {
+    const data = await search.json();
+    if (data.files?.length) return data.files[0].id as string;
+  }
+  const create = await driveFetch(token, "drive/v3/files", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: LIBRARY_FOLDER_NAME,
+      mimeType: FOLDER_MIME,
+      parents: [appFolderId],
+      appProperties: { app: "talib", source: "talib-library" },
+    }),
+  });
+  if (!create.ok) {
+    throw new DriveError("http", `libfolder-create-${create.status}`, create.status);
+  }
+  const folder = await create.json();
+  return folder.id as string;
+}
+
+export interface DriveShareLinks {
+  webViewLink: string;
+  webContentLink: string; // direct download URL — works for any student
+}
+
+/** Fetch (or construct) the public links after anyone-with-link sharing. */
+export async function getDriveShareLinks(
+  token: string,
+  fileId: string
+): Promise<DriveShareLinks> {
+  const meta = await driveFetch(
+    token,
+    `drive/v3/files/${fileId}?fields=webViewLink,webContentLink`
+  );
+  if (!meta.ok) {
+    throw new DriveError("http", `links-${meta.status}`, meta.status);
+  }
+  const data = await meta.json();
+  return {
+    webViewLink: (data.webViewLink as string) ?? `https://drive.google.com/file/d/${fileId}/view`,
+    // Drive omits webContentLink for some types — this construction is the
+    // canonical direct-download form and always works once the file is public.
+    webContentLink: (data.webContentLink as string) ??
+      `https://drive.google.com/uc?export=download&id=${fileId}`,
+  };
 }
 
 export async function deleteDriveFile(token: string, fileId: string) {

@@ -41,7 +41,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import {
   DriveError,
   deleteDriveFile,
@@ -60,11 +60,7 @@ import {
 } from "@/lib/drive";
 
 function fmtSize(bytes: number | null): string {
-  if (!bytes && bytes !== 0) return "—";
-  if (bytes < 1024) return `${bytes} بايت`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} ك.ب`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} م.ب`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} ج.ب`;
+  return formatBytes(bytes);
 }
 
 function fmtDate(iso: string): string {
