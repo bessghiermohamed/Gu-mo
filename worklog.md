@@ -125,3 +125,18 @@ Work Log:
 Stage Summary:
 - Deliverables: configurable-path ads test page (ADS_TEST_PATH/ADS_TEST_REAL), calculator consolidated into أدواتي with direct #/tools route from home, 3 new offline tools (7 total), clarified box boundaries across home + schedule.
 - Owner actions: set ADS_TEST_PATH in Vercel (path of choice); set ADS_TEST_REAL=true after AdSense approval.
+
+---
+Task ID: 8
+Agent: main (Super Z)
+Task: Round 30 — add Vercel Marketplace native add-ons (Web Analytics + Speed Insights) in support of the AdSense launch.
+
+Work Log:
+- Investigated Vercel Marketplace (live catalog via browser): third-party integrations (Sentry/Axiom/Resend/Neon…) cannot be installed via API token — browser consent required; native add-ons installable via code.
+- Given vck_ token is limited-scope (project API returns not_found / forbidden), chose the GitHub-code route: bun add @vercel/analytics@2.0.1 + @vercel/speed-insights@2.0.0.
+- Mounted <Analytics /> + <SpeedInsights /> in src/app/layout.tsx root (after AdSense script) — covers all public pages + /app SPA.
+- Verified: tsc 0 errors; next build green; all public routes still SSG; AdSense script/meta/ads.txt untouched.
+- Wrote تقرير-إصلاحات-الجولة-30.md; DB add-on skipped (Supabase+Prisma already in stack); one-click links documented for optional third-party add-ons.
+
+Stage Summary:
+- Native add-ons wired at root: audience analytics (AdSense traffic evidence) + Core Web Vitals (page-experience signal). Owner: after deploy, click Enable on Project → Analytics tab (free).
