@@ -157,3 +157,19 @@ Work Log:
 Stage Summary:
 - Tools live in exactly one place (أدواتي screen); ملفاتي owns library/notes/cloud. Personal files now have a 15 GB home in each student's own Google Drive with zero Supabase usage.
 - Owner action (one-time, 5 min): create Google OAuth Web Client ID (origins: https://gu-mo.vercel.app) → set NEXT_PUBLIC_GOOGLE_CLIENT_ID in Vercel → Redeploy. In-app guide walks through it.
+
+---
+Task ID: 10
+Agent: main (Super Z)
+Task: Round 32 — publish-to-library: supervisors upload lecture files from THEIR OWN 15 GB Google Drive (owner: "use my Drive, not Supabase's 1GB").
+
+Work Log:
+- Design: extends round-31 سحابتي connector — admin links Drive once (same GIS consent), publishes PDF/DOCX/PPTX/images browser→Drive with progress into «📚 مكتبة طالب» subfolder, auto anyone-with-link; students download from المكتبة with zero setup. Supabase stores ONLY the metadata row (~0.4 KB) — zero file bytes.
+- drive.ts: findOrCreateLibraryFolder(), getDriveShareLinks() (webContentLink + constructed fallback), uploadToDrive(sourceTag="talib-library").
+- library API: POST accepts driveFileId/fileSize with graceful fallback (inserts base row if storage_path/file_size columns absent — publish never fails); GET maps both. Prisma LibraryReference += fileSize?/storagePath?.
+- files-screen: AddLibraryItemDialog → two modes (رابط خارجي / رفع ملف (Drive)); missing-client-ID → pointer to سحابتي guide (no duplicated steps); connect card; file picker (title auto-filled, format inferred, size shown); publish with % progress; library cards show size badge + «على Drive» badge + تنزيل button; delete tries Drive cleanup best-effort.
+- utils.ts: shared formatBytes() (drive-tab's local fmtSize now delegates).
+- Verified: genuine tsc 0 errors; build green; public routes still SSG.
+
+Stage Summary:
+- Lectures now flow: admin's 15 GB Drive → whole specialty, students need no account. Vercel 4.5 MB body limit irrelevant (browser→Drive direct). Optional 2-line SQL (file_size/storage_path columns) documented in تقرير-إصلاحات-الجولة-32.md — app works without it (badges hidden).
