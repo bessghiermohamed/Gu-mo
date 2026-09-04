@@ -12,4 +12,4 @@ export const SITE_NAME = "طالب | Talib";
 export const SITE_TAGLINE = "رفيقك الأكاديمي الشامل";
 export const SITE_DESCRIPTION =
   "منصة «طالب» الدراسية للطلاب الجزائريين: المقررات، المحاضرات، الجدول الذكي، حاسبة العلامات، الواجبات، ملفاتي، الفوج والإشعارات — كل ما يحتاجه الطالب في مكان واحد.";
-export const CONTACT_EMAIL = "bessghiermohamed@gmail.com";
+export const CONTACT_EMAIL = "besseghiermohamed719@gmail.com";
