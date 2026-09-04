@@ -54,7 +54,7 @@ async function checkTablesReady(): Promise<boolean> {
   if (!isVercel) return true; // محلياً: جداول Prisma تنشأ بـ db push
   try {
     const supabase = await createSupabaseServerClient();
-    const { error } = await supabase.from("telegram_sources").select("id", { head: true, limit: 1 });
+    const { error } = await supabase.from("telegram_sources").select("id", { head: true }).limit(1);
     return !error;
   } catch {
     return false;

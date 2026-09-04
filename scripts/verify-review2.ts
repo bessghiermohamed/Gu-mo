@@ -17,6 +17,7 @@ import {
   assignableCohortIds,
   cohortCompatibleWithStudent,
 } from "../src/lib/auth/scope";
+import type { UserRole } from "../src/lib/auth/types";
 
 const db = new PrismaClient();
 
@@ -32,7 +33,8 @@ async function main() {
   );
 
   // OLD behavior surface: caller-only scope list
-  const callerOnly = assignableCohortIds(owner, ctx);
+  // (Prisma types role as string — the API layer always casts to UserRole)
+  const callerOnly = assignableCohortIds({ ...owner, role: owner.role as UserRole }, ctx);
   console.log(`1) assignableCohortIds(OWNER) without student filter: ${callerOnly.length} cohorts`);
   const yearsInCallerList = new Set(callerOnly.map((id) => ctx.cohorts.get(id)!.yearId));
   console.log(`   → spans ${yearsInCallerList.size} different years and ${new Set(callerOnly.map((id) => ctx.cohorts.get(id)!.specialtyId)).size} specialties (this is the §2 bug surface)\n`);

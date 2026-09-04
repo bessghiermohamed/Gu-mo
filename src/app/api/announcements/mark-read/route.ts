@@ -53,15 +53,16 @@ export async function POST(req: NextRequest) {
     }
 
     const existing = await db.notificationReadState.findMany({
-      where: { userId: user.id, announcementId: { in: targetIds } } as never,
+      where: { userId: user.id, announcementId: { in: targetIds } },
       select: { announcementId: true },
     });
     const have = new Set(existing.map((r) => r.announcementId));
     const fresh = targetIds.filter((id) => !have.has(id));
     if (fresh.length === 0) return NextResponse.json({ ok: true, inserted: 0 });
     await db.notificationReadState.createMany({
-      data: fresh.map((announcementId) => ({ userId: user.id, announcementId })) as never,
-      skipDuplicates: true,
+      // round 27: dedup already done in code via the `have` set — and the
+      // table carries @@unique([userId, announcementId]) as a backstop.
+      data: fresh.map((announcementId) => ({ userId: user.id, announcementId })),
     });
     return NextResponse.json({ ok: true, inserted: fresh.length });
   } catch (e) {
