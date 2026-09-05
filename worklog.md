@@ -263,3 +263,26 @@ Work Log:
 Stage Summary:
 - Deliverable: cohort acceptance (and any admin-side role/scope change) now lands in the student's UI without reload (bell/حسابي/visibility sync); the file-publish dialog leads with the real Drive upload, eliminating the «it stores on the server» misread.
 - Key decisions: no schema/API changes — both fixes are client-side session hygiene + default-mode flip; visibility refresh throttled to 15s to stay cheap; production env verified correct so no Vercel action needed.
+
+---
+Task ID: 16
+Agent: main (Super Z)
+Task: Round 39 — real actions inside the course interior (lessons/materials/exams/assignments tabs), per owner's "there isn't a single button inside the course; make materials references, not just words".
+
+Work Log:
+- Diagnosis of course-detail-screen.tsx: lessons had only a ghost ExternalLink icon; materials lost their button entirely when downloadUrl was empty; exams/assignments tabs were 100% static cards (zero buttons, description clamped at 3 lines with no recovery).
+- الدروس: TgItem mirror gained mimeType/fileId (API already returned them); new LessonCard component renders image thumbnails via /api/telegram/file proxy (telegram-screen pattern, per-item imgError fallback), a VISIBLE outline «فتح» button per item, and formatted file size.
+- المواد: title itself is now the reference link (primary color + underline on hover) when downloadUrl exists; added «نسخ رابط» clipboard button; URL-less materials honestly badge «بدون رابط»; canManage gets edit (full EditMaterialDialog mirroring files-screen's EditLibraryItemDialog, PATCH /api/library) + delete (confirm dialog, DELETE /api/library?id=).
+- الاختبارات: every user gets «أضف إلى جدولي» → POST /api/schedule/personal with type «امتحان», weekday derived from examDate (getDay()+1, Sun=1..Sat=7), room/time copied, full date preserved in notes; button flips to «أُضيف إلى جدولي» with green check (per-mount state). canManage gets edit (EditExamDialog, module fixed, PATCH /api/exams) + delete confirm (DELETE /api/exams?id=).
+- الواجبات: done-toggle sharing the assignments screen's localStorage key talib-assignments-completed (checked here = checked there); «التفاصيل» dialog with the FULL description (fixes the 3-line clamp) + formatted due date + max score; «تبليغ» report-issue dialog (same /api/issues flow); canManage gets edit (PATCH /api/assignments) + delete confirm.
+- Meta strip: 4th column shows المواد count.
+- Follow-through fix (schedule-screen.tsx + ar/en.json): exam pushed to a FRIDAY/SATURDAY was saved to the personal schedule but invisible there — the day grid rendered only keys 1-5. Weekend cards now render ONLY when day 6/7 has items (official or personal); added schedule.friday/saturday i18n keys. This keeps the button's toast promise «تجده في شاشة الجدول» true.
+- Exams/assignments dates inside the course now display via formatDateAr instead of raw ISO.
+- Verified: tsc 0 errors; eslint clean (2 changed screens); build green (public routes still SSG). Real-browser 390×844 PARALLEL sessions on local SQLite: OWNER saw and exercised every button (material edit actually saved + toast; throwaway exam deleted via UI confirm, API-verified; exam pushed to personal schedule, DB row dayOfWeek=7 room/time/type correct; assignment toggle + details dialog with full 3-line description). STUDENT session saw consumption-only buttons (فتح/نسخ/تفاصيل/تبديل/تبليغ/أضف إلى جدولي, zero manage icons) and pushed the exam to their OWN schedule (separate userId row). Weekend «السبت» card appeared on the schedule screen for both. scrollWidth=390 both sessions, zero console errors. Screenshots download/verify-390-r39/ (local-only per round-33 rule).
+- Cleanup: scripts/r39-seed.ts (ids/seed/cleanup modes; Exam model needs moduleName — required field). Wiped owner39/student39 + course + all dependent rows + personal schedule rows → users 0, content tables 0, acceptance structure intact (2/2/10/6/20).
+- Committed: a277d59 (feature, 5 files) + 4f5a021 (report تقرير-إصلاحات-الجولة-39.md); pushed cc590d5..4f5a021.
+- Deploy check: prod chunk 7028f5105e4e1203.js contains «جدولي» AND «بدون رابط» — round-39 code live on gu-mo.vercel.app.
+
+Stage Summary:
+- Deliverable: the course interior is now interactive end-to-end — every tab carries visible, role-appropriate actions (students: open/copy/download/details/toggle/report/add-to-schedule; supervisors: full edit/delete in place), and materials behave as real references instead of dead words.
+- Key decisions: no schema/API changes (all verbs already existed server-side); assignment done-state deliberately stays device-local under the shared key (parity with existing behavior); weekend day cards render on-demand so empty weeks stay 5-day; image thumbnails reuse the existing Telegram proxy (no new storage surface).
