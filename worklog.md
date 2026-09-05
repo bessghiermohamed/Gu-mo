@@ -190,3 +190,22 @@ Work Log:
 
 Stage Summary:
 - Courses now own their materials: upload inside المقياس via supervisor's 15 GB Drive, students download with zero setup; disconnect is guarded. Repo HEAD clean (275 → 235 tracked files). Optional SQL for full course-linking: ALTER TABLE library_references ADD COLUMN IF NOT EXISTS module_id INTEGER;
+
+---
+Task ID: 12
+Agent: main (Super Z)
+Task: Round 34 — two-tier homepage feature section (visual hierarchy) + owner-requested fixes (typos, duplicate nav, أدواتي description) + new blog (4 Arabic articles).
+
+Work Log:
+- Homepage: FEATURES array split into FEATURES_TOP (3 large cards: حاسبة العلامات, الجدول الذكي, أدواتي NEW with Wrench icon + client-side-tools description) and FEATURES_MORE (6 compact single-line rows inside one bordered container, 2-col ≥sm, small muted icon chips, bold inline titles, full descriptions preserved). Tier labels «الأبرز في طالب» / «وأيضاً داخل حسابك المجاني». Counts kept truthful: intro ثماني→تسع خدمات, hero badge ٨→٩ خدمات. Screenshots/ثلاث خطوات/FAQ sections untouched structurally.
+- Typos: بووزعادة→بوزريعة ×13 across 7 files (evidence: layout.tsx keyword "ENS Bouzaréah" + about page "الجزائر العاصمة"); guide «زرر القلم»→«زرّي», «لمستواها»→«لمستواك»; landing «المراجرة»→«المراجعة», «رافقك»→«يرافقك».
+- Stale أدواتي wording (pre-round-29 "تبويب أدواتي داخل ملفاتي") corrected in /features, /guide, /faq → standalone screen via home card; /features gained section «٤. أدواتي — سبع أدوات تعمل في جهازك دون إنترنت» (sections renumbered ٤→٩); features/guide metadata updated.
+- Duplicate nav: removed دخول التطبيق from footer روابط الموقع (sticky header button already always visible); AdSense-required privacy/contact links untouched.
+- Blog: src/lib/blog.ts (4 original Arabic articles ~600-800 words: GPA-by-coefficients with numeric example, pomodoro, phone-photos→PDF, weekly review schedule); /blog index (SSG, ar-DZ month names) + /blog/[slug] (SSG via generateStaticParams + dynamicParams=false, Article JSON-LD, mid-article AdUnit, app CTA); المدونة added to header NAV + footer; sitemap includes /blog 0.7 + 4 posts 0.6/monthly.
+- Bugfix found during review: missing React key on homepage SCREENS map (eslint error) — key={s.src}.
+- Verified: genuine tsc 0 errors; eslint clean on 13 changed files; build green with /blog static ○ and 4 posts SSG ●; prod server + real browser: all public routes 200, /blog/unknown 404, zero بووزعادة across 7 pages, href="/blog" ×3 on homepage, no horizontal overflow at 1280/390 (screenshots download/verify-390/r34-*.png).
+- Pitfall logged: agent-browser stale server on port 3344 returned 404 for /blog after rebuild — kill next-server (not just "next start") before re-testing.
+
+Stage Summary:
+- Deliverable: homepage feature section now signals hierarchy (3 differentiators prominent, 6 essentials compact), site copy corrected (بوزريعة, أدواتي standalone wording), footer de-duplicated, and a 4-article Arabic blog live for AdSense content depth.
+- Owner note: if the Supabase institution row spells the school «بووزعادة», rename it from admin (الهيكل ← المؤسسات) to match.
