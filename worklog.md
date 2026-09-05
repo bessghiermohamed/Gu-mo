@@ -246,3 +246,20 @@ Work Log:
 Stage Summary:
 - Deliverable: path switching is now an OWNER-only power enforced server-side (not just hidden UI), and the حسابي institution cell reads «م. بوزريعة»-style abbreviations with the official name in the tooltip — Arabic and English-letter names both covered.
 - Key decisions: abbreviation is display-only (no DB/schema change); max=16 chars fits the 390px 2-col cell; initial onboarding deliberately NOT restricted (new-device flow must keep working) — only the explicit change-mode is guarded.
+
+---
+Task ID: 15
+Agent: main (Super Z)
+Task: Round 38 — group acceptance reflects instantly (stale-session fix, 3 sync points) + publish dialog defaults to «رفع ملف (Drive)» (owner's Drive-correction).
+
+Work Log:
+- Owner request: (1) after acceptance into a group the cohort should appear linked to the account and «تصفح المجموعات والأفواج» should disappear — in reality the fresh details API already showed the cohort while the STALE session (refresh only on login) kept the browse button visible; (2) «when uploading a file it doesn't go to my Drive — make the file upload button the one that opens, not uploads to the Supabase server».
+- Session freshness, 3 sync points: AuthProvider gained a throttled (15s) visibilitychange refresh; shell bell onClick fires refresh() (the moment the student reads «تم قبول طلبك»); profile-screen refreshes once per mount via syncedOnceRef guard (ref guard essential — the details fetch effect depends on [user] and refresh() replaces the user object identity).
+- Publish dialog: default mode flipped «link»→«upload», mode buttons reordered (رفع ملف (Drive) first); verified the Drive pipeline was ALREADY zero-server-bytes (browser→Drive, anyone-with-link, metadata row only — round 32 code) and that NEXT_PUBLIC_GOOGLE_CLIENT_ID IS baked into the production bundle (extracted real client id 811607156192-... from deployed chunk 92b25c8f8db299d5.js) — so uploads to Drive work on prod today; the dialog just opened on the link form and read as server-storage.
+- Verified: tsc 0 errors; eslint clean (4 changed files); build green. Real-browser 390×844 with PARALLEL sessions (agent-browser --session student): student joins cohort 01 → owner approves from لوحة الإشراف (DB: scopeCohortGroupId=21, groupNumber=«الفوج 01») → student WITHOUT reload opens bell (approval notification visible) → حسابي: browse button GONE + «الفوج 01» cell; publish dialog opens in upload mode (local amber no-clientId card = UploadMode branch; prod has the id). scrollWidth=390, no console errors. Screenshots download/verify-390-r38/.
+- Cleanup: owner38/student38 + join request wiped (users: 0, join_requests: 0); scripts/cleanup-test-accounts-r38.ts committed.
+- Pitfall (repeat of round 33): stale `next-server` survived on :3000 serving the REBUILT .next → chunk-hash mismatch → "client-side exception" on load. Always `pkill -f next-server` before `next start` after a rebuild.
+
+Stage Summary:
+- Deliverable: cohort acceptance (and any admin-side role/scope change) now lands in the student's UI without reload (bell/حسابي/visibility sync); the file-publish dialog leads with the real Drive upload, eliminating the «it stores on the server» misread.
+- Key decisions: no schema/API changes — both fixes are client-side session hygiene + default-mode flip; visibility refresh throttled to 15s to stay cheap; production env verified correct so no Vercel action needed.
