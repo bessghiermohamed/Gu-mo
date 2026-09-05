@@ -1,0 +1,771 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { motion, AnimatePresence } from "framer-motion";
+     5→import { Bell, ChevronLeft, Loader2, Moon, Sun, Palette, LogOut, Settings, RefreshCw } from "lucide-react";
+     6→import { Button } from "@/components/ui/button";
+     7→import { Badge } from "@/components/ui/badge";
+     8→import { Toaster as SonnerToaster } from "sonner";
+     9→import { toast } from "sonner";
+    10→import { useI18n } from "@/components/talib/i18n-provider";
+    11→import { usePalette } from "@/components/talib/theme-provider";
+    12→import { useTheme } from "next-themes";
+    13→import { AuthProvider, useAuth } from "@/components/talib/auth-provider";
+    14→import { canManageRoles } from "@/lib/auth/permissions";
+    15→import { TalibLoginScreen } from "@/components/talib/screens/login-screen";
+    16→import { TalibOnboardingScreen } from "@/components/talib/screens/onboarding-screen";
+    17→import { TalibHomeScreen } from "@/components/talib/screens/home-screen";
+    18→import { TalibCoursesScreen } from "@/components/talib/screens/courses-screen";
+    19→import { TalibScheduleScreen } from "@/components/talib/screens/schedule-screen";
+    20→import { TalibExamsScreen } from "@/components/talib/screens/exams-screen";
+    21→import { TalibFilesScreen } from "@/components/talib/screens/files-screen";
+    22→import { TalibToolsScreen } from "@/components/talib/screens/tools-screen";
+    23→import { TalibProfileScreen } from "@/components/talib/screens/profile-screen";
+    24→import { TalibSettingsScreen } from "@/components/talib/screens/settings-screen";
+    25→import { TalibTourOverlay } from "@/components/talib/tour-overlay";
+    26→import { TalibAnnouncementsScreen } from "@/components/talib/screens/announcements-screen";
+    27→import { TalibAdminPanelScreen } from "@/components/talib/screens/admin-panel-screen";
+    28→import { TalibGroupScreen } from "@/components/talib/screens/group-screen";
+    29→import { TalibAssignmentsScreen } from "@/components/talib/screens/assignments-screen";
+    30→import { TalibBrowseGroupsScreen } from "@/components/talib/screens/browse-groups-screen";
+    31→import { TalibTelegramScreen } from "@/components/talib/screens/telegram-screen";
+    32→import { TalibCourseDetailScreen } from "@/components/talib/screens/course-detail-screen";
+    33→import { TalibBottomNavBar } from "@/components/talib/bottom-nav-bar";
+    34→import {
+    35→  TalibNotificationsSheet,
+    36→  type AppNotificationItem,
+    37→} from "@/components/talib/notifications-sheet";
+    38→import { cn } from "@/lib/utils";
+    39→
+    40→export type ScreenRoute =
+    41→  | "HOME"
+    42→  | "COURSES"
+    43→  | "SCHEDULE"
+    44→  | "EXAMS"
+    45→  | "TOOLS"
+    46→  | "ASSIGNMENTS"
+    47→  | "FILES"
+    48→  | "GROUP"
+    49→  | "BROWSE_GROUPS"
+    50→  | "PROFILE"
+    51→  | "SETTINGS"
+    52→  | "ANNOUNCEMENTS"
+    53→  | "ADMIN"
+    54→  | "TELEGRAM"
+    55→  | "COURSE_DETAIL"
+    56→  | "ONBOARDING";
+    57→
+    58→// =====================================================
+    59→// fix (R12-03, P0): the app used to forget the current screen on refresh —
+    60→// every reload dumped the student back on HOME, mid-task work was lost and
+    61→// no screen could ever be shared/bookmarked. Each route now has a stable
+    62→// hash (#/grades, #/courses, …) that is kept in sync so:
+    63→//   • refresh / app re-open restores the exact screen
+    64→//   • the Android/browser back gesture walks the real visit history
+    65→//   • duplicate tab taps no longer poison the back stack (navigate guards)
+    66→// =====================================================
+    67→const ROUTE_TO_HASH: Record<ScreenRoute, string> = {
+    68→  HOME: "home",
+    69→  COURSES: "courses",
+    70→  SCHEDULE: "schedule",
+    71→  EXAMS: "exams",
+    72→  TOOLS: "tools",
+    73→  ASSIGNMENTS: "assignments",
+    74→  FILES: "files",
+    75→  GROUP: "group",
+    76→  BROWSE_GROUPS: "browse-groups",
+    77→  PROFILE: "profile",
+    78→  SETTINGS: "settings",
+    79→  ANNOUNCEMENTS: "announcements",
+    80→  ADMIN: "admin",
+    81→  TELEGRAM: "telegram",
+    82→  COURSE_DETAIL: "course",
+    83→  ONBOARDING: "onboarding", // never restored from the URL — gated below
+    84→};
+    85→
+    86→function routeFromHash(hash: string): ScreenRoute {
+    87→  const key = hash.replace(/^#\/?/, "").toLowerCase();
+    88→  if (!key) return "HOME";
+    89→  const found = (Object.entries(ROUTE_TO_HASH) as Array<[ScreenRoute, string]>).find(
+    90→    ([, h]) => h === key
+    91→  );
+    92→  if (!found) return "HOME";
+    93→  // never restore INTO onboarding from the URL — the onboarding gate owns it
+    94→  if (found[0] === "ONBOARDING") return "HOME";
+    95→  return found[0];
+    96→}
+    97→
+    98→// Minimal shape a screen needs to open the course detail view.
+    99→export interface CourseSummary {
+   100→  id: number;
+   101→  name: string;
+   102→  code: string;
+   103→  coefficient: number;
+   104→  professorName: string;
+   105→  category: string;
+   106→  description: string;
+   107→  semester: number;
+   108→}
+   109→
+   110→interface ShellContextValue {
+   111→  currentScreen: ScreenRoute;
+   112→  navigate: (route: ScreenRoute) => void;
+   113→  navigateBack: () => void;
+   114→  showLoading: (message?: string) => void;
+   115→  hideLoading: () => void;
+   116→  detailCourse: CourseSummary | null;
+   117→  navigateToCourse: (course: CourseSummary) => void;
+   118→  // round 36: «تغيير المسار الأكاديمي» — re-runs onboarding from حسابي for
+   119→  // ANY signed-in role (OWNER included) to switch institution/specialty/
+   120→  // track/year without touching the account itself.
+   121→  startPathChange: () => void;
+   122→}
+   123→
+   124→const ShellContext = React.createContext<ShellContextValue | null>(null);
+   125→
+   126→export function useShell() {
+   127→  const ctx = React.useContext(ShellContext);
+   128→  if (!ctx) throw new Error("useShell must be used within ShellProvider");
+   129→  return ctx;
+   130→}
+   131→
+   132→function ShellInner() {
+   133→  const { t, dir } = useI18n();
+   134→  const { theme, setTheme } = useTheme();
+   135→  const { palette, togglePalette } = usePalette();
+   136→  const { user, loading: authLoading, signOut, refresh } = useAuth();
+   137→
+   138→  const [currentScreen, setCurrentScreen] = React.useState<ScreenRoute>("HOME");
+   139→  // In-app back stack (the header chevron). Browser history is mirrored via
+   140→  // pushState — see the routing comment above.
+   141→  const historyStackRef = React.useRef<ScreenRoute[]>([]);
+   142→  const [detailCourse, setDetailCourse] = React.useState<CourseSummary | null>(null);
+   143→  const [isLoading, setIsLoading] = React.useState(false);
+   144→  const [loadingMessage, setLoadingMessage] = React.useState("");
+   145→  const [unreadCount, setUnreadCount] = React.useState(0);
+   146→  const [notifOpen, setNotifOpen] = React.useState(false);
+   147→  const [notifications, setNotifications] = React.useState<AppNotificationItem[]>([]);
+   148→  const [notifUnread, setNotifUnread] = React.useState(0);
+   149→  const [notifLoading, setNotifLoading] = React.useState(false);
+   150→  const [mounted, setMounted] = React.useState(false);
+   151→  const [onboardingDone, setOnboardingDone] = React.useState(true);
+   152→
+   153→  React.useEffect(() => {
+   154→    setMounted(true);
+   155→  }, []);
+   156→
+   157→  // Check if user needs onboarding
+   158→  // fix (R25): onboarding used to be gated by localStorage ONLY — a
+   159→  // fully-registered student who cleared browser data, switched devices,
+   160→  // or reinstalled was forced through the whole setup flow again even
+   161→  // though their profile exists in the DB. The DB row is now the source
+   162→  // of truth: /api/onboarding/complete (and role grants) persist the
+   163→  // academic scope on the user row, so a non-null scope specialty/year
+   164→  // means the profile is complete and the flow is skipped — with an
+   165→  // EMPTY localStorage too. The localStorage flag stays as a fast local
+   166→  // cache and is backfilled after a DB-confirmed skip. (Note:
+   167→  // assignedSpecialtyId is NOT a valid marker — signup pre-fills it.)
+   168→  React.useEffect(() => {
+   169→    if (!user) return;
+   170→    const flagKey = `talib-onboarding-${user.id}`;
+   171→    // DB-backed: scope_academic_year_id / scope_specialty_id are null at
+   172→    // signup and only written by onboarding completion (or a role grant).
+   173→    const hasDbScope =
+   174→      user.scopeAcademicYearId != null || user.scopeSpecialtyId != null;
+   175→    const localDone = localStorage.getItem(flagKey) === "true";
+   176→    const done = localDone || hasDbScope;
+   177→    setOnboardingDone(done);
+   178→    if (!done) {
+   179→      setCurrentScreen("ONBOARDING");
+   180→    } else if (hasDbScope && !localDone) {
+   181→      // cache the DB verdict so subsequent loads skip the check instantly
+   182→      try {
+   183→        localStorage.setItem(flagKey, "true");
+   184→      } catch {
+   185→        // private mode — the DB check simply re-runs next load
+   186→      }
+   187→    }
+   188→  }, [user]);
+   189→
+   190→  // Fetch unread count (fix B.8)
+   191→  const refreshUnreadCount = React.useCallback(async () => {
+   192→    if (!user) {
+   193→      setUnreadCount(0);
+   194→      return;
+   195→    }
+   196→    try {
+   197→      const res = await fetch("/api/announcements/unread-count", {
+   198→        cache: "no-store",
+   199→      });
+   200→      if (res.ok) {
+   201→        const data = await res.json();
+   202→        setUnreadCount(data.count ?? 0);
+   203→      }
+   204→    } catch {
+   205→      // silent fail
+   206→    }
+   207→  }, [user]);
+   208→
+   209→  // round 10 (review §3/§4): app notifications feed — join-request
+   210→  // outcomes for students, waiting items for supervisors.
+   211→  const refreshNotifications = React.useCallback(async () => {
+   212→    if (!user) {
+   213→      setNotifications([]);
+   214→      setNotifUnread(0);
+   215→      return;
+   216→    }
+   217→    try {
+   218→      const res = await fetch("/api/notifications", { cache: "no-store" });
+   219→      if (res.ok) {
+   220→        const data = await res.json();
+   221→        setNotifications(data.notifications ?? []);
+   222→        setNotifUnread(data.unreadCount ?? 0);
+   223→      }
+   224→    } catch {
+   225→      // silent fail — badge simply stays stale until next poll
+   226→    }
+   227→  }, [user]);
+   228→
+   229→  React.useEffect(() => {
+   230→    refreshUnreadCount();
+   231→    refreshNotifications();
+   232→    const interval = setInterval(() => {
+   233→      refreshUnreadCount();
+   234→      refreshNotifications();
+   235→    }, 30000); // refresh every 30s
+   236→    return () => clearInterval(interval);
+   237→  }, [refreshUnreadCount, refreshNotifications]);
+   238→
+   239→  // round 24 — temporal reminders: generate (idempotent) exam D-3/D-1/D-0
+   240→  // and assignment D-2/D-1/D-0 reminders for THIS user, then re-fetch the
+   241→  // feed if anything new was created. Triggered on mount + every 10 min —
+   242→  // deliberately NOT on the 30s poll loop, so the round-13 polling-cost
+   243→  // ceiling is not worsened (the 30s loop stays read-only).
+   244→  const generateReminders = React.useCallback(async () => {
+   245→    if (!user) return;
+   246→    try {
+   247→      // completion state lives in the student's localStorage — the server
+   248→      // cannot know which assignments are already done, so we tell it.
+   249→      let completedAssignmentIds: number[] = [];
+   250→      try {
+   251→        const raw = localStorage.getItem("talib-assignments-completed");
+   252→        if (raw) {
+   253→          const map = JSON.parse(raw) as Record<string, unknown>;
+   254→          completedAssignmentIds = Object.entries(map)
+   255→            .filter(([, v]) => !!v)
+   256→            .map(([k]) => Number(k))
+   257→            .filter((n) => Number.isFinite(n));
+   258→        }
+   259→      } catch {
+   260→        // corrupted storage — generate without completion info
+   261→      }
+   262→      const res = await fetch("/api/notifications/reminders", {
+   263→        method: "POST",
+   264→        headers: { "Content-Type": "application/json" },
+   265→        body: JSON.stringify({ completedAssignmentIds }),
+   266→      });
+   267→      if (res.ok) {
+   268→        const data = await res.json();
+   269→        if (Number(data.created) > 0) refreshNotifications();
+   270→      }
+   271→    } catch {
+   272→      // silent — reminders retry on the next 10-min tick
+   273→    }
+   274→  }, [user, refreshNotifications]);
+   275→
+   276→  React.useEffect(() => {
+   277→    if (!user || !onboardingDone) return;
+   278→    generateReminders();
+   279→    const interval = setInterval(generateReminders, 10 * 60 * 1000);
+   280→    return () => clearInterval(interval);
+   281→  }, [user, onboardingDone, generateReminders]);
+   282→
+   283→  // fix (R12): the announcements screen marks its items read — the badge
+   284→  // refreshes IMMEDIATELY instead of waiting for the next 30s poll.
+   285→  React.useEffect(() => {
+   286→    const onAnnRead = () => { refreshUnreadCount(); };
+   287→    window.addEventListener("talib-ann-read", onAnnRead);
+   288→    return () => window.removeEventListener("talib-ann-read", onAnnRead);
+   289→  }, [refreshUnreadCount]);
+   290→
+   291→  const markAllNotificationsRead = React.useCallback(async () => {
+   292→    try {
+   293→      await fetch("/api/notifications/read", {
+   294→        method: "POST",
+   295→        headers: { "Content-Type": "application/json" },
+   296→        body: JSON.stringify({ all: true }),
+   297→      });
+   298→      setNotifUnread(0);
+   299→      setNotifications((prev) => prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })));
+   300→    } catch {
+   301→      // silent
+   302→    }
+   303→  }, []);
+   304→
+   305→  const navigate = React.useCallback((route: ScreenRoute) => {
+   306→    if (route === "COURSE_DETAIL") return; // use navigateToCourse
+   307→    setCurrentScreen((prev) => {
+   308→      // fix (R12-03): tapping the tab you are ALREADY on used to push a
+   309→      // duplicate history entry, so the back chevron appeared to do nothing.
+   310→      if (prev === route) return prev;
+   311→      historyStackRef.current.push(prev);
+   312→      return route;
+   313→    });
+   314→    const target = `#/${ROUTE_TO_HASH[route]}`;
+   315→    if (window.location.hash !== target) {
+   316→      window.history.pushState({ talib: route }, "", target);
+   317→    }
+   318→  }, []);
+   319→
+   320→  const navigateToCourse = React.useCallback((course: CourseSummary) => {
+   321→    setDetailCourse(course);
+   322→    try {
+   323→      sessionStorage.setItem("talib-course", JSON.stringify(course));
+   324→    } catch {
+   325→      // storage disabled — in-session navigation still works
+   326→    }
+   327→    setCurrentScreen((prev) => {
+   328→      if (prev === "COURSE_DETAIL") return prev;
+   329→      historyStackRef.current.push(prev);
+   330→      return "COURSE_DETAIL";
+   331→    });
+   332→    const target = "#/course";
+   333→    if (window.location.hash !== target) {
+   334→      window.history.pushState({ talib: "COURSE_DETAIL" }, "", target);
+   335→    }
+   336→  }, []);
+   337→
+   338→  const navigateBack = React.useCallback(() => {
+   339→    const stack = historyStackRef.current;
+   340→    if (stack.length > 0) {
+   341→      const prev = stack.pop()!;
+   342→      setCurrentScreen(prev);
+   343→      if (prev !== "COURSE_DETAIL") setDetailCourse(null);
+   344→      const target = `#/${ROUTE_TO_HASH[prev]}`;
+   345→      if (window.location.hash !== target) {
+   346→        window.history.pushState({ talib: prev }, "", target);
+   347→      }
+   348→    } else {
+   349→      setCurrentScreen("HOME");
+   350→      const target = "#/home";
+   351→      if (window.location.hash !== target) {
+   352→        window.history.replaceState({ talib: "HOME" }, "", target);
+   353→      }
+   354→    }
+   355→  }, []);
+   356→
+   357→  // Browser / Android back gesture: the previous hash wins. The in-app stack
+   358→  // is cleared (the OS already walked back for us); the next in-app back
+   359→  // then safely falls home.
+   360→  React.useEffect(() => {
+   361→    function onPopState() {
+   362→      historyStackRef.current = [];
+   363→      const route = routeFromHash(window.location.hash);
+   364→      setCurrentScreen((prev) => (prev === route ? prev : route));
+   365→      if (route === "COURSE_DETAIL") {
+   366→        try {
+   367→          const raw = sessionStorage.getItem("talib-course");
+   368→          if (raw) setDetailCourse(JSON.parse(raw) as CourseSummary);
+   369→        } catch {
+   370→          // fall through — render guard below handles a missing course
+   371→        }
+   372→      }
+   373→    }
+   374→    window.addEventListener("popstate", onPopState);
+   375→    return () => window.removeEventListener("popstate", onPopState);
+   376→  }, []);
+   377→
+   378→  // Restore the last screen after a refresh / from a shared deep link once
+   379→  // we know who the user is (needed for the ADMIN role guard).
+   380→  React.useEffect(() => {
+   381→    if (!user) return;
+   382→    if (!window.location.hash) {
+   383→      window.history.replaceState({ talib: "HOME" }, "", "#/home");
+   384→      return;
+   385→    }
+   386→    const route = routeFromHash(window.location.hash);
+   387→    if (route === "COURSE_DETAIL") {
+   388→      try {
+   389→        const raw = sessionStorage.getItem("talib-course");
+   390→        if (raw) {
+   391→          setDetailCourse(JSON.parse(raw) as CourseSummary);
+   392→          setCurrentScreen("COURSE_DETAIL");
+   393→          return;
+   394→        }
+   395→      } catch {
+   396→        // corrupted session storage — fall through to HOME
+   397→      }
+   398→      window.history.replaceState({ talib: "HOME" }, "", "#/home");
+   399→      setCurrentScreen("HOME");
+   400→      return;
+   401→    }
+   402→    setCurrentScreen(route);
+   403→  }, [user]);
+   404→
+   405→  const handleNotificationTap = React.useCallback(
+   406→    (item: AppNotificationItem) => {
+   407→      // mark the single notification read
+   408→      if (item.readAt == null) {
+   409→        fetch("/api/notifications/read", {
+   410→          method: "POST",
+   411→          headers: { "Content-Type": "application/json" },
+   412→          body: JSON.stringify({ ids: [item.id] }),
+   413→        })
+   414→          .then(() => {
+   415→            setNotifUnread((c) => Math.max(0, c - 1));
+   416→            setNotifications((prev) =>
+   417→              prev.map((n) => (n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n))
+   418→            );
+   419→          })
+   420→          .catch(() => {});
+   421→      }
+   422→      // deep link by type (review §4: the notification takes you to the
+   423→      // place where you can act on it)
+   424→      setNotifOpen(false);
+   425→      if (item.type === "join_approved" || item.type === "join_rejected") {
+   426→        navigate("BROWSE_GROUPS");
+   427→      } else if (item.type === "join_new" || item.type === "report_new") {
+   428→        navigate("ADMIN");
+   429→      } else if (item.type === "content_announcement") {
+   430→        navigate("ANNOUNCEMENTS");
+   431→      } else if (item.type === "content_exam" || item.type === "exam_reminder") {
+   432→        navigate("EXAMS");
+   433→      } else if (item.type === "content_assignment" || item.type === "assignment_reminder") {
+   434→        navigate("ASSIGNMENTS");
+   435→      } else if (item.type === "content_library") {
+   436→        navigate("FILES");
+   437→      }
+   438→    },
+   439→    [navigate]
+   440→  );
+   441→
+   442→  const showLoading = React.useCallback((message?: string) => {
+   443→    setIsLoading(true);
+   444→    setLoadingMessage(message ?? "");
+   445→  }, []);
+   446→
+   447→  const hideLoading = React.useCallback(() => {
+   448→    setIsLoading(false);
+   449→    setLoadingMessage("");
+   450→  }, []);
+   451→
+   452→  // round 36: change-path state — when true, the onboarding flow renders in
+   453→  // "change" mode (pre-filled with the current path + cancel escape) even
+   454→  // though onboarding itself is already done. Never restored from the URL:
+   455→  // a refresh simply lands back on the profile.
+   456→  const [pathChange, setPathChange] = React.useState(false);
+   457→  const startPathChange = React.useCallback(() => setPathChange(true), []);
+   458→
+   459→  const shellValue: ShellContextValue = {
+   460→    currentScreen,
+   461→    navigate,
+   462→    navigateBack,
+   463→    showLoading,
+   464→    hideLoading,
+   465→    detailCourse,
+   466→    navigateToCourse,
+   467→    startPathChange,
+   468→  };
+   469→
+   470→  // Auth loading state
+   471→  if (authLoading || !mounted) {
+   472→    return (
+   473→      <div className="flex items-center justify-center min-h-screen bg-background">
+   474→        <div className="flex flex-col items-center gap-3">
+   475→          <div className="relative w-16 h-16">
+   476→            <img
+   477→              src="/talib/icon.svg"
+   478→              alt="Talib"
+   479→              className="w-full h-full object-contain"
+   480→            />
+   481→          </div>
+   482→          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+   483→            <Loader2 className="w-4 h-4 animate-spin" />
+   484→            <span>{t("common.loading")}</span>
+   485→          </div>
+   486→        </div>
+   487→      </div>
+   488→    );
+   489→  }
+   490→
+   491→  // Not authenticated → show login
+   492→  if (!user) {
+   493→    return (
+   494→      <div dir={dir} className="min-h-screen bg-background">
+   495→        <TalibLoginScreen />
+   496→        <SonnerToaster position="top-center" dir={dir} />
+   497→      </div>
+   498→    );
+   499→  }
+   500→
+   501→  // Needs onboarding — pure render gate (no setState during render):
+   502→  // onboarding wins over ANY screen, including a restored deep link.
+   503→  // round 36: pathChange re-enters the same flow in "change" mode.
+   504→  if (!onboardingDone || pathChange) {
+   505→    const isPathChange = onboardingDone && pathChange;
+   506→    return (
+   507→      <ShellContext.Provider value={shellValue}>
+   508→        <div dir={dir} className="min-h-screen bg-background flex flex-col">
+   509→          <main className="flex-1">
+   510→            <TalibOnboardingScreen
+   511→              mode={isPathChange ? "change" : "initial"}
+   512→              onCancel={isPathChange ? () => setPathChange(false) : undefined}
+   513→              onComplete={async () => {
+   514→                if (user) {
+   515→                  localStorage.setItem(
+   516→                    `talib-onboarding-${user.id}`,
+   517→                    "true"
+   518→                  );
+   519→                }
+   520→                // fix أ.3/أ.4 (round 3): the session user used to stay stale
+   521→                // after onboarding (assignedSpecialtyId = first specialty,
+   522→                // null year/track) so the join screen leaked other
+   523→                // specialties' groups until a full page reload. Refresh the
+   524→                // session user BEFORE navigating.
+   525→                await refresh();
+   526→                if (isPathChange) {
+   527→                  // round 36: change-path complete — back to حسابي where the
+   528→                  // refreshed session already shows the new path.
+   529→                  setPathChange(false);
+   530→                  window.history.replaceState({ talib: "PROFILE" }, "", "#/profile");
+   531→                  setCurrentScreen("PROFILE");
+   532→                  toast.success("تم تحديث مسارك الأكاديمي بنجاح");
+   533→                  return;
+   534→                }
+   535→                setOnboardingDone(true);
+   536→                window.history.replaceState({ talib: "HOME" }, "", "#/home");
+   537→                setCurrentScreen("HOME");
+   538→                toast.success(t("onboarding.finish"));
+   539→              }}
+   540→            />
+   541→          </main>
+   542→          <SonnerToaster position="top-center" dir={dir} />
+   543→        </div>
+   544→      </ShellContext.Provider>
+   545→    );
+   546→  }
+   547→
+   548→  // fix (R12-06, P0): the ADMIN panel used to render for ANY role reached
+   549→  // via the notification deep-link or a typed URL. The route is now gated —
+   550→  // non-supervisors land on HOME (defense in depth; the APIs already
+   551→  // enforce their own authorization).
+   552→  const effectiveScreen: ScreenRoute =
+   553→    currentScreen === "ADMIN" && !canManageRoles(user ?? null) ? "HOME" : currentScreen;
+   554→
+   555→  const isAdminScreen = effectiveScreen === "ADMIN";
+   556→  const showHeader = true;
+   557→  const showBottomNav = !isAdminScreen;
+   558→
+   559→  return (
+   560→    <ShellContext.Provider value={shellValue}>
+   561→      <div dir={dir} className="min-h-screen bg-background flex flex-col">
+   562→        {/* Header */}
+   563→        {showHeader && (
+   564→          <header className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
+   565→            <div className="mx-auto max-w-5xl px-4 py-3 flex items-center gap-3">
+   566→              {/* Back button */}
+   567→              {effectiveScreen !== "HOME" && (
+   568→                <Button
+   569→                  variant="ghost"
+   570→                  size="icon"
+   571→                  onClick={navigateBack}
+   572→                  className="shrink-0"
+   573→                  aria-label={t("common.back")}
+   574→                >
+   575→                  <ChevronLeft className={cn("w-5 h-5", dir === "rtl" && "rotate-180")} />
+   576→                </Button>
+   577→              )}
+   578→
+   579→              {/* App logo + name */}
+   580→              <div className="flex items-center gap-2 flex-1 min-w-0">
+   581→                <img
+   582→                  src="/talib/icon.svg"
+   583→                  alt="Talib"
+   584→                  className="w-8 h-8 shrink-0"
+   585→                />
+   586→                <span className="font-bold text-base truncate">
+   587→                  {t("common.appName")}
+   588→                </span>
+   589→              </div>
+   590→
+   591→              {/* Action buttons */}
+   592→              <div className="flex items-center gap-1">
+   593→                {/* fix H-1 (round 4): language toggle hidden — EN translation
+   594→                    is incomplete (~450 hardcoded Arabic strings). Re-enable the
+   595→                    Languages button when src/messages/en.json covers all UI. */}
+   596→
+   597→                {/* Palette toggle (academic / modern) */}
+   598→                <Button
+   599→                  variant="ghost"
+   600→                  size="icon"
+   601→                  onClick={togglePalette}
+   602→                  className="shrink-0 h-10 w-10"
+   603→                  aria-label="Toggle palette"
+   604→                  title={palette === "academic" ? "أكاديمي" : "عصري"}
+   605→                >
+   606→                  <Palette className="w-4 h-4" />
+   607→                </Button>
+   608→
+   609→                {/* Dark / light toggle */}
+   610→                <Button
+   611→                  variant="ghost"
+   612→                  size="icon"
+   613→                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+   614→                  className="shrink-0 h-10 w-10"
+   615→                  aria-label="Toggle dark mode"
+   616→                >
+   617→                  {theme === "dark" ? (
+   618→                    <Sun className="w-4 h-4" />
+   619→                  ) : (
+   620→                    <Moon className="w-4 h-4" />
+   621→                  )}
+   622→                </Button>
+   623→
+   624→                {/* Notifications bell (fix B.8 + round 10 review §3/§4):
+   625→                    opens the unified notifications panel — join-request
+   626→                    outcomes (students) + waiting items (supervisors) —
+   627→                    with announcements still reachable inside it. */}
+   628→                <Button
+   629→                  variant="ghost"
+   630→                  size="icon"
+   631→                  onClick={() => {
+   632→                    setNotifOpen(true);
+   633→                    setNotifLoading(true);
+   634→                    refreshNotifications().finally(() => setNotifLoading(false));
+   635→                  }}
+   636→                  className="shrink-0 relative h-10 w-10"
+   637→                  aria-label={t("nav.notifications")}
+   638→                >
+   639→                  <Bell className="w-4 h-4" />
+   640→                  {unreadCount + notifUnread > 0 && (
+   641→                    <Badge
+   642→                      variant="destructive"
+   643→                      className="absolute -top-1 -right-1 h-5 min-w-5 px-1 text-xs flex items-center justify-center"
+   644→                    >
+   645→                      {unreadCount + notifUnread > 9 ? "9+" : unreadCount + notifUnread}
+   646→                    </Badge>
+   647→                  )}
+   648→                </Button>
+   649→
+   650→                {/* Settings gear (round 26): opens the app settings screen
+   651→                    — notification preferences live here now, more sections
+   652→                    can be added later. Previously it only jumped to حسابي.
+   653→                    id used by the first-run tour (review §15). */}
+   654→                <Button
+   655→                  id="talib-tour-gear"
+   656→                  variant="ghost"
+   657→                  size="icon"
+   658→                  onClick={() => navigate("SETTINGS")}
+   659→                  className="shrink-0 h-10 w-10"
+   660→                  aria-label="الإعدادات"
+   661→                >
+   662→                  <Settings className="w-4 h-4" />
+   663→                </Button>
+   664→              </div>
+   665→            </div>
+   666→
+   667→            {/* Loading indicator */}
+   668→            <AnimatePresence>
+   669→              {isLoading && (
+   670→                <motion.div
+   671→                  initial={{ opacity: 0, y: -8 }}
+   672→                  animate={{ opacity: 1, y: 0 }}
+   673→                  exit={{ opacity: 0, y: -8 }}
+   674→                  className="absolute top-full left-0 right-0 bg-primary/10 backdrop-blur-sm border-b border-primary/20 py-2 px-4 text-center"
+   675→                >
+   676→                  <div className="flex items-center justify-center gap-2 text-sm">
+   677→                    <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+   678→                    <span className="text-primary font-medium">
+   679→                      {loadingMessage || t("common.loading")}
+   680→                    </span>
+   681→                  </div>
+   682→                </motion.div>
+   683→              )}
+   684→            </AnimatePresence>
+   685→          </header>
+   686→        )}
+   687→
+   688→        {/* Main content */}
+   689→        <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-4 pb-24">
+   690→          <AnimatePresence mode="wait">
+   691→            <motion.div
+   692→              key={effectiveScreen}
+   693→              initial={{ opacity: 0 }}
+   694→              animate={{ opacity: 1 }}
+   695→              exit={{ opacity: 0 }}
+   696→              transition={{ duration: 0.2 }}
+   697→            >
+   698→              {effectiveScreen === "HOME" && <TalibHomeScreen />}
+   699→              {effectiveScreen === "COURSES" && <TalibCoursesScreen />}
+   700→              {effectiveScreen === "SCHEDULE" && <TalibScheduleScreen />}
+   701→              {effectiveScreen === "EXAMS" && <TalibExamsScreen />}
+   702→              {/* round 31: tools got their own standalone screen — the TOOLS
+   703→                  tile no longer opens the files screen on a pre-selected tab
+   704→                  (owner feedback: the files/tools split had duplicated
+   705→                  navigation — tools were both a tile and a files tab). */}
+   706→              {effectiveScreen === "TOOLS" && <TalibToolsScreen />}
+   707→              {effectiveScreen === "ASSIGNMENTS" && <TalibAssignmentsScreen />}
+   708→              {effectiveScreen === "FILES" && <TalibFilesScreen />} {/* tabs: المكتبة / ملاحظاتي / سحابتي */}
+   709→              {effectiveScreen === "TELEGRAM" && <TalibTelegramScreen />}
+   710→              {effectiveScreen === "GROUP" && <TalibGroupScreen />}
+   711→              {effectiveScreen === "BROWSE_GROUPS" && <TalibBrowseGroupsScreen />}
+   712→              {effectiveScreen === "ANNOUNCEMENTS" && <TalibAnnouncementsScreen />}
+   713→              {effectiveScreen === "COURSE_DETAIL" && (
+   714→                <TalibCourseDetailScreen course={detailCourse} />
+   715→              )}
+   716→              {effectiveScreen === "PROFILE" && (
+   717→                <TalibProfileScreen
+   718→                  onSignOut={async () => {
+   719→                    await signOut();
+   720→                    window.history.replaceState({ talib: "HOME" }, "", "#/home");
+   721→                    setCurrentScreen("HOME");
+   722→                  }}
+   723→                />
+   724→              )}
+   725→              {effectiveScreen === "SETTINGS" && <TalibSettingsScreen />}
+   726→              {effectiveScreen === "ADMIN" && <TalibAdminPanelScreen />}
+   727→            </motion.div>
+   728→          </AnimatePresence>
+   729→        </main>
+   730→
+   731→        {/* Bottom navigation */}
+   732→        {showBottomNav && (
+   733→          <TalibBottomNavBar
+   734→            currentScreen={currentScreen}
+   735→            onNavigate={navigate}
+   736→          />
+   737→        )}
+   738→
+   739→        <SonnerToaster position="top-center" dir={dir} />
+   740→
+   741→        {/* round 27 (review §15): first-run tour — three steps (services
+   742→            grid → gear → حسابي), shown once, dismissible at every step. */}
+   743→        <TalibTourOverlay currentScreen={currentScreen} />
+   744→
+   745→        {/* round 10 (review §3/§4): unified notifications panel */}
+   746→        <TalibNotificationsSheet
+   747→          open={notifOpen}
+   748→          onOpenChange={setNotifOpen}
+   749→          notifications={notifications}
+   750→          loading={notifLoading}
+   751→          announcementsUnread={unreadCount}
+   752→          onMarkAllRead={markAllNotificationsRead}
+   753→          onOpenAnnouncements={() => {
+   754→            setNotifOpen(false);
+   755→            navigate("ANNOUNCEMENTS");
+   756→          }}
+   757→          onItemTap={handleNotificationTap}
+   758→        />
+   759→      </div>
+   760→    </ShellContext.Provider>
+   761→  );
+   762→}
+   763→
+   764→export default function Page() {
+   765→  return (
+   766→    <AuthProvider>
+   767→      <ShellInner />
+   768→    </AuthProvider>
+   769→  );
+   770→}
+   771→
