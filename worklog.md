@@ -306,3 +306,21 @@ Work Log:
 Stage Summary:
 - Deliverable: every course now shows a permanent supervisor-only Drive upload card above the tabs (no more "some courses have no upload buttons"), and the UI states the storage model explicitly: the supervisor's own Drive is the students' shared download space, Supabase stores metadata only.
 - Key decisions: no API/schema changes (pipeline was already Drive-direct since round 32); header card reuses PublishToLibraryDialog course-scoped; students remain upload-blind by design.
+
+---
+Task ID: 18
+Agent: main (Super Z)
+Task: Round 41 — course uploads must land at the course, not the library (owner: "why did we create a course and upload section if they aren't going to be uploaded to the course location?").
+
+Work Log:
+- Confirmed the leak: files-screen general library listed course-scoped rows; POST /api/library silently dropped module_id on un-migrated prod DBs (base-row fallback); all uploads shared one «مكتبة طالب» Drive folder.
+- /api/library GET: course rows (moduleId != null) excluded from the general list (Prisma + Supabase, graceful unfiltered retry when column absent). POST: strict course-scoping in BOTH branches — missing module_id → needsSchema + COURSE_SCHEMA_SQL, nothing saved; library-wide uploads keep the tolerant fallback. Prisma GET/POST also detect "no such column" (was silently swallowed).
+- drive.ts: findOrCreateCourseFolder — «📘 {course name}» per-course subfolder under the app folder, moduleId tagged in appProperties; course uploads use it (source tag talib-course), library uploads keep «📚 مكتبة طالب».
+- publish-dialog: courseName prop; dynamic footer (course folder vs library), submit label «نشر إلى المقياس», course-branded toast, NeedsSchemaCard (copyable SQL + «نفّذته — أعد المحاولة») wired into BOTH link and upload modes. Course-detail المواد tab schema card replaced by the same card (copy + retry refetch). files-screen library empty-state clarifies course files live at the course. download/supabase_course_materials.sql added (3 columns + index).
+- Verified (tsc 0, build green, 390×844 real browser): library shows ONLY the general reference while the course shows exactly its 3 materials; physically dropped the SQLite moduleId column → tab + dialog needsSchema cards render, POST creates ZERO rows (DB-verified); restored column → «نفّذته — أعد المحاولة» saved the row course-scoped (moduleId=5) + toast; final API split: general → only lib row, ?moduleId=5 → only course rows. scrollWidth 390, zero console errors. Screenshots download/verify-390-r41/. Cleaned all test data (users 0, courses 0, library 0).
+- Committed 6ac2638 (6 files) + report تقرير-إصلاحات-الجولة-41.md; pushed caf8650..6ac2638. Prod chunk 6fa9452f237b1ea5.js contains «نشر إلى المقياس» + «لا علاقة له بالمكتبة العامة» + talib-course tag — live.
+
+Stage Summary:
+- Deliverable: a material uploaded inside a course now lives ONLY at the course (app tab + its own «📘 course» Drive folder, students download direct); it can never leak into the general library, and an un-migrated DB surfaces a self-service one-time SQL card instead of silently demoting the upload.
+- Key decisions: strict-fail over silent-fallback for course rows (the owner's trust issue was exactly the silent path); NeedsSchemaCard duplicated nowhere (exported, reused by tab + dialog); lessons untouched (Telegram mirrors, always course-internal by design).
+- Owner action (one-time): run download/supabase_course_materials.sql in Supabase SQL editor (same snippet the in-app card offers).
