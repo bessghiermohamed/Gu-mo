@@ -209,3 +209,23 @@ Work Log:
 Stage Summary:
 - Deliverable: homepage feature section now signals hierarchy (3 differentiators prominent, 6 essentials compact), site copy corrected (بوزريعة, أدواتي standalone wording), footer de-duplicated, and a 4-article Arabic blog live for AdSense content depth.
 - Owner note: if the Supabase institution row spells the school «بووزعادة», rename it from admin (الهيكل ← المؤسسات) to match.
+
+---
+Task ID: 13
+Agent: main (Super Z)
+Task: Round 36 — re-implement the lost round-35 fixes (session reset wiped them before push): OWNER force-delete, actionable blocked-delete dialogs, visible structure buttons, تغيير المسار الأكاديمي.
+
+Work Log:
+- Context recovery: the previous session (round 35) completed + verified all 4 fixes but its environment reset before the push; GitHub main was still at round 34 (d582427) and the bundle/patches died with that session. Owner provided a fresh token; re-implemented from the shared-chat narrative against round 34.
+- Force-delete APIs (?force=1, OWNER-only) in institutions/specialties/years — both Supabase + Prisma branches: collect subtree ids, DETACH accounts before the cascade (scopeCohortGroupId/scopeGroupId nulled via relation filters — scopeCohortGroupId is a RESTRICT FK in Prisma; then assignedSpecialtyId re-pointed to a surviving specialty (same institution preferred for specialty deletes) with ALL scope columns cleared; guard: refuse force when the target holds the platform's LAST specialty (schema has no user-without-specialty state). Blocked responses now carry structured counts.
+- Admin panel: StructureManager sub-tab + filters LIFTED (controlled Tabs) so dialogs can navigate: «انتقل الآن إلى التخصصات» (pre-filtered to the institution) and «انتقل الآن إلى السنوات» (pre-filtered to the specialty) via preset props with consume-once effects. Blocked-delete dialogs gained count badges + OWNER-only force section (ack checkbox «أفهم أن هذا الحذف شامل ونهائي…» gating «حذف نهائي مع كل المحتوى المرتبط»).
+- Visible buttons: all 4 structure lists (institutions/specialties/tracks/years) edit+delete switched ghost→outline bordered icons; delete red-tinted (border-destructive/40 + text-destructive).
+- تغيير المسار الأكاديمي: profile button (all roles) → shell startPathChange() → onboarding rendered in mode="change": current path pre-selected once per list (no R12-11 violation — restoring the user's own saved values), amber «مسارك الحالي» banner from /api/profile/details, «إلغاء والعودة إلى حسابي» escape, «حفظ المسار الجديد» finish; completion refreshes session → back to PROFILE with toast.
+- Parity fixes: /api/profile/details Prisma branch now returns track/year/group/cohort names (was "—"); site.ts SITE_URL empty-string env now falls back (trim+||).
+- Race fixed during verification: panel mount fetch (unfiltered) raced the preset/auto-filter fetch and overwrote it (showed 2 specialties under a 1-institution filter) — added latest-request-wins seq guards to specialties/years/tracks fetches.
+- Verified: genuine tsc 0 errors; eslint clean (9 changed files); build green (public routes still SSG). Real-browser 390×844 walkthrough on local SQLite: signup OWNER → onboarding → change-path (banner + preselection + L3 change persisted to DB + cancel path) → admin structure: blocked institution delete (counts + jump + ack + force) → force executed: whole subtree wiped (2→1 institutions, 10→5 years, 20→10 cohorts), OWNER account survived re-pointed to surviving specialty with scopes cleared → year force delete (1 group + 2 cohorts wiped) → detached-user change-path shows «غير محدد بعد» gracefully. scrollWidth=390, no console errors. Screenshots download/verify-390-r36/ (local-only per round-33 rule).
+- Cleanup: test user fully wiped (users: 0), acceptance structure re-seeded clean.
+
+Stage Summary:
+- Deliverable: round-35's four owner complaints re-implemented and verified end-to-end (APIs both branches + dialogs + buttons + change-path), plus 3 parity/robustness fixes (profile-details names, SITE_URL empty env, fetch race) — commits on main with the owner's token.
+- Key decisions: force-delete detaches accounts, NEVER deletes them; last-specialty state deliberately protected; force limited to OWNER even on years (supervisors keep normal delete only); change-mode preselection restores saved values once (explicit-tap rule intact).
