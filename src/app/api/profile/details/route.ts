@@ -30,13 +30,25 @@ export async function GET() {
         },
       });
     }
-    const institution = await db.institution.findUnique({ where: { id: user.scopeInstitutionId ?? 1 } });
-    const specialty = await db.specialty.findUnique({ where: { id: user.assignedSpecialtyId } });
+    // round 36: full parity with the Supabase branch — track/year/group/cohort
+    // names were missing locally, so الملمح/السنة rendered as "—" on حسابي
+    // after a path change.
+    const [institution, specialty, track, year, group, cohort] = await Promise.all([
+      db.institution.findUnique({ where: { id: user.scopeInstitutionId ?? 1 } }),
+      db.specialty.findUnique({ where: { id: user.assignedSpecialtyId } }),
+      user.scopeTrackId != null ? db.academicTrack.findUnique({ where: { id: user.scopeTrackId } }) : null,
+      user.scopeAcademicYearId != null ? db.academicYear.findUnique({ where: { id: user.scopeAcademicYearId } }) : null,
+      user.scopeGroupId != null ? db.studyGroup.findUnique({ where: { id: user.scopeGroupId } }) : null,
+      user.scopeCohortGroupId != null ? db.cohortGroup.findUnique({ where: { id: user.scopeCohortGroupId } }) : null,
+    ]);
     return NextResponse.json({
       profile: {
         institution: institution?.nameAr ?? "",
         specialtyName: specialty?.nameAr ?? "",
-        trackName: "", yearName: "", groupName: "", cohortName: "",
+        trackName: track?.trackNameAr ?? "",
+        yearName: year?.yearName ?? "",
+        groupName: group?.groupName ?? "",
+        cohortName: cohort?.groupName ?? "",
       },
     });
   } catch (e) {
