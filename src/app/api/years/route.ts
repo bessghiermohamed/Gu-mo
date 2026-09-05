@@ -192,6 +192,10 @@ export async function DELETE(req: NextRequest) {
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+  // round 36: ?force=1 — OWNER-only escape hatch: wipes the year with ALL
+  // its groups/cohorts/courses and detaches attached accounts (accounts are
+  // never deleted — they simply re-pick their path).
+  const force = url.searchParams.get("force") === "1" && user.role === "OWNER";
   const yearId = parseInt(id);
   try {
     if (isVercel) {
@@ -202,17 +206,27 @@ export async function DELETE(req: NextRequest) {
       if (user.role !== "OWNER" && Number(yr.specialty_id) !== user.assignedSpecialtyId) {
         return NextResponse.json({ error: "هذه السنة خارج نطاق تخصصك" }, { status: 403 });
       }
-      // protect: block while dependents still reference the year
+      // protect: block while dependents still reference the year (unless force)
       const [groups, cohorts, modules] = await Promise.all([
         supabase.from("study_groups").select("id", { count: "exact", head: true }).eq("academic_year_id", yearId),
         supabase.from("cohort_groups").select("id", { count: "exact", head: true }).eq("academic_year_id", yearId),
         supabase.from("module_courses").select("id", { count: "exact", head: true }).eq("academic_year_id", yearId),
       ]);
       const g = groups.count ?? 0, c = cohorts.count ?? 0, m = modules.count ?? 0;
-      if (g + c + m > 0) {
+      if (g + c + m > 0 && !force) {
         return NextResponse.json({
           error: `لا يمكن حذف السنة: تحتوي ${g} مجموعة و ${c} فوج و ${m} مقياس. احذفها أو انقلها أولاً.`,
+          counts: { groups: g, cohorts: c, courses: m },
         }, { status: 400 });
+      }
+      if (g + c + m > 0 && force) {
+        // detach accounts scoped into this year's cohorts/groups before the wipe
+        const { data: cohortRows } = await supabase.from("cohort_groups").select("id").eq("academic_year_id", yearId);
+        const cohortIds = (cohortRows ?? []).map((r) => Number(r.id));
+        const { data: groupRows } = await supabase.from("study_groups").select("id").eq("academic_year_id", yearId);
+        const groupIds = (groupRows ?? []).map((r) => Number(r.id));
+        if (cohortIds.length) await supabase.from("app_users").update({ scope_cohort_group_id: null }).in("scope_cohort_group_id", cohortIds);
+        if (groupIds.length) await supabase.from("app_users").update({ scope_group_id: null }).in("scope_group_id", groupIds);
       }
       // clear dangling user scopes (no FK on this column)
       await supabase.from("app_users").update({ scope_academic_year_id: null }).eq("scope_academic_year_id", yearId);
@@ -228,15 +242,27 @@ export async function DELETE(req: NextRequest) {
       const g = await db.studyGroup.count({ where: { academicYearId: yearId } });
       const c = await db.cohortGroup.count({ where: { academicYearId: yearId } });
       const m = await db.moduleCourse.count({ where: { academicYearId: yearId } });
-      if (g + c + m > 0) {
+      if (g + c + m > 0 && !force) {
         return NextResponse.json({
           error: `لا يمكن حذف السنة: تحتوي ${g} مجموعة و ${c} فوج و ${m} مقياس. احذفها أو انقلها أولاً.`,
+          counts: { groups: g, cohorts: c, courses: m },
         }, { status: 400 });
+      }
+      if (g + c + m > 0 && force) {
+        // detach accounts scoped into this year's cohorts/groups BEFORE the
+        // cascade (scopeCohortGroupId is a RESTRICT FK; scopeGroupId is SetNull
+        // but cleared explicitly for parity)
+        await db.appUser.updateMany({ where: { cohortGroup: { academicYearId: yearId } }, data: { scopeCohortGroupId: null } });
+        await db.appUser.updateMany({ where: { scopeGroup: { academicYearId: yearId } }, data: { scopeGroupId: null } });
       }
       await db.appUser.updateMany({ where: { scopeAcademicYearId: yearId }, data: { scopeAcademicYearId: null } });
       await db.academicYear.delete({ where: { id: yearId } });
     }
-    return NextResponse.json({ ok: true, message: "تم حذف السنة" });
+    return NextResponse.json({
+      ok: true,
+      forced: force,
+      message: force ? "تم حذف السنة مع كل محتواها — الحسابات المرتبطة لم تُحذف، وسيعيد أعضاؤها اختيار مسارهم" : "تم حذف السنة",
+    });
   } catch (e) {
     return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
   }

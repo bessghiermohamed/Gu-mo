@@ -688,23 +688,46 @@ function PromoteDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: (
 // (same inner-Tabs pattern as the Telegram manager — established UI.)
 // =====================================================
 function StructureManager() {
+  // round 36: the sub-tab + cross-panel filters are LIFTED here so the
+  // blocked-delete dialogs can NAVIGATE: «انتقل الآن إلى التخصصات» from an
+  // institution jumps to the specialties sub-tab pre-filtered to that
+  // institution, and «انتقل الآن إلى السنوات» from a specialty jumps to the
+  // years sub-tab pre-filtered to that specialty.
+  const [subTab, setSubTab] = React.useState("institutions");
+  const [presetInstForSpec, setPresetInstForSpec] = React.useState<number | null>(null);
+  const [presetSpecForYears, setPresetSpecForYears] = React.useState<number | null>(null);
   return (
-    <Tabs defaultValue="institutions">
+    <Tabs value={subTab} onValueChange={setSubTab}>
       <TabsList className="grid w-full grid-cols-4 gap-1">
         <TabsTrigger value="institutions" className="text-xs data-[state=active]:font-bold">المؤسسات</TabsTrigger>
         <TabsTrigger value="specialties" className="text-xs data-[state=active]:font-bold">التخصصات</TabsTrigger>
         <TabsTrigger value="tracks" className="text-xs data-[state=active]:font-bold">الملامح</TabsTrigger>
         <TabsTrigger value="years" className="text-xs data-[state=active]:font-bold">السنوات</TabsTrigger>
       </TabsList>
-      <TabsContent value="institutions" className="mt-3"><InstitutionsPanel /></TabsContent>
-      <TabsContent value="specialties" className="mt-3"><SpecialtiesPanel /></TabsContent>
+      <TabsContent value="institutions" className="mt-3">
+        <InstitutionsPanel
+          onJumpToSpecialties={(instId) => { setPresetInstForSpec(instId); setSubTab("specialties"); }}
+        />
+      </TabsContent>
+      <TabsContent value="specialties" className="mt-3">
+        <SpecialtiesPanel
+          presetInstId={presetInstForSpec}
+          onConsumePresetInst={() => setPresetInstForSpec(null)}
+          onJumpToYears={(specId) => { setPresetSpecForYears(specId); setSubTab("years"); }}
+        />
+      </TabsContent>
       <TabsContent value="tracks" className="mt-3"><TracksManager /></TabsContent>
-      <TabsContent value="years" className="mt-3"><YearsManager /></TabsContent>
+      <TabsContent value="years" className="mt-3">
+        <YearsManager
+          presetSpecId={presetSpecForYears}
+          onConsumePresetSpec={() => setPresetSpecForYears(null)}
+        />
+      </TabsContent>
     </Tabs>
   );
 }
 
-function InstitutionsPanel() {
+function InstitutionsPanel({ onJumpToSpecialties }: { onJumpToSpecialties?: (instId: number) => void }) {
   const [institutions, setInstitutions] = React.useState<Inst[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [open, setOpen] = React.useState(false);
@@ -719,6 +742,11 @@ function InstitutionsPanel() {
   const [deleteInst, setDeleteInst] = React.useState<Inst | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  // round 36: actionable blocked-delete — the guard response carries counts;
+  // the OWNER gets an ack-checkbox + force-delete escape hatch, and a jump
+  // button straight to the specialties list (pre-filtered to this institution).
+  const [blockedCounts, setBlockedCounts] = React.useState<{ specialties?: number } | null>(null);
+  const [ackForce, setAckForce] = React.useState(false);
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
@@ -753,15 +781,21 @@ function InstitutionsPanel() {
     } catch { toast.error("فشل الاتصال"); }
     finally { setEditSaving(false); }
   }
-  async function handleDelete() {
+  async function handleDelete(force = false) {
     if (!deleteInst) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/institutions?id=${deleteInst.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/institutions?id=${deleteInst.id}${force ? "&force=1" : ""}`, { method: "DELETE" });
       const data = await res.json();
-      if (!res.ok) { setDeleteError(data.error); toast.error(data.error); return; }
-      toast.success("تم حذف المؤسسة");
-      setDeleteInst(null); setDeleteError(null);
+      if (!res.ok) {
+        setDeleteError(data.error);
+        setBlockedCounts(data.counts ?? null);
+        setAckForce(false);
+        toast.error(data.error);
+        return;
+      }
+      toast.success(data.message ?? "تم حذف المؤسسة");
+      setDeleteInst(null); setDeleteError(null); setBlockedCounts(null); setAckForce(false);
       fetchData();
     } catch { toast.error("فشل الحذف"); }
     finally { setDeleting(false); }
@@ -799,17 +833,47 @@ function InstitutionsPanel() {
         </Dialog>
       )}
 
-      {/* round 6: delete confirm — blocked while specialties exist (server guard) */}
+      {/* round 6: delete confirm — blocked while specialties exist (server guard).
+          round 36: the block is no longer a dead end — OWNER gets a jump to
+          التخصصات + an explicit ack-checkbox force-delete escape hatch. */}
       {deleteInst && (
-        <Dialog open onOpenChange={() => { setDeleteInst(null); setDeleteError(null); }}>
+        <Dialog open onOpenChange={() => { setDeleteInst(null); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }}>
           <DialogContent>
             <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف مؤسسة</DialogTitle></DialogHeader>
             <p className="text-sm">هل تريد حذف <strong>{deleteInst.nameAr}</strong>؟</p>
             <p className="text-xs text-muted-foreground">حذف مؤسسة يحذف كل تخصصاتها وكل ما تحتها (سنوات، مجموعات، مقاييس، نقاط). الحذف محظور ما دامت تحوي تخصصات.</p>
             {deleteError && <div className="rounded-lg bg-destructive/10 text-destructive text-xs p-3 mt-1">{deleteError}</div>}
+            {deleteError && onJumpToSpecialties && (
+              <Button
+                variant="outline"
+                className="w-full border-primary/50 text-primary hover:bg-primary/10"
+                onClick={() => { const instId = deleteInst.id; setDeleteInst(null); setDeleteError(null); setBlockedCounts(null); onJumpToSpecialties(instId); }}
+              >
+                <ArrowLeftRight className="w-4 h-4 ml-1" />
+                انتقل الآن إلى التخصصات
+              </Button>
+            )}
+            {deleteError && isOwner && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+                <p className="text-xs font-bold text-destructive">حل بديل للمالك — حذف شامل:</p>
+                <label className="flex items-start gap-2 text-xs leading-relaxed cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ackForce}
+                    onChange={(e) => setAckForce(e.target.checked)}
+                    className="mt-0.5 accent-destructive"
+                  />
+                  <span>أفهم أن هذا الحذف شامل ونهائي: سيُمحى كل محتوى المؤسسة (تخصصات، سنوات، مجموعات، مقاييس، نقاط) ولا يمكن التراجع. الحسابات المرتبطة لن تُحذف — سيعيد أعضاؤها اختيار مسارهم.</span>
+                </label>
+                <Button variant="destructive" className="w-full" disabled={!ackForce || deleting} onClick={() => handleDelete(true)}>
+                  {deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
+                  حذف نهائي مع كل المحتوى المرتبط
+                </Button>
+              </div>
+            )}
             <DialogFooter>
-              <Button variant="outline" onClick={() => { setDeleteInst(null); setDeleteError(null); }}>إلغاء</Button>
-              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+              <Button variant="outline" onClick={() => { setDeleteInst(null); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }}>إلغاء</Button>
+              <Button variant="destructive" onClick={() => handleDelete(false)} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -826,10 +890,13 @@ function InstitutionsPanel() {
                 </div>
                 {isOwner && (
                   <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditName(inst.nameAr); setEditType(inst.type); setEditCity(inst.city); setEditInst(inst); }} aria-label="تعديل المؤسسة">
+                    {/* round 36: bordered icon buttons — ghost icons read as
+                        plain text on mobile; the owner explicitly reported
+                        missing these controls. */}
+                    <Button variant="outline" size="icon" className="h-8 w-8 bg-background" onClick={() => { setEditName(inst.nameAr); setEditType(inst.type); setEditCity(inst.city); setEditInst(inst); }} aria-label="تعديل المؤسسة">
                       <Pencil className="w-3.5 h-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => { setDeleteInst(inst); setDeleteError(null); }} aria-label="حذف المؤسسة">
+                    <Button variant="outline" size="icon" className="h-8 w-8 bg-background border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => { setDeleteInst(inst); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }} aria-label="حذف المؤسسة">
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -843,7 +910,11 @@ function InstitutionsPanel() {
   );
 }
 
-function SpecialtiesPanel() {
+function SpecialtiesPanel({ presetInstId, onConsumePresetInst, onJumpToYears }: {
+  presetInstId?: number | null;
+  onConsumePresetInst?: () => void;
+  onJumpToYears?: (specId: number) => void;
+}) {
   // fix أ.1: institution is a proper DROPDOWN (was a raw ID number input),
   // the list shows which institution each specialty belongs to, and the "+"
   // button is always visible even when the list is empty.
@@ -864,14 +935,31 @@ function SpecialtiesPanel() {
   const [deleteSpec, setDeleteSpec] = React.useState<Spec | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  // round 36: actionable blocked-delete + cross-panel navigation presets
+  const fetchSeq = React.useRef(0);
+  const [blockedCounts, setBlockedCounts] = React.useState<{ users?: number; years?: number; tracks?: number; courses?: number } | null>(null);
+  const [ackForce, setAckForce] = React.useState(false);
+
+  // round 36: a blocked institution-delete can jump HERE pre-filtered
+  React.useEffect(() => {
+    if (presetInstId != null) {
+      cascade.setInstId(String(presetInstId));
+      onConsumePresetInst?.();
+    }
+  }, [presetInstId, cascade, onConsumePresetInst]);
 
   const fetchData = React.useCallback(async (institutionId: string) => {
+    // round 36: latest-request-wins — the mount fetch (all institutions) used
+    // to race the preset/auto-selected filter fetch and overwrite it with a
+    // stale unfiltered list, breaking the «انتقل إلى التخصصات» jump.
+    const seq = ++fetchSeq.current;
     setLoading(true);
     try {
       const url = institutionId ? `/api/specialties?institutionId=${institutionId}` : "/api/specialties";
-      const res = await fetch(url, { cache: "no-store" }); const data = await res.json(); setSpecialties(data.specialties ?? []);
+      const res = await fetch(url, { cache: "no-store" }); const data = await res.json();
+      if (seq === fetchSeq.current) setSpecialties(data.specialties ?? []);
     }
-    catch { toast.error("فشل تحميل التخصصات"); } finally { setLoading(false); }
+    catch { toast.error("فشل تحميل التخصصات"); } finally { if (seq === fetchSeq.current) setLoading(false); }
   }, []);
 
   React.useEffect(() => { fetchData(cascade.instId); }, [fetchData, cascade.instId]);
@@ -907,15 +995,21 @@ function SpecialtiesPanel() {
     finally { setEditSaving(false); }
   }
 
-  async function handleDelete() {
+  async function handleDelete(force = false) {
     if (!deleteSpec) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/specialties?id=${deleteSpec.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/specialties?id=${deleteSpec.id}${force ? "&force=1" : ""}`, { method: "DELETE" });
       const data = await res.json();
-      if (!res.ok) { setDeleteError(data.error); toast.error(data.error); return; }
-      toast.success("تم حذف التخصص");
-      setDeleteSpec(null); setDeleteError(null);
+      if (!res.ok) {
+        setDeleteError(data.error);
+        setBlockedCounts(data.counts ?? null);
+        setAckForce(false);
+        toast.error(data.error);
+        return;
+      }
+      toast.success(data.message ?? "تم حذف التخصص");
+      setDeleteSpec(null); setDeleteError(null); setBlockedCounts(null); setAckForce(false);
       fetchData(cascade.instId);
     } catch { toast.error("فشل الحذف"); }
     finally { setDeleting(false); }
@@ -968,10 +1062,11 @@ function SpecialtiesPanel() {
                 </div>
                 {isOwner && (
                   <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditName(sp.nameAr); setEditCode(sp.code); setEditFaculty(sp.faculty); setEditSpec(sp); }} aria-label="تعديل التخصص">
+                    {/* round 36: bordered icon buttons (was ghost — read as plain text) */}
+                    <Button variant="outline" size="icon" className="h-8 w-8 bg-background" onClick={() => { setEditName(sp.nameAr); setEditCode(sp.code); setEditFaculty(sp.faculty); setEditSpec(sp); }} aria-label="تعديل التخصص">
                       <Pencil className="w-3.5 h-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => { setDeleteSpec(sp); setDeleteError(null); }} aria-label="حذف التخصص">
+                    <Button variant="outline" size="icon" className="h-8 w-8 bg-background border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => { setDeleteSpec(sp); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }} aria-label="حذف التخصص">
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -998,17 +1093,54 @@ function SpecialtiesPanel() {
         </Dialog>
       )}
 
-      {/* round 6: delete confirm — blocked while users/years/tracks/courses exist */}
+      {/* round 6: delete confirm — blocked while users/years/tracks/courses exist.
+          round 36: jump to السنوات + OWNER force-delete escape hatch. */}
       {deleteSpec && (
-        <Dialog open onOpenChange={() => { setDeleteSpec(null); setDeleteError(null); }}>
+        <Dialog open onOpenChange={() => { setDeleteSpec(null); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }}>
           <DialogContent>
             <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف تخصص</DialogTitle></DialogHeader>
             <p className="text-sm">هل تريد حذف <strong>{deleteSpec.nameAr}</strong>؟</p>
             <p className="text-xs text-muted-foreground">الحذف محظور ما دام للتخصص مستخدمون أو سنوات أو ملامح أو مقاييس — حمايةً لبياناتهم ونقاطهم.</p>
             {deleteError && <div className="rounded-lg bg-destructive/10 text-destructive text-xs p-3 mt-1">{deleteError}</div>}
+            {deleteError && blockedCounts && (
+              <div className="flex flex-wrap gap-1.5">
+                {typeof blockedCounts.users === "number" && blockedCounts.users > 0 && <Badge variant="outline" className="text-xs">مستخدمون: {blockedCounts.users}</Badge>}
+                {typeof blockedCounts.years === "number" && blockedCounts.years > 0 && <Badge variant="outline" className="text-xs">سنوات: {blockedCounts.years}</Badge>}
+                {typeof blockedCounts.tracks === "number" && blockedCounts.tracks > 0 && <Badge variant="outline" className="text-xs">ملامح: {blockedCounts.tracks}</Badge>}
+                {typeof blockedCounts.courses === "number" && blockedCounts.courses > 0 && <Badge variant="outline" className="text-xs">مقاييس: {blockedCounts.courses}</Badge>}
+              </div>
+            )}
+            {deleteError && onJumpToYears && (
+              <Button
+                variant="outline"
+                className="w-full border-primary/50 text-primary hover:bg-primary/10"
+                onClick={() => { const specId = deleteSpec.id; setDeleteSpec(null); setDeleteError(null); setBlockedCounts(null); onJumpToYears(specId); }}
+              >
+                <ArrowLeftRight className="w-4 h-4 ml-1" />
+                انتقل الآن إلى السنوات
+              </Button>
+            )}
+            {deleteError && isOwner && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+                <p className="text-xs font-bold text-destructive">حل بديل للمالك — حذف شامل:</p>
+                <label className="flex items-start gap-2 text-xs leading-relaxed cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ackForce}
+                    onChange={(e) => setAckForce(e.target.checked)}
+                    className="mt-0.5 accent-destructive"
+                  />
+                  <span>أفهم أن هذا الحذف شامل ونهائي: سيُمحى كل محتوى التخصص (سنوات، ملامح، مجموعات، مقاييس، نقاط) ولا يمكن التراجع. الحسابات المرتبطة لن تُحذف — سيعيد أعضاؤها اختيار مسارهم.</span>
+                </label>
+                <Button variant="destructive" className="w-full" disabled={!ackForce || deleting} onClick={() => handleDelete(true)}>
+                  {deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
+                  حذف نهائي مع كل المحتوى المرتبط
+                </Button>
+              </div>
+            )}
             <DialogFooter>
-              <Button variant="outline" onClick={() => { setDeleteSpec(null); setDeleteError(null); }}>إلغاء</Button>
-              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+              <Button variant="outline" onClick={() => { setDeleteSpec(null); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }}>إلغاء</Button>
+              <Button variant="destructive" onClick={() => handleDelete(false)} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -1042,12 +1174,15 @@ function TracksManager() {
   const [editSaving, setEditSaving] = React.useState(false);
   const [deleteTrack, setDeleteTrack] = React.useState<Track | null>(null);
   const [deletingTrack, setDeletingTrack] = React.useState(false);
+  const trackFetchSeq = React.useRef(0);
 
   const fetchTracks = React.useCallback(async (specialtyId: string) => {
     if (!specialtyId) { setTracks([]); setLoading(false); return; }
+    // round 36: latest-request-wins (same race as SpecialtiesPanel)
+    const seq = ++trackFetchSeq.current;
     setLoading(true);
-    try { const res = await fetch(`/api/tracks?specialtyId=${specialtyId}`, { cache: "no-store" }); const data = await res.json(); setTracks(data.tracks ?? []); }
-    catch { toast.error("فشل تحميل الملامح"); } finally { setLoading(false); }
+    try { const res = await fetch(`/api/tracks?specialtyId=${specialtyId}`, { cache: "no-store" }); const data = await res.json(); if (seq === trackFetchSeq.current) setTracks(data.tracks ?? []); }
+    catch { toast.error("فشل تحميل الملامح"); } finally { if (seq === trackFetchSeq.current) setLoading(false); }
   }, []);
 
   React.useEffect(() => { fetchTracks(cascade.specId); }, [fetchTracks, cascade.specId]);
@@ -1171,10 +1306,11 @@ function TracksManager() {
                       <div className="text-xs text-muted-foreground mt-1"><Badge variant="outline" className="text-xs">{tr.code}</Badge></div>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditTrackName(tr.trackNameAr); setEditTrackCode(tr.code); setEditTrack(tr); }} aria-label="تعديل الملمح">
+                      {/* round 36: bordered icon buttons (was ghost — read as plain text) */}
+                      <Button variant="outline" size="icon" className="h-8 w-8 bg-background" onClick={() => { setEditTrackName(tr.trackNameAr); setEditTrackCode(tr.code); setEditTrack(tr); }} aria-label="تعديل الملمح">
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteTrack(tr)} aria-label="حذف الملمح">
+                      <Button variant="outline" size="icon" className="h-8 w-8 bg-background border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setDeleteTrack(tr)} aria-label="حذف الملمح">
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
@@ -1230,7 +1366,10 @@ const YEAR_PRESETS = ["السنة الأولى", "السنة الثانية", "�
 
 interface YearRow extends Year { semester?: number }
 
-function YearsManager() {
+function YearsManager({ presetSpecId, onConsumePresetSpec }: {
+  presetSpecId?: number | null;
+  onConsumePresetSpec?: () => void;
+}) {
   const cascade = useCascade();
   const [years, setYears] = React.useState<YearRow[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -1245,16 +1384,33 @@ function YearsManager() {
   const [editName, setEditName] = React.useState("");
   const [editSemester, setEditSemester] = React.useState("1");
   const [editSaving, setEditSaving] = React.useState(false);
+  // round 36: actionable blocked-delete + cross-panel navigation preset
+  const yearFetchSeq = React.useRef(0);
+  const { user } = useAuth();
+  const isOwner = user?.role === "OWNER";
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [blockedCounts, setBlockedCounts] = React.useState<{ groups?: number; cohorts?: number; courses?: number } | null>(null);
+  const [ackForce, setAckForce] = React.useState(false);
+
+  // round 36: a blocked specialty-delete can jump HERE pre-filtered
+  React.useEffect(() => {
+    if (presetSpecId != null) {
+      cascade.setSpecId(String(presetSpecId));
+      onConsumePresetSpec?.();
+    }
+  }, [presetSpecId, cascade, onConsumePresetSpec]);
 
   const fetchYears = React.useCallback(async (specialtyId: string) => {
     if (!specialtyId) { setYears([]); setLoading(false); return; }
+    // round 36: latest-request-wins (same race as SpecialtiesPanel)
+    const seq = ++yearFetchSeq.current;
     setLoading(true);
     try {
       const res = await fetch(`/api/years?specialtyId=${specialtyId}`, { cache: "no-store" });
       const data = await res.json();
-      setYears(data.years ?? []);
+      if (seq === yearFetchSeq.current) setYears(data.years ?? []);
     } catch { toast.error("فشل تحميل السنوات"); }
-    finally { setLoading(false); }
+    finally { if (seq === yearFetchSeq.current) setLoading(false); }
   }, []);
 
   React.useEffect(() => { fetchYears(cascade.specId); }, [fetchYears, cascade.specId]);
@@ -1289,14 +1445,21 @@ function YearsManager() {
     }
   }
 
-  async function handleDelete(year: YearRow) {
+  async function handleDelete(year: YearRow, force = false) {
     setDeleting(true);
     try {
-      const res = await fetch(`/api/years?id=${year.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/years?id=${year.id}${force ? "&force=1" : ""}`, { method: "DELETE" });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم حذف السنة");
+      if (!res.ok) {
+        setDeleteError(data.error);
+        setBlockedCounts(data.counts ?? null);
+        setAckForce(false);
+        toast.error(data.error);
+        return;
+      }
+      toast.success(data.message ?? "تم حذف السنة");
       setDeleteYear(null);
+      setDeleteError(null); setBlockedCounts(null); setAckForce(false);
       fetchYears(cascade.specId);
     } catch { toast.error("فشل الحذف"); }
     finally { setDeleting(false); }
@@ -1394,10 +1557,11 @@ function YearsManager() {
                       <Badge variant="outline" className="mt-2 text-xs">ID: {y.id}</Badge>
                     </div>
                     <div className="flex flex-col gap-1 shrink-0">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEditYear(y)} aria-label="تعديل السنة">
+                      {/* round 36: bordered icon buttons (was ghost — read as plain text) */}
+                      <Button size="icon" variant="outline" className="h-8 w-8 bg-background" onClick={() => openEditYear(y)} aria-label="تعديل السنة">
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteYear(y)} aria-label="حذف السنة">
+                      <Button size="icon" variant="outline" className="h-8 w-8 bg-background border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => { setDeleteYear(y); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }} aria-label="حذف السنة">
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
@@ -1410,13 +1574,39 @@ function YearsManager() {
       )}
 
       {deleteYear && (
-        <Dialog open onOpenChange={() => setDeleteYear(null)}>
+        <Dialog open onOpenChange={() => { setDeleteYear(null); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }}>
           <DialogContent>
             <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف سنة</DialogTitle></DialogHeader>
             <p className="text-sm">هل تريد حذف <strong>{deleteYear.yearName}</strong>؟ سيتم فصل الطلبة المرتبطين بها. لا يمكن الحذف إذا كانت تحتوي مجموعات أو أفواجاً أو مقاييس.</p>
+            {deleteError && <div className="rounded-lg bg-destructive/10 text-destructive text-xs p-3 mt-1">{deleteError}</div>}
+            {deleteError && blockedCounts && (
+              <div className="flex flex-wrap gap-1.5">
+                {typeof blockedCounts.groups === "number" && blockedCounts.groups > 0 && <Badge variant="outline" className="text-xs">مجموعات: {blockedCounts.groups}</Badge>}
+                {typeof blockedCounts.cohorts === "number" && blockedCounts.cohorts > 0 && <Badge variant="outline" className="text-xs">أفواج: {blockedCounts.cohorts}</Badge>}
+                {typeof blockedCounts.courses === "number" && blockedCounts.courses > 0 && <Badge variant="outline" className="text-xs">مقاييس: {blockedCounts.courses}</Badge>}
+              </div>
+            )}
+            {deleteError && isOwner && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+                <p className="text-xs font-bold text-destructive">حل بديل للمالك — حذف شامل:</p>
+                <label className="flex items-start gap-2 text-xs leading-relaxed cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ackForce}
+                    onChange={(e) => setAckForce(e.target.checked)}
+                    className="mt-0.5 accent-destructive"
+                  />
+                  <span>أفهم أن هذا الحذف شامل ونهائي: سيُمحى كل محتوى السنة (مجموعات، أفواج، مقاييس، نقاط) ولا يمكن التراجع. الحسابات المرتبطة لن تُحذف — سيعيد أعضاؤها اختيار مسارهم.</span>
+                </label>
+                <Button variant="destructive" className="w-full" disabled={!ackForce || deleting} onClick={() => handleDelete(deleteYear, true)}>
+                  {deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}
+                  حذف نهائي مع كل المحتوى المرتبط
+                </Button>
+              </div>
+            )}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDeleteYear(null)}>إلغاء</Button>
-              <Button variant="destructive" onClick={() => handleDelete(deleteYear)} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
+              <Button variant="outline" onClick={() => { setDeleteYear(null); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }}>إلغاء</Button>
+              <Button variant="destructive" onClick={() => handleDelete(deleteYear, false)} disabled={deleting}>{deleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
