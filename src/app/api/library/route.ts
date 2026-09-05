@@ -55,19 +55,50 @@ export async function GET(req: NextRequest) {
   // returned exactly as before.
   const moduleId = req.nextUrl.searchParams.get("moduleId");
   try {
+    // round 41 fix — authorize a module-scoped read against the COURSE, not
+    // against the viewer's specialty. BUG this replaces: the query below used
+    // to intersect specialty_id = viewer AND module_id = N, while POST stamped
+    // new rows with the UPLOADER's specialty — so a material uploaded into a
+    // course by a manager of another specialty (routinely the OWNER, the only
+    // cross-specialty manager) was invisible to every student of that course
+    // (their specialty never matches the stamped row). Resolution: look up the
+    // course's own specialty; OWNER may read any course, everyone else must be
+    // assigned to the course's specialty; the row-level specialty filter is
+    // then dropped for module-scoped reads — which also makes already-stranded
+    // rows (uploaded before this fix) visible again with no data migration.
+    let courseSpecialtyId: number | null = null;
+    if (moduleId) {
+      const mid = Number(moduleId);
+      if (!Number.isFinite(mid)) return NextResponse.json({ items: [] });
+      if (isVercel) {
+        const supabase0 = await createSupabaseServerClient();
+        const { data: course0 } = await supabase0
+          .from("module_courses").select("specialty_id").eq("id", mid).maybeSingle();
+        if (!course0) return NextResponse.json({ items: [] });
+        courseSpecialtyId = Number(course0.specialty_id);
+      } else {
+        const course0 = await db.moduleCourse.findUnique({ where: { id: mid }, select: { specialtyId: true } });
+        if (!course0) return NextResponse.json({ items: [] });
+        courseSpecialtyId = course0.specialtyId;
+      }
+      if (user.role !== "OWNER" && courseSpecialtyId !== user.assignedSpecialtyId) {
+        return NextResponse.json({ items: [] });
+      }
+    }
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       const fetchList = async (hideCourseRows: boolean) => {
-        let query = supabase
-          .from("library_references")
-          .select("*")
-          .eq("specialty_id", user.assignedSpecialtyId);
+        let query = supabase.from("library_references").select("*");
         if (moduleId) {
+          // course-authorized above — filter by the course link ONLY
           query = query.eq("module_id", Number(moduleId));
-        } else if (hideCourseRows) {
-          // round 41: materials uploaded INSIDE a course live at the course —
-          // the general library lists only specialty-wide references.
-          query = query.is("module_id", null);
+        } else {
+          query = query.eq("specialty_id", user.assignedSpecialtyId);
+          if (hideCourseRows) {
+            // round 41: materials uploaded INSIDE a course live at the course —
+            // the general library lists only specialty-wide references.
+            query = query.is("module_id", null);
+          }
         }
         return query.order("id", { ascending: false }).limit(100);
       };
@@ -93,13 +124,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ items });
     }
     const rows = await db.libraryReference.findMany({
-      where: {
-        specialtyId: user.assignedSpecialtyId,
-        ...(moduleId
-          ? { moduleId: Number(moduleId) }
-          // round 41: course materials live at the course, not the library
-          : { moduleId: null }),
-      },
+      where: moduleId
+        // course-authorized above — filter by the course link ONLY
+        ? { moduleId: Number(moduleId) }
+        : {
+            specialtyId: user.assignedSpecialtyId,
+            // round 41: course materials live at the course, not the library
+            moduleId: null,
+          },
       orderBy: { id: "desc" },
       take: 100,
     });
@@ -128,10 +160,35 @@ export async function POST(req: NextRequest) {
     if (!title?.trim()) {
       return NextResponse.json({ error: "العنوان مطلوب" }, { status: 400 });
     }
+    // round 41 fix — a course-scoped material belongs to the COURSE's
+    // specialty, not the uploader's. The old code stamped specialty_id with
+    // the uploader's assignedSpecialtyId, so the course's students (filtered
+    // by their own specialty) could never see it. Resolve the course first,
+    // scope-check the uploader against it (OWNER may manage any course —
+    // same rule as PATCH/DELETE on /api/courses), and stamp + notify with
+    // the course's specialty.
+    let courseSpecialtyId: number | null = null;
+    if (moduleId != null) {
+      const mid = Number(moduleId);
+      if (isVercel) {
+        const supabase0 = await createSupabaseServerClient();
+        const { data: course0 } = await supabase0
+          .from("module_courses").select("specialty_id").eq("id", mid).maybeSingle();
+        if (!course0) return NextResponse.json({ error: "المقياس غير موجود" }, { status: 400 });
+        courseSpecialtyId = Number(course0.specialty_id);
+      } else {
+        const course0 = await db.moduleCourse.findUnique({ where: { id: mid }, select: { specialtyId: true } });
+        if (!course0) return NextResponse.json({ error: "المقياس غير موجود" }, { status: 400 });
+        courseSpecialtyId = course0.specialtyId;
+      }
+      if (user.role !== "OWNER" && courseSpecialtyId !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا المقياس خارج نطاق تخصصك" }, { status: 403 });
+      }
+    }
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       const base = {
-        specialty_id: user.assignedSpecialtyId,
+        specialty_id: courseSpecialtyId ?? user.assignedSpecialtyId,
         title: title.trim(),
         author: author?.trim() || user.fullName,
         category: category?.trim() || "كتاب مرجعي",
@@ -190,7 +247,7 @@ export async function POST(req: NextRequest) {
       await notifyContentPublished({
         actorId: user.id,
         actorName: user.fullName,
-        specialtyId: Number(user.assignedSpecialtyId),
+        specialtyId: courseSpecialtyId ?? Number(user.assignedSpecialtyId),
         type: "content_library",
         title: moduleId != null ? "مادة جديدة في أحد المقاييس" : "مرجع جديد في المكتبة",
         body: `«${title.trim()}»${category?.trim() ? ` (${category.trim()})` : ""}${author?.trim() ? ` — ${author.trim()}` : ` — ${user.fullName}`}`,
@@ -202,7 +259,7 @@ export async function POST(req: NextRequest) {
     try {
       item = await db.libraryReference.create({
         data: {
-          specialtyId: user.assignedSpecialtyId,
+          specialtyId: courseSpecialtyId ?? user.assignedSpecialtyId,
           title: title.trim(),
           author: author?.trim() || user.fullName,
           category: category?.trim() || "كتاب مرجعي",
@@ -229,7 +286,7 @@ export async function POST(req: NextRequest) {
     await notifyContentPublished({
       actorId: user.id,
       actorName: user.fullName,
-      specialtyId: Number(user.assignedSpecialtyId),
+      specialtyId: courseSpecialtyId ?? Number(user.assignedSpecialtyId),
       type: "content_library",
       title: moduleId != null ? "مادة جديدة في أحد المقاييس" : "مرجع جديد في المكتبة",
       body: `«${title.trim()}»${category?.trim() ? ` (${category.trim()})` : ""}${author?.trim() ? ` — ${author.trim()}` : ` — ${user.fullName}`}`,
