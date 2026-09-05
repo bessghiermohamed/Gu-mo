@@ -638,6 +638,12 @@ function ShellInner() {
                     setNotifOpen(true);
                     setNotifLoading(true);
                     refreshNotifications().finally(() => setNotifLoading(false));
+                    // round 38: opening the bell is the moment the student
+                    // reads the «تم قبول طلبك» outcome — sync the session so
+                    // حسابي reflects the new cohort immediately (and the
+                    // «تصفح المجموعات والأفواج» button disappears) without
+                    // any reload.
+                    refresh();
                   }}
                   className="shrink-0 relative h-10 w-10"
                   aria-label={t("nav.notifications")}

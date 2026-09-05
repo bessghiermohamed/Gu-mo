@@ -40,6 +40,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refresh();
   }, [refresh]);
 
+  // round 38: the session used to be read once per login/reload — a student
+  // approved into a cohort kept seeing «بلا فوج» AND the «تصفح المجموعات
+  // والأفواج» button after the acceptance, because the reviewer's action
+  // only updates the DB on the server. Sync the session whenever the tab
+  // becomes visible again (throttled) so approvals and role changes land
+  // without any manual reload.
+  const lastVisibleSyncRef = React.useRef(0);
+  React.useEffect(() => {
+    function onVisibilityChange() {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastVisibleSyncRef.current < 15_000) return;
+      lastVisibleSyncRef.current = now;
+      refresh();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [refresh]);
+
   const signIn = React.useCallback(
     async (fullName: string, email: string) => {
       // fix H-6 (round 4): network failures used to throw an unhandled

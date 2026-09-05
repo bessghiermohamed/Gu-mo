@@ -27,8 +27,21 @@ interface Props {
 
 export function TalibProfileScreen({ onSignOut }: Props) {
   const { t } = useI18n();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const { navigate, startPathChange } = useShell();
+
+  // round 38: sync the session ONCE when حسابي opens. Acceptance into a
+  // cohort (and role changes) happen on the reviewer's side; without this
+  // the student kept seeing «بلا فوج» and the «تصفح المجموعات والأفواج»
+  // button below even after the الفوج cell (fed by the fresh details API)
+  // already showed the new cohort. The ref guard keeps this effect from
+  // re-running when refresh() itself updates the user object.
+  const syncedOnceRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!user || syncedOnceRef.current) return;
+    syncedOnceRef.current = true;
+    refresh();
+  }, [user, refresh]);
 
   const [profileDetails, setProfileDetails] = React.useState<{
     institution: string;
