@@ -229,3 +229,20 @@ Work Log:
 Stage Summary:
 - Deliverable: round-35's four owner complaints re-implemented and verified end-to-end (APIs both branches + dialogs + buttons + change-path), plus 3 parity/robustness fixes (profile-details names, SITE_URL empty env, fetch race) — commits on main with the owner's token.
 - Key decisions: force-delete detaches accounts, NEVER deletes them; last-specialty state deliberately protected; force limited to OWNER even on years (supervisors keep normal delete only); change-mode preselection restores saved values once (explicit-tap rule intact).
+
+---
+Task ID: 14
+Agent: main (Super Z)
+Task: Round 37 — «تغيير المسار الأكاديمي» restricted to OWNER-only (3 layers) + smart institution-name abbreviation in حسابي (Arabic + Latin names).
+
+Work Log:
+- Owner request: (1) path change is a platform-owner power — round 36's all-roles button must become OWNER-only; (2) long institution names in حسابي cut mid-word by CSS «…» — abbreviate to the distinctive last name, also for English-letter names.
+- OWNER-only enforcement, 3 layers: profile-screen button gated `role === "OWNER"`; shell `startPathChange` guard (defense in depth); onboarding-screen sends explicit `mode: "change"|"initial"` and `/api/onboarding/complete` returns 403 «تغيير المسار الأكاديمي متاح للمالك فقط» for non-OWNER change-mode (initial onboarding stays open to every role — round-9 membership-preservation untouched).
+- New `src/lib/abbreviate.ts` → `abbreviateOrgName(name, max=16)`: short names untouched; Arabic → type-initial (ignoring «ال») + last meaningful word («المدرسة العليا للأساتذة - بوزريعة» → «م. بوزريعة»); Latin → accent-normalized initials + last name («Lycée Frères Bousouf» → «L.F. Bousouf», tight fallback «ENSD Bouzaréah»); parenthesised suffixes («(القرار 105)») never picked as the last name; mixed-script treated Arabic-style. Full name preserved in the cell's `title` via new InfoCell `fullValue` prop — display-only, zero schema change.
+- Verified: 12/12 abbreviation unit cases (scripts/test-abbreviate.ts, bun); genuine tsc 0 errors; eslint clean (5 changed files); build green (public routes still SSG). Real-browser 390×844 walkthrough (local Prisma/SQLite): OWNER onboarded → حسابي shows button + «م. بوزريعة» cell (title = full name) → change wizard opens with current path marked «مُحدد» + cancel works; STUDENT onboarded (mode=initial passes) → حسابي has NO button + cell «ج. للآداب»; API probes: student+mode=change → 403, owner+mode=change (own ids) → 200 ok. scrollWidth=390, no console errors. Screenshots download/verify-390-r37/ (local-only per round-33 rule).
+- Cleanup: owner37/student37 test accounts wiped (users: 0, structure intact 2/2/10); first-run tour + fixed-inset-0 overlays dismissed via تخطّي during walkthrough (round-36 pitfall pattern: stale overlays block clicks).
+- Committed 3×: cb18377 (server+shell+mode enforcement), 61ded6b (profile screen: OWNER-only button + abbreviation + util + test/cleanup scripts), 68dfb2d (Arabic report تقرير-إصلاحات-الجولة-37.md).
+
+Stage Summary:
+- Deliverable: path switching is now an OWNER-only power enforced server-side (not just hidden UI), and the حسابي institution cell reads «م. بوزريعة»-style abbreviations with the official name in the tooltip — Arabic and English-letter names both covered.
+- Key decisions: abbreviation is display-only (no DB/schema change); max=16 chars fits the 390px 2-col cell; initial onboarding deliberately NOT restricted (new-device flow must keep working) — only the explicit change-mode is guarded.
