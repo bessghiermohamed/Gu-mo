@@ -264,6 +264,10 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
           specialtyId: selectedSpecialty,
           trackId: selectedTrack,
           academicYearId: selectedYear,
+          // round 37: change-mode runs are OWNER-only — the server rejects
+          // mode="change" from any other role (initial onboarding is
+          // unaffected and stays open to everyone).
+          mode: isChange ? "change" : "initial",
           // No cohortId — student gets assigned later by representative (matches new Android behavior)
         }),
       });

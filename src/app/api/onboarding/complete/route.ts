@@ -30,12 +30,24 @@ export async function POST(req: NextRequest) {
       academicYearId,
       cohortId,
       trackId,
+      mode,
     } = body;
 
     if (!fullName?.trim() || !email?.trim()) {
       return NextResponse.json(
         { error: "الاسم والبريد مطلوبان" },
         { status: 400 }
+      );
+    }
+
+    // round 37: تغيير المسار الأكاديمي is OWNER-only. The حسابي entry runs
+    // the wizard with mode="change"; every other role gets 403 even from a
+    // tampered client. Initial onboarding (mode="initial"/absent) is
+    // unaffected — a fresh device re-runs it freely.
+    if (mode === "change" && user.role !== "OWNER") {
+      return NextResponse.json(
+        { error: "تغيير المسار الأكاديمي متاح للمالك فقط" },
+        { status: 403 }
       );
     }
 

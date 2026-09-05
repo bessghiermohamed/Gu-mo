@@ -453,8 +453,14 @@ function ShellInner() {
   // "change" mode (pre-filled with the current path + cancel escape) even
   // though onboarding itself is already done. Never restored from the URL:
   // a refresh simply lands back on the profile.
+  // round 37: path change is OWNER-ONLY — the guard here is defense in
+  // depth (the button is hidden in حسابي and the API rejects non-OWNER
+  // change requests).
   const [pathChange, setPathChange] = React.useState(false);
-  const startPathChange = React.useCallback(() => setPathChange(true), []);
+  const isOwner = user?.role === "OWNER";
+  const startPathChange = React.useCallback(() => {
+    if (isOwner) setPathChange(true);
+  }, [isOwner]);
 
   const shellValue: ShellContextValue = {
     currentScreen,
