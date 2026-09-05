@@ -127,6 +127,8 @@
     "tuesday": "Tuesday",
     "wednesday": "Wednesday",
     "thursday": "Thursday",
+    "friday": "Friday",
+    "saturday": "Saturday",
     "typeLecture": "Lecture",
     "typeTD": "Directed Work (TD)",
     "typeTP": "Practical Work (TP)",

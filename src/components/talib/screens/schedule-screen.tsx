@@ -208,7 +208,24 @@ export function TalibScheduleScreen() {
               <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
             </Card>
           ) : (
-            DAYS.map((day) => {
+            (() => {
+              // round 39: weekend days (الجمعة/السبت) render ONLY when
+              // something is scheduled on them — e.g. an exam pushed from
+              // تفاصيل المقياس via «أضف إلى جدولي» lands on its weekday,
+              // and hiding it would break that promise.
+              const renderDays = [...DAYS];
+              for (const k of [6, 7] as const) {
+                const hasAny =
+                  items.some((i) => i.dayOfWeek === k) ||
+                  personalItems.some((i) => i.dayOfWeek === k);
+                if (hasAny) {
+                  renderDays.push({
+                    key: k,
+                    label: k === 6 ? "schedule.friday" : "schedule.saturday",
+                  });
+                }
+              }
+              return renderDays.map((day) => {
               const dayItems = items.filter((i) => i.dayOfWeek === day.key);
               const dayPersonal = personalItems.filter((i) => i.dayOfWeek === day.key);
               return (
@@ -343,7 +360,8 @@ export function TalibScheduleScreen() {
                   )}
                 </Card>
               );
-            })
+              });
+            })()
           )}
         </TabsContent>
         <TabsContent value="image" className="mt-4">
