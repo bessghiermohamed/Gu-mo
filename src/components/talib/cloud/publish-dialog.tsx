@@ -20,7 +20,7 @@
  */
 
 import * as React from "react";
-import { CloudUpload, HardDrive, Link2, Loader2 } from "lucide-react";
+import { CloudUpload, Copy, HardDrive, Link2, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,9 +31,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  DriveError, ensureDriveToken, findOrCreateDriveFolder,
-  findOrCreateLibraryFolder, getDriveShareLinks, getGoogleClientId,
-  isDriveConnected, shareDriveFile, uploadToDrive,
+  DriveError, ensureDriveToken, findOrCreateCourseFolder,
+  findOrCreateDriveFolder, findOrCreateLibraryFolder, getDriveShareLinks,
+  getGoogleClientId, isDriveConnected, shareDriveFile, uploadToDrive,
 } from "@/lib/drive";
 import { formatBytes } from "@/lib/utils";
 import { toast } from "sonner";
@@ -56,12 +56,50 @@ function formatFromFile(name: string): string {
   return "أخرى";
 }
 
+/** Round 41 — one-time DB update card (course↔material linkage). Rendered
+ *  whenever the API answers needsSchema: the material was NOT silently
+ *  dropped into the general library — nothing is saved until the owner runs
+ *  the snippet once in Supabase. Exported for the course المواد tab card. */
+export function NeedsSchemaCard({ sql, onRetried }: { sql?: string; onRetried?: () => void }) {
+  const snippet = sql ??
+    "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS module_id INTEGER;\n" +
+    "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS storage_path TEXT;\n" +
+    "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS file_size BIGINT;";
+  return (
+    <Card className="p-3 border-amber-500/30 bg-amber-500/5 space-y-2">
+      <p className="text-xs font-bold">تحديث قاعدة بيانات لمرة واحدة مطلوب</p>
+      <p className="text-[11px] text-muted-foreground leading-relaxed">
+        المادة لم تُحفظ (ولا تذهب إلى المكتبة العامة). لربط مواد المقاييس بمواقعها
+        نفّذ هذا المقطع مرة واحدة في محرر SQL داخل Supabase، ثم أعد المحاولة:
+      </p>
+      <div className="flex items-start gap-2">
+        <pre dir="ltr" className="flex-1 min-w-0 text-[10px] leading-relaxed font-mono bg-muted/60 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-all">{snippet}</pre>
+        <Button
+          variant="outline" size="sm" className="shrink-0 h-7"
+          onClick={async () => {
+            try { await navigator.clipboard.writeText(snippet); toast.success("نُسخ المقطع — الصقه في محرر SQL"); }
+            catch { toast.error("تعذّر النسخ — انسخه يدوياً"); }
+          }}
+        >
+          <Copy className="w-3 h-3 ml-1" />نسخ
+        </Button>
+      </div>
+      {onRetried && (
+        <Button size="sm" variant="outline" className="w-full" onClick={onRetried}>
+          نفّذته — أعد المحاولة
+        </Button>
+      )}
+    </Card>
+  );
+}
+
 export function PublishToLibraryDialog({
   onCreated,
   moduleId,
   defaultCategory,
   triggerLabel = "إضافة ملف",
   triggerClassName = "w-full",
+  courseName,
 }: {
   onCreated: () => void;
   /** When set, the material is linked to this course (المواد tab). */
@@ -70,6 +108,8 @@ export function PublishToLibraryDialog({
   triggerLabel?: string;
   /** Round 40: the course header hosts a compact trigger (not full-width). */
   triggerClassName?: string;
+  /** Round 41: course uploads land in «📘 {courseName}» Drive folder. */
+  courseName?: string | null;
 }) {
   const [open, setOpen] = React.useState(false);
   // round 38: default to the REAL upload (رفع ملف إلى Drive) — the link
@@ -113,7 +153,7 @@ export function PublishToLibraryDialog({
         </div>
         {mode === "link"
           ? <LinkMode onDone={close} onSwitchToUpload={() => setMode("upload")} defaultCategory={defaultCategory} moduleId={moduleId} />
-          : <UploadMode onDone={close} onSwitchToLink={() => setMode("link")} defaultCategory={defaultCategory} moduleId={moduleId} />}
+          : <UploadMode onDone={close} onSwitchToLink={() => setMode("link")} defaultCategory={defaultCategory} moduleId={moduleId} courseName={courseName} />}
       </DialogContent>
     </Dialog>
   );
@@ -133,6 +173,7 @@ function LinkMode({
   const [downloadUrl, setDownloadUrl] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [needsSchemaSql, setNeedsSchemaSql] = React.useState<string | null>(null);
 
   async function handleSave() {
     if (!title.trim()) { toast.error("العنوان مطلوب"); return; }
@@ -147,10 +188,21 @@ function LinkMode({
         }),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+      if (!res.ok) {
+        if (data.needsSchema) { setNeedsSchemaSql(data.sql); return; }
+        toast.error(data.error ?? "فشل الحفظ"); return;
+      }
       toast.success(moduleId ? "تمت إضافة المادة للمقياس" : "تمت إضافة الملف للمكتبة");
       onDone();
     } finally { setSaving(false); }
+  }
+
+  if (needsSchemaSql) {
+    return (
+      <div className="space-y-3 py-2">
+        <NeedsSchemaCard sql={needsSchemaSql} onRetried={handleSave} />
+      </div>
+    );
   }
 
   return (
@@ -207,14 +259,17 @@ function LinkMode({
   );
 }
 
-/** Publish a real file from the supervisor's own Google Drive (round 32). */
+/** Publish a real file from the supervisor's own Google Drive (round 32).
+ *  Round 41: course-scoped uploads go to the COURSE's own Drive folder
+ *  «📘 {اسم المقياس}» — the Drive mirrors the app's structure. */
 function UploadMode({
-  onDone, onSwitchToLink, defaultCategory, moduleId,
+  onDone, onSwitchToLink, defaultCategory, moduleId, courseName,
 }: {
   onDone: () => void; onSwitchToLink: () => void;
-  defaultCategory?: string; moduleId?: number | null;
+  defaultCategory?: string; moduleId?: number | null; courseName?: string | null;
 }) {
   const hasClientId = getGoogleClientId() !== null;
+  const isCourseScoped = moduleId != null && !!courseName?.trim();
   const [connected, setConnected] = React.useState(false);
   const [connecting, setConnecting] = React.useState(false);
   const [file, setFile] = React.useState<File | null>(null);
@@ -224,6 +279,7 @@ function UploadMode({
   const [description, setDescription] = React.useState("");
   const [pct, setPct] = React.useState<number | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const [needsSchemaSql, setNeedsSchemaSql] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -259,12 +315,20 @@ function UploadMode({
     if (!file) { toast.error("اختر ملفاً أولاً"); return; }
     if (!title.trim()) { toast.error("العنوان مطلوب"); return; }
     setSaving(true);
+    setNeedsSchemaSql(null);
     try {
       const token = await ensureDriveToken(false);
       setPct(0);
       const appFolder = await findOrCreateDriveFolder(token);
-      const libFolder = await findOrCreateLibraryFolder(token, appFolder);
-      const meta = await uploadToDrive(token, libFolder, file, setPct, "talib-library");
+      // round 41: course uploads → the course's own folder; library-wide
+      // uploads → «مكتبة طالب». The Drive mirrors the app 1:1.
+      const destFolder = isCourseScoped
+        ? await findOrCreateCourseFolder(token, appFolder, courseName!.trim(), moduleId!)
+        : await findOrCreateLibraryFolder(token, appFolder);
+      const meta = await uploadToDrive(
+        token, destFolder, file, setPct,
+        isCourseScoped ? "talib-course" : "talib-library"
+      );
       await shareDriveFile(token, meta.id); // anyone-with-link reader
       const links = await getDriveShareLinks(token, meta.id);
       const res = await fetch("/api/library", {
@@ -277,9 +341,13 @@ function UploadMode({
         }),
       });
       const data = await res.json();
-      if (!res.ok) { setPct(null); toast.error(data.error ?? "فشل نشر الملف"); return; }
-      toast.success(moduleId
-        ? "تم نشر المادة في المقياس — أصبحت متاحة للطلبة للتنزيل"
+      if (!res.ok) {
+        setPct(null);
+        if (data.needsSchema) { setNeedsSchemaSql(data.sql); return; }
+        toast.error(data.error ?? "فشل نشر الملف"); return;
+      }
+      toast.success(isCourseScoped
+        ? `أُضيفت المادة إلى مقياس «${courseName!.trim()}» — في تبويب المواد ولدى كل الطلبة`
         : "تم نشر الملف في مكتبة التخصص — أصبح متاحاً للطلبة للتنزيل");
       onDone();
     } catch (err) {
@@ -313,6 +381,16 @@ function UploadMode({
         <DialogFooter>
           <Button variant="outline" onClick={onSwitchToLink}>إضافة كرابط بدلاً من ذلك</Button>
         </DialogFooter>
+      </div>
+    );
+  }
+
+  // round 41 — the one-time DB update stands between this upload and the
+  // course: show the copyable SQL instead of silently demoting the file.
+  if (needsSchemaSql) {
+    return (
+      <div className="space-y-3 py-2">
+        <NeedsSchemaCard sql={needsSchemaSql} onRetried={handlePublish} />
       </div>
     );
   }
@@ -409,10 +487,21 @@ function UploadMode({
       )}
 
       <p className="text-[11px] text-muted-foreground bg-muted/40 rounded-lg p-2.5 leading-relaxed">
-        يُرفع الملف إلى مجلد «📚 مكتبة طالب» في حسابك على Drive (١٥ ج.ب) —{" "}
-        <strong className="text-foreground">Drive الخاص بك يصبح مساحة مشتركة</strong>:
-        أي طالب يرى المادة في المقياس وينزّلها مباشرة من Drive،{" "}
-        <strong className="text-foreground">ولا يُخزَّن أي بايت على Supabase</strong>.
+        {isCourseScoped ? (
+          <>
+            يُرفع الملف إلى مجلد المقياس «📘 {courseName!.trim()}» في حسابك على Drive{" "}
+            (١٥ ج.ب) — <strong className="text-foreground">يظهر فوراً في تبويب المواد
+            في المقياس نفسه</strong> ويحمّله الطلبة مباشرة من Drive —{" "}
+            <strong className="text-foreground">لا علاقة له بالمكتبة العامة ولا Supabase</strong>.
+          </>
+        ) : (
+          <>
+            يُرفع الملف إلى مجلد «📚 مكتبة طالب» في حسابك على Drive (١٥ ج.ب) —{" "}
+            <strong className="text-foreground">Drive الخاص بك يصبح مساحة مشتركة</strong>:
+            أي طالب يرى المادة في المكتبة وينزّلها مباشرة من Drive،{" "}
+            <strong className="text-foreground">ولا يُخزَّن أي بايت على Supabase</strong>.
+          </>
+        )}
       </p>
 
       <DialogFooter>
@@ -420,7 +509,7 @@ function UploadMode({
           {saving
             ? <Loader2 className="w-4 h-4 ml-1 animate-spin" />
             : <CloudUpload className="w-4 h-4 ml-1" />}
-          نشر إلى المكتبة
+          {isCourseScoped ? "نشر إلى المقياس" : "نشر إلى المكتبة"}
         </Button>
       </DialogFooter>
     </div>

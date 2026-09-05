@@ -52,7 +52,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type CourseSummary } from "@/app/app/page";
 import { canManageRoles } from "@/lib/auth/permissions";
-import { PublishToLibraryDialog } from "@/components/talib/cloud/publish-dialog";
+import { PublishToLibraryDialog, NeedsSchemaCard } from "@/components/talib/cloud/publish-dialog";
 import { cn, formatBytes } from "@/lib/utils";
 
 // Mirror of /api/telegram/items response (module-filtered)
@@ -201,6 +201,7 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
   const [materials, setMaterials] = React.useState<MaterialItem[]>([]);
   const [materialsState, setMaterialsState] = React.useState<"loading" | "ok" | "error">("loading");
   const [materialsNeedsSchema, setMaterialsNeedsSchema] = React.useState(false);
+  const [materialsSchemaSql, setMaterialsSchemaSql] = React.useState<string | null>(null);
   const [materialsTick, setMaterialsTick] = React.useState(0);
 
   // round 39 — in-course actions (edit/delete dialogs + schedule push)
@@ -318,6 +319,7 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
         if (!alive) return;
         setMaterials(d.items ?? []);
         setMaterialsNeedsSchema(Boolean(d.needsSchema));
+        setMaterialsSchemaSql(typeof d.sql === "string" ? d.sql : null);
         setMaterialsState("ok");
       })
       .catch(() => alive && setMaterialsState("error"));
@@ -539,8 +541,9 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
                 رفع ملف لهذا المقياس
               </p>
               <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                إلى Google Drive الخاص بك — مساحة مشتركة يحمّل منها الطلبة
-                الملفات مباشرة، دون أن يُخزَّن شيء على السيرفر.
+                إلى مجلد هذا المقياس «📘 {course.name}» في Drive الخاص بك —
+                يظهر في تبويب «المواد» هنا ويحمّله الطلبة مباشرة، دون أن
+                يُخزَّن شيء على السيرفر.
               </p>
             </div>
             <PublishToLibraryDialog
@@ -549,6 +552,7 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
               defaultCategory="محاضرة"
               triggerLabel="رفع ملف (Drive)"
               triggerClassName="shrink-0"
+              courseName={course.name}
             />
           </div>
         </Card>
@@ -621,6 +625,7 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
               moduleId={course.id}
               defaultCategory="محاضرة"
               triggerLabel="إضافة مادة للمقياس"
+              courseName={course.name}
             />
           )}
 
@@ -629,13 +634,10 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
             <SectionError onRetry={() => setMaterialsTick((n) => n + 1)} />
           )}
           {materialsState === "ok" && materialsNeedsSchema && (
-            <Card className="p-4 border-amber-500/30 bg-amber-500/5">
-              <p className="text-xs leading-relaxed">
-                لربط المواد بهذا المقياس يحتاج عمود واحد في قاعدة البيانات
-                (لمرة واحدة فقط). بعد إضافته تظهر المواد هنا تلقائياً — حتى
-                ذلك الحين تُحفظ المواد الجديدة في المكتبة العامة.
-              </p>
-            </Card>
+            <NeedsSchemaCard
+              sql={materialsSchemaSql ?? undefined}
+              onRetried={() => setMaterialsTick((n) => n + 1)}
+            />
           )}
           {materialsState === "ok" && !materialsNeedsSchema && materials.length === 0 && (
             <SectionEmpty

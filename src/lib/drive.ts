@@ -458,6 +458,52 @@ export async function findOrCreateLibraryFolder(
   return folder.id as string;
 }
 
+// ---------------------------------------------------------------------------
+// Course folders (round 41) — a file uploaded INSIDE a course lands in that
+// course's OWN folder «📘 {اسم المقياس}» under the app folder, so the
+// supervisor's Drive mirrors the app: one folder per course, library-wide
+// files keep living in «📚 مكتبة طالب». The folder id is tagged with the
+// moduleId in appProperties for traceability.
+// ---------------------------------------------------------------------------
+
+export async function findOrCreateCourseFolder(
+  token: string,
+  appFolderId: string,
+  courseName: string,
+  moduleId: number
+): Promise<string> {
+  // sanitize: Drive full-text query breaks on quotes/backslashes; keep the
+  // name readable but bounded (folders created before a rename persist).
+  const safeName =
+    ("📘 " + courseName.replace(/['"\\]/g, "").trim()).slice(0, 80) || "📘 مقياس";
+  const q =
+    `name='${safeName.replace(/'/g, "\\'")}' and ` +
+    `'${appFolderId}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`;
+  const search = await driveFetch(
+    token,
+    `drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)&pageSize=1`
+  );
+  if (search.ok) {
+    const data = await search.json();
+    if (data.files?.length) return data.files[0].id as string;
+  }
+  const create = await driveFetch(token, "drive/v3/files", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: safeName,
+      mimeType: FOLDER_MIME,
+      parents: [appFolderId],
+      appProperties: { app: "talib", source: "talib-course", moduleId: String(moduleId) },
+    }),
+  });
+  if (!create.ok) {
+    throw new DriveError("http", `coursefolder-create-${create.status}`, create.status);
+  }
+  const folder = await create.json();
+  return folder.id as string;
+}
+
 export interface DriveShareLinks {
   webViewLink: string;
   webContentLink: string; // direct download URL — works for any student

@@ -20,6 +20,33 @@ import { notifyContentPublished } from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
+/** Round 41 — the one-time SQL that course-scoped publishing depends on.
+ *  Returned by GET (needsSchema) and POST so every surface can render the
+ *  same copyable snippet. */
+const COURSE_SCHEMA_SQL =
+  "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS module_id INTEGER;\n" +
+  "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS storage_path TEXT;\n" +
+  "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS file_size BIGINT;";
+
+/** Round 41: detect an un-migrated DB (module_id column absent) in BOTH
+ *  branches — Supabase surfaces it as a PostgREST error, Prisma/SQLite as
+ *  "no such column" / "Unknown argument". In that state a course-scoped
+ *  material cannot be linked, so the UI shows the one-time SQL instead of
+ *  silently dropping the material into the general library. */
+function needsSchemaResponse() {
+  return NextResponse.json(
+    { items: [], error: "قاعدة البيانات تحتاج تحديثاً لمرة واحدة لربط المواد بالمقاييس", needsSchema: true, sql: COURSE_SCHEMA_SQL },
+    { status: 200 }
+  );
+}
+function isMissingModuleColumn(e: unknown): boolean {
+  const msg = String((e as Error)?.message ?? "");
+  return (
+    /no such column|Unknown argument|does not exist in the current database|column/i.test(msg) &&
+    /module_?[iI]d/i.test(msg)
+  );
+}
+
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ items: [] });
@@ -30,18 +57,28 @@ export async function GET(req: NextRequest) {
   try {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      let query = supabase
-        .from("library_references")
-        .select("*")
-        .eq("specialty_id", user.assignedSpecialtyId);
-      if (moduleId) query = query.eq("module_id", Number(moduleId));
-      const { data, error } = await query
-        .order("id", { ascending: false })
-        .limit(100);
-      if (error) {
+      const fetchList = async (hideCourseRows: boolean) => {
+        let query = supabase
+          .from("library_references")
+          .select("*")
+          .eq("specialty_id", user.assignedSpecialtyId);
+        if (moduleId) {
+          query = query.eq("module_id", Number(moduleId));
+        } else if (hideCourseRows) {
+          // round 41: materials uploaded INSIDE a course live at the course —
+          // the general library lists only specialty-wide references.
+          query = query.is("module_id", null);
+        }
+        return query.order("id", { ascending: false }).limit(100);
+      };
+      let { data, error } = await fetchList(true);
+      if (error && !moduleId) {
         // module_id column may not exist yet (owner hasn't run the SQL) —
-        // course view degrades to an empty list + setup hint, never a 500.
-        if (moduleId) return NextResponse.json({ items: [], needsSchema: true });
+        // degrade to the old unfiltered list instead of an empty library.
+        ({ data, error } = await fetchList(false));
+      }
+      if (error) {
+        if (moduleId) return NextResponse.json({ items: [], needsSchema: true, sql: COURSE_SCHEMA_SQL });
         return NextResponse.json({ items: [] });
       }
       const items = (data ?? []).map((r: Record<string, unknown>) => ({
@@ -58,7 +95,10 @@ export async function GET(req: NextRequest) {
     const rows = await db.libraryReference.findMany({
       where: {
         specialtyId: user.assignedSpecialtyId,
-        ...(moduleId ? { moduleId: Number(moduleId) } : {}),
+        ...(moduleId
+          ? { moduleId: Number(moduleId) }
+          // round 41: course materials live at the course, not the library
+          : { moduleId: null }),
       },
       orderBy: { id: "desc" },
       take: 100,
@@ -72,6 +112,7 @@ export async function GET(req: NextRequest) {
       })),
     });
   } catch (e) {
+    if (isMissingModuleColumn(e)) return needsSchemaResponse();
     return NextResponse.json({ items: [] });
   }
 }
@@ -99,27 +140,50 @@ export async function POST(req: NextRequest) {
         download_url: downloadUrl?.trim() || "",
       };
       // round 32/33: publish-from-Drive + course-scoping metadata. The
-      // columns are optional — if the owner hasn't run the ALTER yet, the
-      // base row is inserted anyway instead of failing the whole publish.
-      const wantsExtra = driveFileId || fileSize != null || moduleId != null;
+      // columns are optional for LIBRARY uploads (base row still works).
+      // Round 41 — COURSE uploads are strict: a material uploaded inside a
+      // course must land course-scoped, never silently demoted to the
+      // general library. If module_id is missing we fail with needsSchema
+      // + the exact SQL so the UI can offer a one-time self-service fix.
       let data: Record<string, unknown> | null = null;
       let error: { message: string } | null = null;
-      if (wantsExtra) {
-        const full = await supabase.from("library_references").insert({
-          ...base,
-          storage_path: driveFileId ? String(driveFileId) : null,
-          file_size: fileSize != null ? Number(fileSize) : null,
-          module_id: moduleId != null ? Number(moduleId) : null,
-        }).select().single();
-        data = full.data; error = full.error;
-        if (error && !/file_size|storage_path|module_id|column/i.test(error.message)) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
+      if (moduleId != null) {
+        const attempts = [
+          { ...base, storage_path: driveFileId ? String(driveFileId) : null, file_size: fileSize != null ? Number(fileSize) : null, module_id: Number(moduleId) },
+          { ...base, module_id: Number(moduleId) },
+        ];
+        let lastErr: { message: string } | null = null;
+        for (const payload of attempts) {
+          const full = await supabase.from("library_references").insert(payload).select().single();
+          data = full.data; error = full.error;
+          if (!error) break;
+          lastErr = error;
         }
-      }
-      if (!data) {
-        const fallback = await supabase.from("library_references").insert(base).select().single();
-        if (fallback.error) return NextResponse.json({ error: fallback.error.message }, { status: 500 });
-        data = fallback.data;
+        if (!data) {
+          return NextResponse.json(
+            { error: "قاعدة البيانات تحتاج تحديثاً لمرة واحدة لربط المواد بالمقاييس", needsSchema: true, sql: COURSE_SCHEMA_SQL },
+            { status: 400 }
+          );
+        }
+        void lastErr;
+      } else {
+        const wantsExtra = driveFileId || fileSize != null;
+        if (wantsExtra) {
+          const full = await supabase.from("library_references").insert({
+            ...base,
+            storage_path: driveFileId ? String(driveFileId) : null,
+            file_size: fileSize != null ? Number(fileSize) : null,
+          }).select().single();
+          data = full.data; error = full.error;
+          if (error && !/file_size|storage_path|column/i.test(error.message)) {
+            return NextResponse.json({ error: error.message }, { status: 500 });
+          }
+        }
+        if (!data) {
+          const fallback = await supabase.from("library_references").insert(base).select().single();
+          if (fallback.error) return NextResponse.json({ error: fallback.error.message }, { status: 500 });
+          data = fallback.data;
+        }
       }
       // round 24: a new library reference announces itself — before, a
       // reference was invisible until a student happened to open المكتبة.
@@ -128,32 +192,46 @@ export async function POST(req: NextRequest) {
         actorName: user.fullName,
         specialtyId: Number(user.assignedSpecialtyId),
         type: "content_library",
-        title: "مرجع جديد في المكتبة",
+        title: moduleId != null ? "مادة جديدة في أحد المقاييس" : "مرجع جديد في المكتبة",
         body: `«${title.trim()}»${category?.trim() ? ` (${category.trim()})` : ""}${author?.trim() ? ` — ${author.trim()}` : ` — ${user.fullName}`}`,
         meta: { referenceId: data?.id },
       });
       return NextResponse.json({ item: data });
     }
-    const item = await db.libraryReference.create({
-      data: {
-        specialtyId: user.assignedSpecialtyId,
-        title: title.trim(),
-        author: author?.trim() || user.fullName,
-        category: category?.trim() || "كتاب مرجعي",
-        description: description?.trim() || "",
-        fileFormat: fileFormat?.trim() || "PDF",
-        downloadUrl: downloadUrl?.trim() || "",
-        ...(driveFileId ? { storagePath: String(driveFileId) } : {}),
-        ...(fileSize != null ? { fileSize: Number(fileSize) } : {}),
-        ...(moduleId != null ? { moduleId: Number(moduleId) } : {}),
-      },
-    });
+    let item;
+    try {
+      item = await db.libraryReference.create({
+        data: {
+          specialtyId: user.assignedSpecialtyId,
+          title: title.trim(),
+          author: author?.trim() || user.fullName,
+          category: category?.trim() || "كتاب مرجعي",
+          description: description?.trim() || "",
+          fileFormat: fileFormat?.trim() || "PDF",
+          downloadUrl: downloadUrl?.trim() || "",
+          ...(driveFileId ? { storagePath: String(driveFileId) } : {}),
+          ...(fileSize != null ? { fileSize: Number(fileSize) } : {}),
+          ...(moduleId != null ? { moduleId: Number(moduleId) } : {}),
+        },
+      });
+    } catch (e) {
+      // round 41: a course-scoped material must NEVER be demoted to the
+      // general library when the DB lacks the module_id column — fail with
+      // the one-time SQL so the UI can guide the self-service fix.
+      if (moduleId != null && isMissingModuleColumn(e)) {
+        return NextResponse.json(
+          { error: "قاعدة البيانات تحتاج تحديثاً لمرة واحدة لربط المواد بالمقاييس", needsSchema: true, sql: COURSE_SCHEMA_SQL },
+          { status: 400 }
+        );
+      }
+      throw e;
+    }
     await notifyContentPublished({
       actorId: user.id,
       actorName: user.fullName,
       specialtyId: Number(user.assignedSpecialtyId),
       type: "content_library",
-      title: "مرجع جديد في المكتبة",
+      title: moduleId != null ? "مادة جديدة في أحد المقاييس" : "مرجع جديد في المكتبة",
       body: `«${title.trim()}»${category?.trim() ? ` (${category.trim()})` : ""}${author?.trim() ? ` — ${author.trim()}` : ` — ${user.fullName}`}`,
       meta: { referenceId: item.id },
     });
