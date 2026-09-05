@@ -7,12 +7,13 @@
  *   • ملفاتي → المكتبة → «إضافة ملف»          (specialty-wide)
  *   • تفاصيل المقياس → المواد → «إضافة مادة»  (course-scoped, moduleId set)
  *
- * Two modes:
- *   «رابط»    — link-only reference (original behaviour)
- *   «رفع ملف» — publish a REAL file from the supervisor's own Google Drive
- *               (15 GB). Bytes go browser → Drive with a progress bar, the
- *               file is shared anyone-with-link, students download directly
- *               from Drive — Supabase stores only the metadata row.
+ * Two modes (round 38: «رفع ملف (Drive)» is now the DEFAULT — the owner
+ * opened the dialog, saw only a link form, and concluded the app uploads
+ * to the server instead of Drive; the real upload must be the first thing
+ * the dialog offers. Bytes go browser → the supervisor's own Drive with a
+ * progress bar, the file is shared anyone-with-link, students download
+ * directly from Drive — Supabase stores only the metadata row. The link
+ * mode stays as the secondary option):
  *
  * When `moduleId` is passed, the created row is tagged with the course so
  * the material also appears in that course's المواد tab.
@@ -68,7 +69,9 @@ export function PublishToLibraryDialog({
   triggerLabel?: string;
 }) {
   const [open, setOpen] = React.useState(false);
-  const [mode, setMode] = React.useState<"link" | "upload">("link");
+  // round 38: default to the REAL upload (رفع ملف إلى Drive) — the link
+  // form used to open first and read as «the app stores files itself».
+  const [mode, setMode] = React.useState<"link" | "upload">("upload");
 
   function close() {
     setOpen(false);
@@ -92,17 +95,17 @@ export function PublishToLibraryDialog({
         <div className="grid grid-cols-2 gap-2">
           <Button
             type="button" size="sm"
-            variant={mode === "link" ? "default" : "outline"}
-            onClick={() => setMode("link")}
-          >
-            <Link2 className="w-3.5 h-3.5 ml-1" />رابط خارجي
-          </Button>
-          <Button
-            type="button" size="sm"
             variant={mode === "upload" ? "default" : "outline"}
             onClick={() => setMode("upload")}
           >
             <CloudUpload className="w-3.5 h-3.5 ml-1" />رفع ملف (Drive)
+          </Button>
+          <Button
+            type="button" size="sm"
+            variant={mode === "link" ? "default" : "outline"}
+            onClick={() => setMode("link")}
+          >
+            <Link2 className="w-3.5 h-3.5 ml-1" />رابط خارجي
           </Button>
         </div>
         {mode === "link"
@@ -188,11 +191,11 @@ function LinkMode({
         <Textarea id="libDesc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="وصف اختياري لمحتوى الملف..." rows={2} />
       </div>
       <p className="text-[11px] text-muted-foreground">
-        تريد رفع ملف PDF فعلي؟ اختر{" "}
+        لا تملك ملفاً جاهزاً؟ اختر{" "}
         <button type="button" className="underline text-primary" onClick={onSwitchToUpload}>
           «رفع ملف (Drive)»
         </button>{" "}
-        لينزل الطلبة الملف مباشرة.
+        ليرفع الملف إلى Drive وينزل الطلبة الملف مباشرة.
       </p>
       <DialogFooter>
         <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}إضافة</Button>
