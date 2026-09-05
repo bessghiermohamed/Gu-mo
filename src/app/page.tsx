@@ -9,6 +9,7 @@ import {
   Users,
   FileText,
   Moon,
+  Wrench,
   GraduationCap,
   Smartphone,
   ShieldCheck,
@@ -33,11 +34,12 @@ export const metadata: Metadata = {
   },
 };
 
-const FEATURES = [
+// Tier 1 — the three differentiating capabilities get large, prominent cards.
+const FEATURES_TOP = [
   {
-    icon: BookOpen,
-    title: "المقررات والمحاضرات",
-    desc: "كل مقررات تخصصك مرتبة في مكان واحد: الوصف، الأساتذة، المحاضرات والوثائق المرجعية، مع إمكانية متابعة ما أنجزته منها أسبوعياً.",
+    icon: Calculator,
+    title: "حاسبة العلامات",
+    desc: "داخل «أدواتي»: أدخل علاماتك بمعاملات مقاييسك الحقيقية، شاهد معدلك لحظياً، واعرف ماذا تحتاج في كل مقياس لتحقيق هدفك.",
   },
   {
     icon: CalendarDays,
@@ -45,9 +47,18 @@ const FEATURES = [
     desc: "جدولك الرسمي دائماً بين يديك، مع إمكانية إضافة حصصك الشخصية — دروس خصوصية، أعمال تطبيقية، مراجعة — بوضوح تام بين الرسمي والشخصي.",
   },
   {
-    icon: Calculator,
-    title: "حاسبة العلامات",
-    desc: "داخل «أدواتي»: أدخل علاماتك بمعاملات مقاييسك الحقيقية، شاهد معدلك لحظياً، واعرف ماذا تحتاج في كل مقياس لتحقيق هدفك.",
+    icon: Wrench,
+    title: "أدواتي",
+    desc: "سبع أدوات تعمل كاملة داخل جهازك، دون إنترنت ودون رفع أي ملف إلى أي خادم: حوّل صور المحاضرات إلى ملف PDF واحد، اضغط الملفات الكبيرة، ادمج مستندات واستخرج صفحات منها — مع عدّاد كلمات ومؤقّت مراجعة بومودورو.",
+  },
+];
+
+// Tier 2 — daily essentials, presented as compact single-line rows.
+const FEATURES_MORE = [
+  {
+    icon: BookOpen,
+    title: "المقررات والمحاضرات",
+    desc: "كل مقررات تخصصك مرتبة في مكان واحد: الوصف، الأساتذة، المحاضرات والوثائق المرجعية، مع إمكانية متابعة ما أنجزته منها أسبوعياً.",
   },
   {
     icon: FileText,
@@ -72,7 +83,7 @@ const FEATURES = [
   {
     icon: Moon,
     title: "وضع ليلي وتجربة هادئة",
-    desc: "واجهة عربية أصيلة من اليمين إلى اليسار بخط القاهرة، وضع ليلي مريح للمراجرة المتأخرة، وتصميم خفيف لا يستهلك باقة الإنترنت.",
+    desc: "واجهة عربية أصيلة من اليمين إلى اليسار بخط القاهرة، وضع ليلي مريح للمراجعة المتأخرة، وتصميم خفيف لا يستهلك باقة الإنترنت.",
   },
 ];
 
@@ -85,11 +96,11 @@ const STEPS = [
   {
     n: "2",
     title: "اختر مؤسستك وتخصصك",
-    desc: "حدّد المدرسة العليا للأساتذة بووزعادة وتخصصك وشعبتك، فيظهر جدولك ومقرراتك تلقائياً كما أعلنها المشرفون — دون أي إدخال يدوي.",
+    desc: "حدّد المدرسة العليا للأساتذة بوزريعة وتخصصك وشعبتك، فيظهر جدولك ومقرراتك تلقائياً كما أعلنها المشرفون — دون أي إدخال يدوي.",
   },
   {
     n: "3",
-    title: "رافقك يوماً بيوم",
+    title: "يرافقك يوماً بيوم",
     desc: "افتح طالب صباحاً لتعرف حصص اليوم، في المساء لتسجيل الواجبات المنجزة، وقبل الاختبارات لتتبع مراجعتك. رفيق لا ينسى أبداً.",
   },
 ];
@@ -108,8 +119,8 @@ const FAQ_PREVIEW = [
     a: "نعم، طالب مصمم أول ما صُمم للهاتف: واجهة عربية من اليمين لليسار، أزرار بحجم مناسب للمس، وضع ليلي، وسرعة تحميل خفيفة تناسب شبكات الحرم الجامعي.",
   },
   {
-    q: "أنا لست طالباً في ENS بووزعادة، هل يمكنني الاستخدام؟",
-    a: "التسجيل متاح لطلبة المدرسة العليا للأساتذة بووزعادة حالياً لأن مقرراتهم وجداولهم مفعّلة. بنية المنصة تدعم كل المؤسسات، والتوسع لجامعات أخرى قادم تدريجياً.",
+    q: "أنا لست طالباً في ENS بوزريعة، هل يمكنني الاستخدام؟",
+    a: "التسجيل متاح لطلبة المدرسة العليا للأساتذة بوزريعة حالياً لأن مقرراتهم وجداولهم مفعّلة. بنية المنصة تدعم كل المؤسسات، والتوسع لجامعات أخرى قادم تدريجياً.",
   },
 ];
 
@@ -197,7 +208,7 @@ export default function HomePage() {
                   </li>
                   <li className="inline-flex items-center gap-1.5">
                     <GraduationCap className="h-4 w-4 text-primary" aria-hidden="true" />
-                    مصمم لـ ENS بووزعادة
+                    مصمم لـ ENS بوزريعة
                   </li>
                 </ul>
               </div>
@@ -212,7 +223,7 @@ export default function HomePage() {
                   fetchPriority="high"
                 />
                 <div className="absolute -bottom-4 -right-2 hidden rounded-xl border bg-card px-4 py-2 shadow-md sm:block">
-                  <p className="text-xs font-bold text-foreground">٨ خدمات أكاديمية</p>
+                  <p className="text-xs font-bold text-foreground">٩ خدمات أكاديمية</p>
                   <p className="text-[10px] text-muted-foreground">في تطبيق واحد خفيف</p>
                 </div>
               </div>
@@ -227,24 +238,44 @@ export default function HomePage() {
             <p className="leading-relaxed text-muted-foreground">
               لم نصمم «طالب» كتقليد لمنصات أجنبية، بل كإجابة على مشكلات الطالب
               الجزائري اليومية: أين جدولي؟ ما واجباتي؟ كم معدلي الآن؟ ما الإعلانات
-              الجديدة؟ ثماني خدمات متكاملة تعمل معاً بهدوء وخلف واجهة واحدة
+              الجديدة؟ تسع خدمات متكاملة تعمل معاً بهدوء وخلف واجهة واحدة
               نظيفة.
             </p>
           </div>
 
-          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {FEATURES.map((f) => (
+          {/* Tier 1 — the three differentiators, large and prominent */}
+          <p className="mt-10 text-xs font-bold text-primary">الأبرز في طالب</p>
+          <div className="mt-3 grid gap-5 md:grid-cols-3">
+            {FEATURES_TOP.map((f) => (
               <article
                 key={f.title}
-                className="group space-y-3 rounded-2xl border bg-card p-5 transition-shadow hover:shadow-md"
+                className="group space-y-4 rounded-2xl border border-primary/25 bg-gradient-to-b from-primary/10 to-transparent p-7 transition-shadow hover:shadow-md"
               >
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-                  <f.icon className="h-5 w-5" aria-hidden="true" />
+                <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                  <f.icon className="h-7 w-7" aria-hidden="true" />
                 </div>
-                <h3 className="text-base font-bold">{f.title}</h3>
+                <h3 className="text-lg font-extrabold">{f.title}</h3>
                 <p className="text-sm leading-relaxed text-muted-foreground">{f.desc}</p>
               </article>
             ))}
+          </div>
+
+          {/* Tier 2 — everyday essentials as compact single-line rows */}
+          <div className="mt-8 rounded-2xl border bg-card/40 px-5 py-2 sm:px-6">
+            <p className="pt-4 text-xs font-bold text-muted-foreground">وأيضاً داخل حسابك المجاني</p>
+            <div className="mt-2 grid gap-x-8 sm:grid-cols-2">
+              {FEATURES_MORE.map((f) => (
+                <div key={f.title} className="flex items-start gap-3 border-t border-border/60 py-3.5">
+                  <div className="mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                    <f.icon className="h-4 w-4" aria-hidden="true" />
+                  </div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    <span className="font-bold text-foreground">{f.title}:</span>{" "}
+                    {f.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="mt-8 text-center">
@@ -271,7 +302,7 @@ export default function HomePage() {
             </div>
             <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-4">
               {SCREENS.map((s) => (
-                <figure className="space-y-2">
+                <figure key={s.src} className="space-y-2">
                   <img
                     src={s.src}
                     alt={s.alt}
