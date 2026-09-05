@@ -286,3 +286,23 @@ Work Log:
 Stage Summary:
 - Deliverable: the course interior is now interactive end-to-end — every tab carries visible, role-appropriate actions (students: open/copy/download/details/toggle/report/add-to-schedule; supervisors: full edit/delete in place), and materials behave as real references instead of dead words.
 - Key decisions: no schema/API changes (all verbs already existed server-side); assignment done-state deliberately stays device-local under the shared key (parity with existing behavior); weekend day cards render on-demand so empty weeks stay 5-day; image thumbnails reuse the existing Telegram proxy (no new storage surface).
+
+---
+Task ID: 17
+Agent: main (Super Z)
+Task: Round 40 — course-level Drive upload row (per owner: "in some courses there are no upload buttons? … my drive becomes a shared space, available to any student").
+
+Work Log:
+- Verified round 38/39 state first (worklog tasks 15/16 already delivered both) — this round addresses the NEW message.
+- Diagnosis: Drive publish pipeline existed since round 32/33 (browser → supervisor's Drive → anyone-with-link → metadata row; zero bytes on Supabase) but the trigger lived ONLY in the المواد tab while courses open on الدروس — supervisors saw "no upload button".
+- course-detail-screen.tsx: supervisor-only card ABOVE the content tabs in every course («رفع ملف لهذا المقياس» + compact «رفع ملف (Drive)» trigger via new triggerClassName prop on PublishToLibraryDialog; moduleId auto-bound) with one-line storage story «إلى Google Drive الخاص بك — مساحة مشتركة يحمّل منها الطلبة الملفات مباشرة، دون أن يُخزَّن شيء على السيرفر»; materials empty hint now points at the header button.
+- publish-dialog.tsx: triggerClassName prop (default w-full keeps files-screen unchanged); UploadMode footer rewritten to the shared-space model (Drive يصبح مساحة مشتركة / ولا يُخزَّن أي بايت على Supabase).
+- Prod schema probe attempt: no Supabase URL/key extractable from deployed chunks (config lives in a lazy chunk, no buildManifest access) — skipped; API's graceful fallback covers both cases, one-time ALTER SQL documented in the round report.
+- Verified: tsc 0; eslint clean; build green. Real-browser 390×844 parallel sessions (local SQLite): OWNER saw the upload card on ALL 4 tabs of the seeded course (count=1 per tab), both buttons coexist in المواد, dialog opens on upload mode (amber no-clientId card locally — prod has the id, verified r38). STUDENT: zero upload/add buttons across all tabs, still sees the seeded material as a clickable reference. scrollWidth=390 both, zero console errors. Screenshots download/verify-390-r40/.
+- Cleanup: r39-seed cleanup + r40 account deletion → users 0, courses 0.
+- Committed f26d331 (3 files) + report تقرير-إصلاحات-الجولة-40.md; pushed 4f5a021..f26d331.
+- Deploy check: prod chunk a06bd8ef0c3d1e8c.js contains «مساحة مشتركة» AND «رفع ملف لهذا المقياس» — round 40 live on gu-mo.vercel.app.
+
+Stage Summary:
+- Deliverable: every course now shows a permanent supervisor-only Drive upload card above the tabs (no more "some courses have no upload buttons"), and the UI states the storage model explicitly: the supervisor's own Drive is the students' shared download space, Supabase stores metadata only.
+- Key decisions: no API/schema changes (pipeline was already Drive-direct since round 32); header card reuses PublishToLibraryDialog course-scoped; students remain upload-blind by design.
