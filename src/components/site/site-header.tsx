@@ -6,6 +6,7 @@ import { LogIn } from "lucide-react";
 const NAV = [
   { href: "/features", label: "المميزات" },
   { href: "/guide", label: "دليل الاستخدام" },
+  { href: "/blog", label: "المدونة" },
   { href: "/faq", label: "الأسئلة الشائعة" },
   { href: "/about", label: "من نحن" },
   { href: "/contact", label: "اتصل بنا" },

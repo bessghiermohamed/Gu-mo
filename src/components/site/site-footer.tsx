@@ -15,7 +15,7 @@ export function SiteFooter() {
             <p className="text-sm leading-relaxed text-muted-foreground">
               رفيقك الأكاديمي الشامل — منصة جزائرية تُرتّب المقررات والجدول والعلامات
               والإعلانات في مكان واحد، صُمّمت خصيصاً لطلبة المدرسة العليا للأساتذة
-              بووزعادة وكل الجامعات الجزائرية.
+              بوزريعة وكل الجامعات الجزائرية.
             </p>
           </div>
 
@@ -24,9 +24,9 @@ export function SiteFooter() {
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li><Link className="hover:text-foreground hover:underline" href="/features">المميزات</Link></li>
               <li><Link className="hover:text-foreground hover:underline" href="/guide">دليل الاستخدام</Link></li>
+              <li><Link className="hover:text-foreground hover:underline" href="/blog">المدونة</Link></li>
               <li><Link className="hover:text-foreground hover:underline" href="/faq">الأسئلة الشائعة</Link></li>
               <li><Link className="hover:text-foreground hover:underline" href="/about">من نحن</Link></li>
-              <li><Link className="hover:text-foreground hover:underline" href="/app">دخول التطبيق</Link></li>
             </ul>
           </nav>
 
