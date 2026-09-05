@@ -1,0 +1,1376 @@
+     1→"use client";
+     2→
+     3→/**
+     4→ * Course Detail (R12-02 · P0 — "the course→lecture→file spine does not exist")
+     5→ *
+     6→ * BEFORE: a course card expanded to a description and stopped. The student's
+     7→ * PRIMARY task — open my course, get its lectures/files/exams — was impossible
+     8→ * in the app (students routed around it via Telegram). The Courses tile even
+     9→ * promised "مقاييس ومحاضرات".
+    10→ *
+    11→ * NOW: every course card opens this screen — the product's new center of
+    12→ * gravity — assembling everything already linked to the module in the
+    13→ * database (all three sources carry the FKs needed, zero schema changes):
+    14→ *   • الدروس والمحاضرات  ← telegram_items linked by module_id
+    15→ *   • الاختبارات         ← exams linked by module_id
+    16→ *   • الواجبات           ← assignments linked by module_id
+    17→ *
+    18→ * Every section has explicit loading / error+retry / empty states — no more
+    19→ * "error === empty" (R12 data-layer audit).
+    20→ *
+    21→ * Round 39 — "there isn't a single button inside the course": every tab now
+    22→ * carries REAL actions. الدروس: inline image thumbnails + a visible «فتح»
+    23→ * button (the old ghost icon was invisible) + file size. المواد: the title
+    24→ * itself becomes the reference link + copy-link button + supervisor
+    25→ * edit/delete; a material without a URL honestly shows «بدون رابط» instead
+    26→ * of being dead words. الاختبارات: every student can push the exam into
+    27→ * their personal timetable (أضف إلى جدولي) and supervisors edit/delete in
+    28→ * place. الواجبات: done-toggle (shared storage key with the assignments
+    29→ * screen), full-details dialog, report-issue, supervisor edit/delete —
+    30→ * all without leaving the course.
+    31→ */
+    32→
+    33→import * as React from "react";
+    34→import {
+    35→  BookOpen, FlaskConical, CheckSquare, Send, Loader2, ExternalLink,
+    36→  FileText, ImageIcon, Video, Headphones, File, MessageSquare, LinkIcon,
+    37→  CalendarDays, Clock, MapPin, User, GraduationCap, AlertTriangle,
+    38→  RefreshCw, ChevronLeft, Star, Sparkles, Download, HardDrive,
+    39→  Pencil, Trash2, Copy, CalendarPlus, Eye, Square, Check, Flag,
+    40→} from "lucide-react";
+    41→import { Card } from "@/components/ui/card";
+    42→import { Badge } from "@/components/ui/badge";
+    43→import { Button } from "@/components/ui/button";
+    44→import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+    45→import {
+    46→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
+    47→} from "@/components/ui/dialog";
+    48→import { Input } from "@/components/ui/input";
+    49→import { Label } from "@/components/ui/label";
+    50→import { Textarea } from "@/components/ui/textarea";
+    51→import { toast } from "sonner";
+    52→import { useAuth } from "@/components/talib/auth-provider";
+    53→import { useShell, type CourseSummary } from "@/app/app/page";
+    54→import { canManageRoles } from "@/lib/auth/permissions";
+    55→import { PublishToLibraryDialog } from "@/components/talib/cloud/publish-dialog";
+    56→import { cn, formatBytes } from "@/lib/utils";
+    57→
+    58→// Mirror of /api/telegram/items response (module-filtered)
+    59→interface TgItem {
+    60→  id: number;
+    61→  kind: string;
+    62→  titleAr: string;
+    63→  captionText: string;
+    64→  fileName: string;
+    65→  mimeType: string;
+    66→  fileId: string;
+    67→  sizeBytes: number;
+    68→  link: string;
+    69→  itemType: string;
+    70→  origin: string;
+    71→  postedBy: string;
+    72→  isFeatured: boolean;
+    73→  postedAt: string | null;
+    74→}
+    75→
+    76→interface ExamItem {
+    77→  id: number;
+    78→  moduleId: number; // /api/exams returns it on both layers; was missing from this mirror (tsc error + cast hack)
+    79→  title: string;
+    80→  examDate: string;
+    81→  time: string;
+    82→  room: string;
+    83→  coefficient: number;
+    84→  isFinished: boolean;
+    85→}
+    86→
+    87→interface AssignmentItem {
+    88→  id: number;
+    89→  title: string;
+    90→  dueDate: string;
+    91→  description: string;
+    92→  maxScore: number;
+    93→}
+    94→
+    95→// round 39 — assignment completion is stored client-side under the SAME key
+    96→// used by the standalone assignments screen, so a student who checks a
+    97→// assignment here sees it checked there too (one per-device state).
+    98→const DONE_KEY = "talib-assignments-completed";
+    99→
+   100→// round 33 — المواد: library references scoped to THIS course
+   101→interface MaterialItem {
+   102→  id: number;
+   103→  title: string;
+   104→  author: string;
+   105→  category: string;
+   106→  description: string;
+   107→  fileFormat: string;
+   108→  downloadUrl: string;
+   109→  fileSize: number | null;
+   110→  driveFileId: string | null;
+   111→}
+   112→
+   113→function kindIcon(kind: string, className = "w-4 h-4") {
+   114→  switch (kind) {
+   115→    case "pdf": return <FileText className={className} />;
+   116→    case "image": return <ImageIcon className={className} />;
+   117→    case "video": return <Video className={className} />;
+   118→    case "audio": return <Headphones className={className} />;
+   119→    case "doc": case "ppt": return <File className={className} />;
+   120→    case "text": return <MessageSquare className={className} />;
+   121→    case "link": return <LinkIcon className={className} />;
+   122→    default: return <File className={className} />;
+   123→  }
+   124→}
+   125→
+   126→function formatDateAr(raw: string): string {
+   127→  if (!raw) return "";
+   128→  try {
+   129→    const d = new Date(raw);
+   130→    if (Number.isNaN(d.getTime())) return raw;
+   131→    return d.toLocaleDateString("ar-DZ", { day: "numeric", month: "long", year: "numeric" });
+   132→  } catch {
+   133→    return raw;
+   134→  }
+   135→}
+   136→
+   137→// Shared state cards — the app-wide answer to silent failures
+   138→function SectionLoading() {
+   139→  return (
+   140→    <Card className="p-8 text-center">
+   141→      <Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground mb-2" />
+   142→      <p className="text-sm text-muted-foreground">جارٍ التحميل…</p>
+   143→    </Card>
+   144→  );
+   145→}
+   146→
+   147→function SectionError({ onRetry }: { onRetry: () => void }) {
+   148→  return (
+   149→    <Card className="p-6 text-center bg-red-500/5 border-red-500/30">
+   150→      <AlertTriangle className="w-8 h-8 mx-auto text-red-500 mb-2" />
+   151→      <p className="text-sm font-bold mb-1">تعذّر تحميل هذا القسم</p>
+   152→      <p className="text-xs text-muted-foreground mb-3">
+   153→        حدث خطأ أثناء الاتصال بالخادم — بياناتك لم تُفقد. أعد المحاولة.
+   154→      </p>
+   155→      <Button variant="outline" size="sm" onClick={onRetry}>
+   156→        <RefreshCw className="w-3.5 h-3.5 ml-1" />إعادة المحاولة
+   157→      </Button>
+   158→    </Card>
+   159→  );
+   160→}
+   161→
+   162→function SectionEmpty({ icon, title, hint }: { icon: React.ReactNode; title: string; hint: string }) {
+   163→  return (
+   164→    <Card className="p-8 text-center bg-muted/30 border-dashed">
+   165→      <div className="flex justify-center mb-3 text-muted-foreground">{icon}</div>
+   166→      <h3 className="font-bold text-sm mb-1">{title}</h3>
+   167→      <p className="text-xs text-muted-foreground leading-relaxed">{hint}</p>
+   168→    </Card>
+   169→  );
+   170→}
+   171→
+   172→export function TalibCourseDetailScreen({ course }: { course: CourseSummary | null }) {
+   173→  const { navigate, navigateBack } = useShell();
+   174→
+   175→  // ---- الدروس (telegram items linked to this module) ----
+   176→  const [lessons, setLessons] = React.useState<TgItem[]>([]);
+   177→  const [lessonsState, setLessonsState] = React.useState<"loading" | "ok" | "error">("loading");
+   178→  const [lessonsTick, setLessonsTick] = React.useState(0);
+   179→
+   180→  // ---- الاختبارات ----
+   181→  const [exams, setExams] = React.useState<ExamItem[]>([]);
+   182→  const [examsState, setExamsState] = React.useState<"loading" | "ok" | "error">("loading");
+   183→  const [examsTick, setExamsTick] = React.useState(0);
+   184→
+   185→  // ---- الواجبات ----
+   186→  const [assignments, setAssignments] = React.useState<AssignmentItem[]>([]);
+   187→  const [assignmentsState, setAssignmentsState] = React.useState<"loading" | "ok" | "error">("loading");
+   188→  const [assignmentsTick, setAssignmentsTick] = React.useState(0);
+   189→
+   190→  // round 24 — "جديد" tracking: which lesson items arrived since THIS
+   191→  // user's last visit to this course. Key is per-user (the round-12
+   192→  // lesson: browser-global keys leak across accounts on shared devices).
+   193→  const { user } = useAuth();
+   194→  const [newLessonIds, setNewLessonIds] = React.useState<Set<number>>(new Set());
+   195→  const canManage = canManageRoles(user ?? null);
+   196→
+   197→  // round 33 — المواد (library references linked to this module).
+   198→  // Owner request: "in the course materials I couldn't find a file upload
+   199→  // button" — this tab is exactly that: every course gets its own materials
+   200→  // list + a publish-from-Drive button for supervisors.
+   201→  const [materials, setMaterials] = React.useState<MaterialItem[]>([]);
+   202→  const [materialsState, setMaterialsState] = React.useState<"loading" | "ok" | "error">("loading");
+   203→  const [materialsNeedsSchema, setMaterialsNeedsSchema] = React.useState(false);
+   204→  const [materialsTick, setMaterialsTick] = React.useState(0);
+   205→
+   206→  // round 39 — in-course actions (edit/delete dialogs + schedule push)
+   207→  const [materialToEdit, setMaterialToEdit] = React.useState<MaterialItem | null>(null);
+   208→  const [materialToDelete, setMaterialToDelete] = React.useState<MaterialItem | null>(null);
+   209→  const [deletingMaterial, setDeletingMaterial] = React.useState(false);
+   210→  const [examToEdit, setExamToEdit] = React.useState<ExamItem | null>(null);
+   211→  const [examToDelete, setExamToDelete] = React.useState<ExamItem | null>(null);
+   212→  const [deletingExam, setDeletingExam] = React.useState(false);
+   213→  const [addedExamIds, setAddedExamIds] = React.useState<Set<number>>(new Set());
+   214→  const [addingExamId, setAddingExamId] = React.useState<number | null>(null);
+   215→  const [assignmentToEdit, setAssignmentToEdit] = React.useState<AssignmentItem | null>(null);
+   216→  const [assignmentToDelete, setAssignmentToDelete] = React.useState<AssignmentItem | null>(null);
+   217→  const [deletingAssignment, setDeletingAssignment] = React.useState(false);
+   218→  const [assignmentDetails, setAssignmentDetails] = React.useState<AssignmentItem | null>(null);
+   219→  const [doneAssignments, setDoneAssignments] = React.useState<Record<string, boolean>>({});
+   220→
+   221→  const moduleId = course?.id;
+   222→
+   223→  // round 39 — hydrate the shared done-state once per mount
+   224→  React.useEffect(() => {
+   225→    try {
+   226→      setDoneAssignments(JSON.parse(localStorage.getItem(DONE_KEY) || "{}"));
+   227→    } catch {
+   228→      // private mode — toggles still work, they just start unchecked
+   229→    }
+   230→  }, []);
+   231→
+   232→  React.useEffect(() => {
+   233→    if (!moduleId) return;
+   234→    let alive = true;
+   235→    setLessonsState("loading");
+   236→    fetch(`/api/telegram/items?moduleId=${moduleId}`, { cache: "no-store" })
+   237→      .then(async (r) => {
+   238→        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+   239→        return r.json();
+   240→      })
+   241→      .then((d) => {
+   242→        if (!alive) return;
+   243→        const items: TgItem[] = d.items ?? [];
+   244→        setLessons(items);
+   245→        setLessonsState("ok");
+   246→        // mark what is new since the last visit, THEN advance the baseline
+   247→        const visitKey = `talib-course-visit-${user?.id ?? 0}-${moduleId}`;
+   248→        let lastVisit: string | null = null;
+   249→        try {
+   250→          lastVisit = localStorage.getItem(visitKey);
+   251→        } catch {
+   252→          // private mode — badges simply never show
+   253→        }
+   254→        const fresh = new Set<number>();
+   255→        if (lastVisit) {
+   256→          for (const it of items) {
+   257→            if (it.postedAt && String(it.postedAt) > lastVisit) fresh.add(it.id);
+   258→          }
+   259→        }
+   260→        setNewLessonIds(fresh);
+   261→        try {
+   262→          localStorage.setItem(visitKey, new Date().toISOString());
+   263→        } catch {
+   264→          // private mode — nothing to remember
+   265→        }
+   266→      })
+   267→      .catch(() => alive && setLessonsState("error"));
+   268→    return () => { alive = false; };
+   269→  }, [moduleId, lessonsTick, user?.id]);
+   270→
+   271→  React.useEffect(() => {
+   272→    if (!moduleId) return;
+   273→    let alive = true;
+   274→    setExamsState("loading");
+   275→    fetch("/api/exams", { cache: "no-store" })
+   276→      .then(async (r) => {
+   277→        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+   278→        return r.json();
+   279→      })
+   280→      .then((d) => {
+   281→        if (!alive) return;
+   282→        const all: ExamItem[] = d.exams ?? [];
+   283→        setExams(all.filter((e) => e.moduleId === moduleId || (e as { moduleId?: number }).moduleId === moduleId));
+   284→        setExamsState("ok");
+   285→      })
+   286→      .catch(() => alive && setExamsState("error"));
+   287→    return () => { alive = false; };
+   288→  }, [moduleId, examsTick]);
+   289→
+   290→  React.useEffect(() => {
+   291→    if (!moduleId) return;
+   292→    let alive = true;
+   293→    setAssignmentsState("loading");
+   294→    fetch(`/api/assignments?moduleId=${moduleId}`, { cache: "no-store" })
+   295→      .then(async (r) => {
+   296→        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+   297→        return r.json();
+   298→      })
+   299→      .then((d) => {
+   300→        if (!alive) return;
+   301→        setAssignments(d.assignments ?? []);
+   302→        setAssignmentsState("ok");
+   303→      })
+   304→      .catch(() => alive && setAssignmentsState("error"));
+   305→    return () => { alive = false; };
+   306→  }, [moduleId, assignmentsTick]);
+   307→
+   308→  React.useEffect(() => {
+   309→    if (!moduleId) return;
+   310→    let alive = true;
+   311→    setMaterialsState("loading");
+   312→    fetch(`/api/library?moduleId=${moduleId}`, { cache: "no-store" })
+   313→      .then(async (r) => {
+   314→        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+   315→        return r.json();
+   316→      })
+   317→      .then((d) => {
+   318→        if (!alive) return;
+   319→        setMaterials(d.items ?? []);
+   320→        setMaterialsNeedsSchema(Boolean(d.needsSchema));
+   321→        setMaterialsState("ok");
+   322→      })
+   323→      .catch(() => alive && setMaterialsState("error"));
+   324→    return () => { alive = false; };
+   325→  }, [moduleId, materialsTick]);
+   326→
+   327→  // ---- round 39 handlers ----
+   328→
+   329→  function copyMaterialLink(url: string) {
+   330→    navigator.clipboard?.writeText(url).then(
+   331→      () => toast.success("تم نسخ رابط المادة"),
+   332→      () => toast.error("تعذّر نسخ الرابط")
+   333→    ).catch(() => toast.error("تعذّر نسخ الرابط"));
+   334→  }
+   335→
+   336→  function toggleAssignmentDone(id: number) {
+   337→    const nextVal = !doneAssignments[String(id)];
+   338→    const next = { ...doneAssignments, [String(id)]: nextVal };
+   339→    setDoneAssignments(next);
+   340→    try {
+   341→      localStorage.setItem(DONE_KEY, JSON.stringify(next));
+   342→    } catch {
+   343→      // private mode — UI state still flips for this session
+   344→    }
+   345→    toast.success(nextVal ? "أُشير إلى إنجاز الواجب" : "أُلغي الإنجاز");
+   346→  }
+   347→
+   348→  // Exams live on a specific DATE, the personal timetable is weekly — the
+   349→  // exam lands on its weekday (1=الأحد … 7=السبت) with the full date kept
+   350→  // in the notes so nothing is lost.
+   351→  async function addExamToSchedule(e: ExamItem) {
+   352→    setAddingExamId(e.id);
+   353→    try {
+   354→      const d = new Date(e.examDate);
+   355→      const dayOfWeek = Number.isNaN(d.getTime()) ? 1 : Math.min(7, d.getDay() + 1);
+   356→      const res = await fetch("/api/schedule/personal", {
+   357→        method: "POST",
+   358→        headers: { "Content-Type": "application/json" },
+   359→        body: JSON.stringify({
+   360→          dayOfWeek,
+   361→          startTime: e.time && e.time !== "—" ? e.time : "09:00",
+   362→          endTime: "",
+   363→          moduleName: course?.name ?? "",
+   364→          type: "امتحان",
+   365→          room: e.room && e.room !== "—" ? e.room : "",
+   366→          notes: `${e.title} — ${formatDateAr(e.examDate)}`,
+   367→        }),
+   368→      });
+   369→      const data = await res.json();
+   370→      if (!res.ok) { toast.error(data.error ?? "فشل الإضافة إلى الجدول"); return; }
+   371→      setAddedExamIds((prev) => new Set(prev).add(e.id));
+   372→      toast.success("أُضيف الاختبار إلى جدولك الشخصي — تجده في شاشة الجدول");
+   373→    } catch {
+   374→      toast.error("فشل الاتصال");
+   375→    } finally {
+   376→      setAddingExamId(null);
+   377→    }
+   378→  }
+   379→
+   380→  async function handleDeleteMaterial() {
+   381→    if (!materialToDelete) return;
+   382→    setDeletingMaterial(true);
+   383→    try {
+   384→      const res = await fetch(`/api/library?id=${materialToDelete.id}`, { method: "DELETE" });
+   385→      const data = await res.json();
+   386→      if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
+   387→      toast.success("تم حذف المادة من المقياس");
+   388→      setMaterialToDelete(null);
+   389→      setMaterialsTick((n) => n + 1);
+   390→    } catch {
+   391→      toast.error("فشل الحذف");
+   392→    } finally {
+   393→      setDeletingMaterial(false);
+   394→    }
+   395→  }
+   396→
+   397→  async function handleDeleteExam() {
+   398→    if (!examToDelete) return;
+   399→    setDeletingExam(true);
+   400→    try {
+   401→      const res = await fetch(`/api/exams?id=${examToDelete.id}`, { method: "DELETE" });
+   402→      const data = await res.json();
+   403→      if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
+   404→      toast.success("تم حذف الاختبار");
+   405→      setExamToDelete(null);
+   406→      setExamsTick((n) => n + 1);
+   407→    } catch {
+   408→      toast.error("فشل الحذف");
+   409→    } finally {
+   410→      setDeletingExam(false);
+   411→    }
+   412→  }
+   413→
+   414→  async function handleDeleteAssignment() {
+   415→    if (!assignmentToDelete) return;
+   416→    setDeletingAssignment(true);
+   417→    try {
+   418→      const res = await fetch(`/api/assignments?id=${assignmentToDelete.id}`, { method: "DELETE" });
+   419→      const data = await res.json();
+   420→      if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
+   421→      toast.success("تم حذف الواجب");
+   422→      setAssignmentToDelete(null);
+   423→      setAssignmentsTick((n) => n + 1);
+   424→    } catch {
+   425→      toast.error("فشل الحذف");
+   426→    } finally {
+   427→      setDeletingAssignment(false);
+   428→    }
+   429→  }
+   430→
+   431→  // Deep link with an expired/absent course context
+   432→  if (!course) {
+   433→    return (
+   434→      <div className="space-y-4">
+   435→        <div>
+   436→          <h1 className="text-2xl font-black mb-1">تفاصيل المقياس</h1>
+   437→        </div>
+   438→        <SectionEmpty
+   439→          icon={<BookOpen className="w-10 h-10" />}
+   440→          title="لم يُحدَّد المقياس"
+   441→          hint="افتح المقياس من قائمة المقاييس لعرض دروسه واختباراته وواجباته."
+   442→        />
+   443→        <Button variant="outline" className="w-full" onClick={() => navigate("COURSES")}>
+   444→          الذهاب إلى المقاييس
+   445→        </Button>
+   446→      </div>
+   447→    );
+   448→  }
+   449→
+   450→  const featured = lessons.filter((l) => l.isFeatured);
+   451→  const sortedLessons = [...lessons].sort((a, b) => {
+   452→    if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
+   453→    return (b.postedAt ?? "").localeCompare(a.postedAt ?? "");
+   454→  });
+   455→
+   456→  return (
+   457→    <div className="space-y-4">
+   458→      {/* Header */}
+   459→      <div>
+   460→        <button
+   461→          onClick={navigateBack}
+   462→          className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mb-2"
+   463→        >
+   464→          <ChevronLeft className="w-3.5 h-3.5 rotate-180" />
+   465→          العودة إلى المقاييس
+   466→        </button>
+   467→        <div className="flex items-start gap-3">
+   468→          <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+   469→            <BookOpen className="w-6 h-6" />
+   470→          </div>
+   471→          <div className="min-w-0">
+   472→            <h1 className="text-2xl font-black leading-tight">{course.name}</h1>
+   473→            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+   474→              {course.code && <Badge variant="outline" className="text-xs">{course.code}</Badge>}
+   475→              {course.category && <Badge variant="secondary" className="text-xs">{course.category}</Badge>}
+   476→              <Badge variant="outline" className="text-xs">
+   477→                السداسي {course.semester === 2 ? "الثاني" : "الأول"}
+   478→              </Badge>
+   479→            </div>
+   480→          </div>
+   481→        </div>
+   482→      </div>
+   483→
+   484→      {/* Meta strip */}
+   485→      <Card className="p-4 bg-primary/5 border-primary/20">
+   486→        <div className="grid grid-cols-4 gap-3 text-center">
+   487→          <div>
+   488→            <p className="text-[11px] text-muted-foreground mb-0.5">المعامل</p>
+   489→            <p className="text-lg font-black text-primary">{course.coefficient}</p>
+   490→          </div>
+   491→          <div className="border-x border-border/70">
+   492→            <p className="text-[11px] text-muted-foreground mb-0.5">الدروس</p>
+   493→            <p className="text-lg font-black text-primary">
+   494→              {lessonsState === "loading" ? "…" : lessons.length}
+   495→            </p>
+   496→          </div>
+   497→          <div className="border-x border-border/70">
+   498→            <p className="text-[11px] text-muted-foreground mb-0.5">المواد</p>
+   499→            <p className="text-lg font-black text-primary">
+   500→              {materialsState === "loading" ? "…" : materials.length}
+   501→            </p>
+   502→          </div>
+   503→          <div>
+   504→            <p className="text-[11px] text-muted-foreground mb-0.5">الاختبارات</p>
+   505→            <p className="text-lg font-black text-primary">
+   506→              {examsState === "loading" ? "…" : exams.length}
+   507→            </p>
+   508→          </div>
+   509→        </div>
+   510→        {course.professorName && (
+   511→          <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-border/60 text-xs text-muted-foreground">
+   512→            <User className="w-3.5 h-3.5" />
+   513→            <span>الأستاذ: <span className="font-bold text-foreground">{course.professorName}</span></span>
+   514→          </div>
+   515→        )}
+   516→      </Card>
+   517→
+   518→      {/* Description */}
+   519→      <Card className="p-4">
+   520→        <p className="text-xs font-bold text-muted-foreground mb-1.5">وصف المقياس</p>
+   521→        <p className="text-sm leading-relaxed">
+   522→          {course.description?.trim()
+   523→            || "لا يوجد وصف متاح لهذا المقياس بعد — يمكن للمشرفين إضافته لاحقاً."}
+   524→        </p>
+   525→      </Card>
+   526→
+   527→      {/* Content tabs */}
+   528→      <Tabs defaultValue="lessons">
+   529→        <TabsList className="grid w-full grid-cols-4">
+   530→          <TabsTrigger value="lessons" className="data-[state=active]:font-bold text-xs px-1">
+   531→            <Send className="w-3.5 h-3.5 ml-1" />الدروس
+   532→          </TabsTrigger>
+   533→          <TabsTrigger value="materials" className="data-[state=active]:font-bold text-xs px-1">
+   534→            <FileText className="w-3.5 h-3.5 ml-1" />المواد
+   535→          </TabsTrigger>
+   536→          <TabsTrigger value="exams" className="data-[state=active]:font-bold text-xs px-1">
+   537→            <FlaskConical className="w-3.5 h-3.5 ml-1" />الاختبارات
+   538→          </TabsTrigger>
+   539→          <TabsTrigger value="assignments" className="data-[state=active]:font-bold text-xs px-1">
+   540→            <CheckSquare className="w-3.5 h-3.5 ml-1" />الواجبات
+   541→          </TabsTrigger>
+   542→        </TabsList>
+   543→
+   544→        {/* ---- Lessons ---- */}
+   545→        <TabsContent value="lessons" className="mt-4 space-y-3">
+   546→          {lessonsState === "loading" && <SectionLoading />}
+   547→          {lessonsState === "error" && (
+   548→            <SectionError onRetry={() => setLessonsTick((n) => n + 1)} />
+   549→          )}
+   550→          {lessonsState === "ok" && sortedLessons.length === 0 && (
+   551→            <>
+   552→              <SectionEmpty
+   553→                icon={<GraduationCap className="w-10 h-10" />}
+   554→                title="لا توجد دروس منشورة لهذا المقياس بعد"
+   555→                hint="الدروس المنشورة في قنوات تيليجرام ومساحة الفوج ومرتبطة بهذا المقياس ستظهر هنا تلقائياً."
+   556→              />
+   557→              <Button variant="outline" className="w-full" onClick={() => navigate("TELEGRAM")}>
+   558→                <Send className="w-4 h-4 ml-1" />تصفّح دروس تيليجرام الكاملة
+   559→              </Button>
+   560→            </>
+   561→          )}
+   562→          {lessonsState === "ok" && sortedLessons.length > 0 && (
+   563→            <>
+   564→              {newLessonIds.size > 0 && (
+   565→                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+   566→                  <Sparkles className="w-3.5 h-3.5" />
+   567→                  {newLessonIds.size} درساً جديداً منذ آخر زيارة
+   568→                </p>
+   569→              )}
+   570→              {featured.length > 0 && (
+   571→                <p className="text-xs text-muted-foreground flex items-center gap-1">
+   572→                  <Star className="w-3 h-3 text-amber-500" />
+   573→                  {featured.length} درس مُميَّز من المشرفين
+   574→                </p>
+   575→              )}
+   576→              {sortedLessons.map((item) => (
+   577→                <LessonCard key={item.id} item={item} isNew={newLessonIds.has(item.id)} />
+   578→              ))}
+   579→              <Button variant="outline" className="w-full" onClick={() => navigate("TELEGRAM")}>
+   580→                <Send className="w-4 h-4 ml-1" />تصفّح دروس تيليجرام الكاملة
+   581→              </Button>
+   582→            </>
+   583→          )}
+   584→        </TabsContent>
+   585→
+   586→        {/* ---- المواد (round 33) ---- */}
+   587→        <TabsContent value="materials" className="mt-4 space-y-3">
+   588→          {canManage && (
+   589→            <PublishToLibraryDialog
+   590→              onCreated={() => setMaterialsTick((n) => n + 1)}
+   591→              moduleId={course.id}
+   592→              defaultCategory="محاضرة"
+   593→              triggerLabel="إضافة مادة للمقياس"
+   594→            />
+   595→          )}
+   596→
+   597→          {materialsState === "loading" && <SectionLoading />}
+   598→          {materialsState === "error" && (
+   599→            <SectionError onRetry={() => setMaterialsTick((n) => n + 1)} />
+   600→          )}
+   601→          {materialsState === "ok" && materialsNeedsSchema && (
+   602→            <Card className="p-4 border-amber-500/30 bg-amber-500/5">
+   603→              <p className="text-xs leading-relaxed">
+   604→                لربط المواد بهذا المقياس يحتاج عمود واحد في قاعدة البيانات
+   605→                (لمرة واحدة فقط). بعد إضافته تظهر المواد هنا تلقائياً — حتى
+   606→                ذلك الحين تُحفظ المواد الجديدة في المكتبة العامة.
+   607→              </p>
+   608→            </Card>
+   609→          )}
+   610→          {materialsState === "ok" && !materialsNeedsSchema && materials.length === 0 && (
+   611→            <SectionEmpty
+   612→              icon={<FileText className="w-10 h-10" />}
+   613→              title="لا توجد مواد مرفوعة لهذا المقياس بعد"
+   614→              hint={canManage
+   615→                ? "ارفع محاضرات وملخصات المقياس بزر «إضافة مادة للمقياس» — تُحفظ في حساب Drive الخاص بك ويحمّلها الطلبة مباشرة."
+   616→                : "ستظهر محاضرات وملخصات هذا المقياس هنا عند رفعها من طرف المشرفين."}
+   617→            />
+   618→          )}
+   619→          {materialsState === "ok" && materials.length > 0 && (
+   620→            <div className="space-y-2">
+   621→              {materials.map((m) => (
+   622→                <Card key={m.id} className="p-4">
+   623→                  <div className="flex items-start justify-between gap-3">
+   624→                    <div className="flex-1 min-w-0">
+   625→                      <div className="flex items-center gap-2 flex-wrap">
+   626→                        {/* round 39 — the title IS the reference: clickable
+   627→                            whenever a URL exists, not just dead words */}
+   628→                        {m.downloadUrl ? (
+   629→                          <a
+   630→                            href={m.downloadUrl}
+   631→                            target="_blank"
+   632→                            rel="noopener noreferrer"
+   633→                            className="font-bold text-sm text-primary hover:underline"
+   634→                          >
+   635→                            {m.title}
+   636→                          </a>
+   637→                        ) : (
+   638→                          <h3 className="font-bold text-sm">{m.title}</h3>
+   639→                        )}
+   640→                        <Badge variant="outline" className="text-xs">{m.fileFormat}</Badge>
+   641→                        {m.fileSize != null && (
+   642→                          <Badge variant="outline" className="text-xs">{formatBytes(m.fileSize)}</Badge>
+   643→                        )}
+   644→                        {m.driveFileId && (
+   645→                          <Badge className="text-[10px] bg-primary/10 text-primary border border-primary/20">
+   646→                            <HardDrive className="w-3 h-3 ml-1" />على Drive
+   647→                          </Badge>
+   648→                        )}
+   649→                        {!m.downloadUrl && (
+   650→                          <Badge variant="outline" className="text-xs text-muted-foreground">بدون رابط</Badge>
+   651→                        )}
+   652→                      </div>
+   653→                      {m.description && (
+   654→                        <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{m.description}</p>
+   655→                      )}
+   656→                      {m.author && (
+   657→                        <p className="text-xs text-muted-foreground mt-2">بواسطة: {m.author}</p>
+   658→                      )}
+   659→                    </div>
+   660→                    <div className="flex flex-col gap-1 shrink-0">
+   661→                      {m.downloadUrl && (
+   662→                        <a href={m.downloadUrl} target="_blank" rel="noopener noreferrer">
+   663→                          {m.driveFileId ? (
+   664→                            <Button size="sm" variant="outline" className="h-8"><Download className="w-3.5 h-3.5 ml-1" />تنزيل</Button>
+   665→                          ) : (
+   666→                            <Button size="sm" variant="outline" className="h-8"><ExternalLink className="w-3.5 h-3.5 ml-1" />فتح</Button>
+   667→                          )}
+   668→                        </a>
+   669→                      )}
+   670→                      <div className="flex items-center gap-0.5">
+   671→                        {m.downloadUrl && (
+   672→                          <Button
+   673→                            variant="ghost"
+   674→                            size="icon"
+   675→                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+   676→                            onClick={() => copyMaterialLink(m.downloadUrl)}
+   677→                            aria-label="نسخ رابط المادة"
+   678→                          >
+   679→                            <Copy className="w-4 h-4" />
+   680→                          </Button>
+   681→                        )}
+   682→                        {canManage && (
+   683→                          <>
+   684→                            <Button
+   685→                              variant="ghost" size="icon" className="h-8 w-8"
+   686→                              onClick={() => setMaterialToEdit(m)}
+   687→                              aria-label="تعديل المادة"
+   688→                            >
+   689→                              <Pencil className="w-3.5 h-3.5" />
+   690→                            </Button>
+   691→                            <Button
+   692→                              variant="ghost" size="icon"
+   693→                              className="h-8 w-8 text-destructive hover:bg-destructive/10"
+   694→                              onClick={() => setMaterialToDelete(m)}
+   695→                              aria-label="حذف المادة"
+   696→                            >
+   697→                              <Trash2 className="w-3.5 h-3.5" />
+   698→                            </Button>
+   699→                          </>
+   700→                        )}
+   701→                      </div>
+   702→                    </div>
+   703→                  </div>
+   704→                </Card>
+   705→              ))}
+   706→            </div>
+   707→          )}
+   708→        </TabsContent>
+   709→
+   710→        {/* ---- Exams ---- */}
+   711→        <TabsContent value="exams" className="mt-4 space-y-3">
+   712→          {examsState === "loading" && <SectionLoading />}
+   713→          {examsState === "error" && (
+   714→            <SectionError onRetry={() => setExamsTick((n) => n + 1)} />
+   715→          )}
+   716→          {examsState === "ok" && exams.length === 0 && (
+   717→            <SectionEmpty
+   718→              icon={<FlaskConical className="w-10 h-10" />}
+   719→              title="لا توجد اختبارات مسجّلة لهذا المقياس"
+   720→              hint="عندما يضيف المشرف موعد اختبار لهذا المقياس سيظهر هنا وستصلك التفاصيل."
+   721→            />
+   722→          )}
+   723→          {examsState === "ok" && exams.length > 0 && exams.map((e) => (
+   724→            <Card key={e.id} className="p-4">
+   725→              <div className="flex items-start justify-between gap-2 mb-2">
+   726→                <p className="font-bold text-sm">{e.title}</p>
+   727→                {e.isFinished ? (
+   728→                  <Badge variant="secondary" className="text-[10px] shrink-0">انتهى</Badge>
+   729→                ) : (
+   730→                  <Badge className="text-[10px] shrink-0 bg-primary/10 text-primary border border-primary/20">قادم</Badge>
+   731→                )}
+   732→              </div>
+   733→              <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+   734→                <span className="flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5" />{e.examDate ? formatDateAr(e.examDate) : "—"}</span>
+   735→                <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{e.time || "—"}</span>
+   736→                <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{e.room || "—"}</span>
+   737→              </div>
+   738→              {/* round 39 — real actions, not a dead card */}
+   739→              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/60 flex-wrap">
+   740→                <Button
+   741→                  size="sm" variant="outline" className="h-8"
+   742→                  disabled={!e.examDate || addedExamIds.has(e.id) || addingExamId === e.id}
+   743→                  onClick={() => addExamToSchedule(e)}
+   744→                >
+   745→                  {addingExamId === e.id ? (
+   746→                    <Loader2 className="w-3.5 h-3.5 ml-1 animate-spin" />
+   747→                  ) : addedExamIds.has(e.id) ? (
+   748→                    <Check className="w-3.5 h-3.5 ml-1 text-emerald-600" />
+   749→                  ) : (
+   750→                    <CalendarPlus className="w-3.5 h-3.5 ml-1" />
+   751→                  )}
+   752→                  {addedExamIds.has(e.id) ? "أُضيف إلى جدولي" : "أضف إلى جدولي"}
+   753→                </Button>
+   754→                {canManage && (
+   755→                  <div className="ms-auto flex items-center gap-0.5">
+   756→                    <Button
+   757→                      variant="ghost" size="icon" className="h-8 w-8"
+   758→                      onClick={() => setExamToEdit(e)}
+   759→                      aria-label="تعديل الاختبار"
+   760→                    >
+   761→                      <Pencil className="w-3.5 h-3.5" />
+   762→                    </Button>
+   763→                    <Button
+   764→                      variant="ghost" size="icon"
+   765→                      className="h-8 w-8 text-destructive hover:bg-destructive/10"
+   766→                      onClick={() => setExamToDelete(e)}
+   767→                      aria-label="حذف الاختبار"
+   768→                    >
+   769→                      <Trash2 className="w-3.5 h-3.5" />
+   770→                    </Button>
+   771→                  </div>
+   772→                )}
+   773→              </div>
+   774→            </Card>
+   775→          ))}
+   776→        </TabsContent>
+   777→
+   778→        {/* ---- Assignments ---- */}
+   779→        <TabsContent value="assignments" className="mt-4 space-y-3">
+   780→          {assignmentsState === "loading" && <SectionLoading />}
+   781→          {assignmentsState === "error" && (
+   782→            <SectionError onRetry={() => setAssignmentsTick((n) => n + 1)} />
+   783→          )}
+   784→          {assignmentsState === "ok" && assignments.length === 0 && (
+   785→            <SectionEmpty
+   786→              icon={<CheckSquare className="w-10 h-10" />}
+   787→              title="لا توجد واجبات مفتوحة لهذا المقياس"
+   788→              hint="عند تكليف واجب جديد بهذا المقياس سيظهر هنا مع تاريخ التسليم والعلامة القصوى."
+   789→            />
+   790→          )}
+   791→          {assignmentsState === "ok" && assignments.length > 0 && assignments.map((a) => (
+   792→            <Card key={a.id} className="p-4">
+   793→              <div className="flex items-start gap-2.5">
+   794→                {/* round 39 — done-toggle shares the assignments screen key */}
+   795→                <button
+   796→                  onClick={() => toggleAssignmentDone(a.id)}
+   797→                  className="mt-0.5 shrink-0"
+   798→                  aria-label="تبديل الإنجاز"
+   799→                >
+   800→                  {doneAssignments[String(a.id)] ? (
+   801→                    <CheckSquare className="w-5 h-5 text-emerald-600" />
+   802→                  ) : (
+   803→                    <Square className="w-5 h-5 text-muted-foreground" />
+   804→                  )}
+   805→                </button>
+   806→                <div className="flex-1 min-w-0">
+   807→                  <div className="flex items-start justify-between gap-2 mb-1">
+   808→                    <p className={cn(
+   809→                      "font-bold text-sm",
+   810→                      doneAssignments[String(a.id)] && "line-through text-muted-foreground"
+   811→                    )}>
+   812→                      {a.title}
+   813→                    </p>
+   814→                    <Badge variant="outline" className="text-[10px] shrink-0">العلامة: {a.maxScore}</Badge>
+   815→                  </div>
+   816→                  {a.dueDate && (
+   817→                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+   818→                      <CalendarDays className="w-3.5 h-3.5" />التسليم: {formatDateAr(a.dueDate)}
+   819→                    </p>
+   820→                  )}
+   821→                  {a.description && (
+   822→                    <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed line-clamp-3">{a.description}</p>
+   823→                  )}
+   824→                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/60 flex-wrap">
+   825→                    <Button
+   826→                      size="sm" variant="outline" className="h-8"
+   827→                      onClick={() => setAssignmentDetails(a)}
+   828→                    >
+   829→                      <Eye className="w-3.5 h-3.5 ml-1" />التفاصيل
+   830→                    </Button>
+   831→                    <ReportAssignmentDialog title={a.title} />
+   832→                    {canManage && (
+   833→                      <div className="ms-auto flex items-center gap-0.5">
+   834→                        <Button
+   835→                          variant="ghost" size="icon" className="h-8 w-8"
+   836→                          onClick={() => setAssignmentToEdit(a)}
+   837→                          aria-label="تعديل الواجب"
+   838→                        >
+   839→                          <Pencil className="w-3.5 h-3.5" />
+   840→                        </Button>
+   841→                        <Button
+   842→                          variant="ghost" size="icon"
+   843→                          className="h-8 w-8 text-destructive hover:bg-destructive/10"
+   844→                          onClick={() => setAssignmentToDelete(a)}
+   845→                          aria-label="حذف الواجب"
+   846→                        >
+   847→                          <Trash2 className="w-3.5 h-3.5" />
+   848→                        </Button>
+   849→                      </div>
+   850→                    )}
+   851→                  </div>
+   852→                </div>
+   853→              </div>
+   854→            </Card>
+   855→          ))}
+   856→        </TabsContent>
+   857→      </Tabs>
+   858→
+   859→      {/* ---- round 39 — dialogs (edit / delete / details) ---- */}
+   860→      {materialToEdit && (
+   861→        <EditMaterialDialog
+   862→          item={materialToEdit}
+   863→          onClose={() => setMaterialToEdit(null)}
+   864→          onSaved={() => { setMaterialToEdit(null); setMaterialsTick((n) => n + 1); }}
+   865→        />
+   866→      )}
+   867→      {materialToDelete && (
+   868→        <Dialog open onOpenChange={() => setMaterialToDelete(null)}>
+   869→          <DialogContent>
+   870→            <DialogHeader>
+   871→              <DialogTitle className="text-destructive flex items-center gap-2">
+   872→                <Trash2 className="w-5 h-5" />حذف مادة من المقياس
+   873→              </DialogTitle>
+   874→            </DialogHeader>
+   875→            <p className="text-sm">
+   876→              هل تريد حذف <strong>{materialToDelete.title}</strong> من مواد هذا المقياس؟
+   877→              سيختفي من قائمة كل الطلبة — لا يمكن التراجع.
+   878→            </p>
+   879→            <DialogFooter>
+   880→              <Button variant="outline" onClick={() => setMaterialToDelete(null)}>إلغاء</Button>
+   881→              <Button variant="destructive" onClick={handleDeleteMaterial} disabled={deletingMaterial}>
+   882→                {deletingMaterial && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي
+   883→              </Button>
+   884→            </DialogFooter>
+   885→          </DialogContent>
+   886→        </Dialog>
+   887→      )}
+   888→      {examToEdit && (
+   889→        <EditExamDialog
+   890→          exam={examToEdit}
+   891→          onClose={() => setExamToEdit(null)}
+   892→          onSaved={() => { setExamToEdit(null); setExamsTick((n) => n + 1); }}
+   893→        />
+   894→      )}
+   895→      {examToDelete && (
+   896→        <Dialog open onOpenChange={() => setExamToDelete(null)}>
+   897→          <DialogContent>
+   898→            <DialogHeader>
+   899→              <DialogTitle className="text-destructive flex items-center gap-2">
+   900→                <Trash2 className="w-5 h-5" />حذف اختبار
+   901→              </DialogTitle>
+   902→            </DialogHeader>
+   903→            <p className="text-sm">
+   904→              هل تريد حذف <strong>{examToDelete.title}</strong>؟ لا يمكن التراجع.
+   905→            </p>
+   906→            <DialogFooter>
+   907→              <Button variant="outline" onClick={() => setExamToDelete(null)}>إلغاء</Button>
+   908→              <Button variant="destructive" onClick={handleDeleteExam} disabled={deletingExam}>
+   909→                {deletingExam && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي
+   910→              </Button>
+   911→            </DialogFooter>
+   912→          </DialogContent>
+   913→        </Dialog>
+   914→      )}
+   915→      {assignmentToEdit && (
+   916→        <EditAssignmentDialog
+   917→          assignment={assignmentToEdit}
+   918→          onClose={() => setAssignmentToEdit(null)}
+   919→          onSaved={() => { setAssignmentToEdit(null); setAssignmentsTick((n) => n + 1); }}
+   920→        />
+   921→      )}
+   922→      {assignmentToDelete && (
+   923→        <Dialog open onOpenChange={() => setAssignmentToDelete(null)}>
+   924→          <DialogContent>
+   925→            <DialogHeader>
+   926→              <DialogTitle className="text-destructive flex items-center gap-2">
+   927→                <Trash2 className="w-5 h-5" />حذف واجب
+   928→              </DialogTitle>
+   929→            </DialogHeader>
+   930→            <p className="text-sm">
+   931→              هل تريد حذف <strong>{assignmentToDelete.title}</strong>؟ لا يمكن التراجع.
+   932→            </p>
+   933→            <DialogFooter>
+   934→              <Button variant="outline" onClick={() => setAssignmentToDelete(null)}>إلغاء</Button>
+   935→              <Button variant="destructive" onClick={handleDeleteAssignment} disabled={deletingAssignment}>
+   936→                {deletingAssignment && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي
+   937→              </Button>
+   938→            </DialogFooter>
+   939→          </DialogContent>
+   940→        </Dialog>
+   941→      )}
+   942→      {assignmentDetails && (
+   943→        <AssignmentDetailsDialog
+   944→          assignment={assignmentDetails}
+   945→          onClose={() => setAssignmentDetails(null)}
+   946→        />
+   947→      )}
+   948→    </div>
+   949→  );
+   950→}
+   951→
+   952→// ---- round 39 components ----
+   953→
+   954→function LessonCard({ item, isNew }: { item: TgItem; isNew: boolean }) {
+   955→  const [imgError, setImgError] = React.useState(false);
+   956→  const isImage = item.kind === "image" && !!item.fileId;
+   957→  return (
+   958→    <Card className={cn("p-3.5", isNew && "border-primary/40")}>
+   959→      <div className="flex items-start gap-3">
+   960→        {/* معاينة مصغّرة للصور — كانت الدروس كلمات بلا هوية بصرية */}
+   961→        <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center bg-muted">
+   962→          {isImage && !imgError ? (
+   963→            <img
+   964→              src={`/api/telegram/file?file_id=${encodeURIComponent(item.fileId)}`}
+   965→              alt={item.titleAr || "معاينة"}
+   966→              loading="lazy"
+   967→              onError={() => setImgError(true)}
+   968→              className="w-full h-full object-cover"
+   969→            />
+   970→          ) : (
+   971→            <div className="text-primary">{kindIcon(item.kind, "w-5 h-5")}</div>
+   972→          )}
+   973→        </div>
+   974→        <div className="flex-1 min-w-0">
+   975→          <div className="flex items-center gap-1.5 flex-wrap">
+   976→            <p className="font-bold text-sm truncate">{item.titleAr || item.fileName || "منشور"}</p>
+   977→            {isNew && (
+   978→              <Badge className="text-[10px] bg-primary text-primary-foreground shrink-0">
+   979→                جديد
+   980→              </Badge>
+   981→            )}
+   982→            {item.isFeatured && <Star className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+   983→          </div>
+   984→          <div className="flex items-center gap-2 mt-1 flex-wrap">
+   985→            <Badge variant="outline" className="text-[10px]">{item.itemType}</Badge>
+   986→            {item.postedBy && (
+   987→              <span className="text-[11px] text-muted-foreground">{item.postedBy}</span>
+   988→            )}
+   989→            {item.postedAt && (
+   990→              <span className="text-[11px] text-muted-foreground">{formatDateAr(item.postedAt)}</span>
+   991→            )}
+   992→            {item.sizeBytes > 0 && (
+   993→              <span className="text-[11px] text-muted-foreground">{formatBytes(item.sizeBytes)}</span>
+   994→            )}
+   995→          </div>
+   996→          {item.captionText && (
+   997→            <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2 leading-relaxed">
+   998→              {item.captionText}
+   999→            </p>
+  1000→          )}
+  1001→        </div>
+  1002→        {item.link && (
+  1003→          <a
+  1004→            href={item.link}
+  1005→            target="_blank"
+  1006→            rel="noopener noreferrer"
+  1007→            className="shrink-0"
+  1008→            aria-label={`فتح ${item.titleAr || "المنشور"} في تيليجرام`}
+  1009→          >
+  1010→            {/* round 39 — زر ظاهر بعنوان، بدل أيقونة شبح لا يلاحظها أحد */}
+  1011→            <Button variant="outline" size="sm" className="h-8">
+  1012→              <ExternalLink className="w-3.5 h-3.5 ml-1" />فتح
+  1013→            </Button>
+  1014→          </a>
+  1015→        )}
+  1016→      </div>
+  1017→    </Card>
+  1018→  );
+  1019→}
+  1020→
+  1021→// edit a course material (fix a broken link / typo in place — mirrors the
+  1022→// library screen's edit dialog, PATCH /api/library)
+  1023→function EditMaterialDialog({ item, onClose, onSaved }: {
+  1024→  item: MaterialItem; onClose: () => void; onSaved: () => void;
+  1025→}) {
+  1026→  const [title, setTitle] = React.useState(item.title);
+  1027→  const [author, setAuthor] = React.useState(item.author);
+  1028→  const [category, setCategory] = React.useState(item.category);
+  1029→  const [fileFormat, setFileFormat] = React.useState(item.fileFormat);
+  1030→  const [downloadUrl, setDownloadUrl] = React.useState(item.downloadUrl);
+  1031→  const [description, setDescription] = React.useState(item.description);
+  1032→  const [saving, setSaving] = React.useState(false);
+  1033→
+  1034→  async function handleSave() {
+  1035→    if (!title.trim()) { toast.error("العنوان مطلوب"); return; }
+  1036→    setSaving(true);
+  1037→    try {
+  1038→      const res = await fetch("/api/library", {
+  1039→        method: "PATCH",
+  1040→        headers: { "Content-Type": "application/json" },
+  1041→        body: JSON.stringify({
+  1042→          id: item.id,
+  1043→          title: title.trim(), author: author.trim(), category: category.trim(),
+  1044→          fileFormat: fileFormat.trim(), downloadUrl: downloadUrl.trim(),
+  1045→          description: description.trim(),
+  1046→        }),
+  1047→      });
+  1048→      const data = await res.json();
+  1049→      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+  1050→      toast.success("تم تعديل المادة");
+  1051→      onSaved();
+  1052→    } catch {
+  1053→      toast.error("فشل الاتصال");
+  1054→    } finally {
+  1055→      setSaving(false);
+  1056→    }
+  1057→  }
+  1058→
+  1059→  return (
+  1060→    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+  1061→      <DialogContent>
+  1062→        <DialogHeader>
+  1063→          <DialogTitle className="flex items-center gap-2">
+  1064→            <Pencil className="w-5 h-5 text-primary" />تعديل مادة المقياس
+  1065→          </DialogTitle>
+  1066→        </DialogHeader>
+  1067→        <div className="space-y-3 py-2">
+  1068→          <div className="space-y-1.5">
+  1069→            <Label htmlFor="editMatTitle">العنوان</Label>
+  1070→            <Input id="editMatTitle" value={title} onChange={(e) => setTitle(e.target.value)} />
+  1071→          </div>
+  1072→          <div className="grid grid-cols-2 gap-2">
+  1073→            <div className="space-y-1.5">
+  1074→              <Label htmlFor="editMatAuthor">المؤلف / المُعد</Label>
+  1075→              <Input id="editMatAuthor" value={author} onChange={(e) => setAuthor(e.target.value)} />
+  1076→            </div>
+  1077→            <div className="space-y-1.5">
+  1078→              <Label htmlFor="editMatFormat">الصيغة</Label>
+  1079→              <select
+  1080→                id="editMatFormat" value={fileFormat}
+  1081→                onChange={(e) => setFileFormat(e.target.value)}
+  1082→                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+  1083→              >
+  1084→                <option value="PDF">PDF</option>
+  1085→                <option value="DOCX">DOCX</option>
+  1086→                <option value="PPTX">PPTX</option>
+  1087→                <option value="صورة">صورة</option>
+  1088→                <option value="رابط">رابط</option>
+  1089→              </select>
+  1090→            </div>
+  1091→          </div>
+  1092→          <div className="space-y-1.5">
+  1093→            <Label htmlFor="editMatCategory">التصنيف</Label>
+  1094→            <select
+  1095→              id="editMatCategory" value={category}
+  1096→              onChange={(e) => setCategory(e.target.value)}
+  1097→              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+  1098→            >
+  1099→              <option value="محاضرة">محاضرة</option>
+  1100→              <option value="ملخص">ملخص</option>
+  1101→              <option value="سلسلة تمارين">سلسلة تمارين</option>
+  1102→              <option value="كتاب مرجعي">كتاب مرجعي</option>
+  1103→              <option value="محاضرة مصورة">محاضرة مصورة</option>
+  1104→              <option value="أخرى">أخرى</option>
+  1105→            </select>
+  1106→          </div>
+  1107→          <div className="space-y-1.5">
+  1108→            <Label htmlFor="editMatUrl">رابط الملف</Label>
+  1109→            <Input
+  1110→              id="editMatUrl" value={downloadUrl} dir="ltr"
+  1111→              onChange={(e) => setDownloadUrl(e.target.value)}
+  1112→              placeholder="https://..."
+  1113→            />
+  1114→          </div>
+  1115→          <div className="space-y-1.5">
+  1116→            <Label htmlFor="editMatDesc">وصف مختصر</Label>
+  1117→            <Textarea id="editMatDesc" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+  1118→          </div>
+  1119→        </div>
+  1120→        <DialogFooter>
+  1121→          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+  1122→          <Button onClick={handleSave} disabled={saving}>
+  1123→            {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديلات
+  1124→          </Button>
+  1125→        </DialogFooter>
+  1126→      </DialogContent>
+  1127→    </Dialog>
+  1128→  );
+  1129→}
+  1130→
+  1131→// edit an exam from inside the course (module stays fixed — the supervisor
+  1132→// is already in the course context; mirrors PATCH /api/exams)
+  1133→function EditExamDialog({ exam, onClose, onSaved }: {
+  1134→  exam: ExamItem; onClose: () => void; onSaved: () => void;
+  1135→}) {
+  1136→  const [title, setTitle] = React.useState(exam.title);
+  1137→  const [examDate, setExamDate] = React.useState(exam.examDate);
+  1138→  const [time, setTime] = React.useState(exam.time === "—" ? "09:00" : exam.time);
+  1139→  const [room, setRoom] = React.useState(exam.room === "—" ? "" : exam.room);
+  1140→  const [coefficient, setCoefficient] = React.useState(String(exam.coefficient));
+  1141→  const [saving, setSaving] = React.useState(false);
+  1142→
+  1143→  async function handleSave() {
+  1144→    if (!title.trim()) { toast.error("اكتب عنوان الاختبار"); return; }
+  1145→    if (!examDate) { toast.error("اختر التاريخ"); return; }
+  1146→    setSaving(true);
+  1147→    try {
+  1148→      const res = await fetch("/api/exams", {
+  1149→        method: "PATCH",
+  1150→        headers: { "Content-Type": "application/json" },
+  1151→        body: JSON.stringify({
+  1152→          id: exam.id, moduleId: exam.moduleId,
+  1153→          title: title.trim(), examDate, time,
+  1154→          room: room.trim(), coefficient: parseFloat(coefficient) || 2,
+  1155→        }),
+  1156→      });
+  1157→      const data = await res.json();
+  1158→      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+  1159→      toast.success("تم تعديل الاختبار");
+  1160→      onSaved();
+  1161→    } catch {
+  1162→      toast.error("فشل الاتصال");
+  1163→    } finally {
+  1164→      setSaving(false);
+  1165→    }
+  1166→  }
+  1167→
+  1168→  return (
+  1169→    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+  1170→      <DialogContent>
+  1171→        <DialogHeader>
+  1172→          <DialogTitle className="flex items-center gap-2">
+  1173→            <Pencil className="w-5 h-5 text-primary" />تعديل الاختبار
+  1174→          </DialogTitle>
+  1175→        </DialogHeader>
+  1176→        <div className="space-y-3 py-2">
+  1177→          <div className="space-y-1.5">
+  1178→            <Label htmlFor="cdExamTitle">عنوان الاختبار</Label>
+  1179→            <Input id="cdExamTitle" value={title} onChange={(e) => setTitle(e.target.value)} />
+  1180→          </div>
+  1181→          <div className="grid grid-cols-2 gap-2">
+  1182→            <div className="space-y-1.5">
+  1183→              <Label htmlFor="cdExamDate">التاريخ</Label>
+  1184→              <Input id="cdExamDate" type="date" value={examDate} onChange={(e) => setExamDate(e.target.value)} />
+  1185→            </div>
+  1186→            <div className="space-y-1.5">
+  1187→              <Label htmlFor="cdExamTime">الوقت</Label>
+  1188→              <Input id="cdExamTime" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+  1189→            </div>
+  1190→          </div>
+  1191→          <div className="grid grid-cols-2 gap-2">
+  1192→            <div className="space-y-1.5">
+  1193→              <Label htmlFor="cdExamRoom">القاعة</Label>
+  1194→              <Input id="cdExamRoom" value={room} onChange={(e) => setRoom(e.target.value)} placeholder="مثال: قاعة 12" />
+  1195→            </div>
+  1196→            <div className="space-y-1.5">
+  1197→              <Label htmlFor="cdExamCoef">المعامل</Label>
+  1198→              <Input id="cdExamCoef" type="number" value={coefficient} onChange={(e) => setCoefficient(e.target.value)} />
+  1199→            </div>
+  1200→          </div>
+  1201→        </div>
+  1202→        <DialogFooter>
+  1203→          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+  1204→          <Button onClick={handleSave} disabled={saving}>
+  1205→            {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديل
+  1206→          </Button>
+  1207→        </DialogFooter>
+  1208→      </DialogContent>
+  1209→    </Dialog>
+  1210→  );
+  1211→}
+  1212→
+  1213→// edit an assignment from inside the course (mirrors PATCH /api/assignments)
+  1214→function EditAssignmentDialog({ assignment, onClose, onSaved }: {
+  1215→  assignment: AssignmentItem; onClose: () => void; onSaved: () => void;
+  1216→}) {
+  1217→  const [title, setTitle] = React.useState(assignment.title);
+  1218→  const [dueDate, setDueDate] = React.useState(assignment.dueDate);
+  1219→  const [description, setDescription] = React.useState(assignment.description);
+  1220→  const [saving, setSaving] = React.useState(false);
+  1221→
+  1222→  async function handleSave() {
+  1223→    if (!title.trim()) { toast.error("اكتب عنوان الواجب"); return; }
+  1224→    if (!dueDate) { toast.error("اختر تاريخ التسليم"); return; }
+  1225→    setSaving(true);
+  1226→    try {
+  1227→      const res = await fetch("/api/assignments", {
+  1228→        method: "PATCH",
+  1229→        headers: { "Content-Type": "application/json" },
+  1230→        body: JSON.stringify({
+  1231→          id: assignment.id, title: title.trim(), dueDate,
+  1232→          description: description.trim(),
+  1233→        }),
+  1234→      });
+  1235→      const data = await res.json();
+  1236→      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+  1237→      toast.success("تم تعديل الواجب");
+  1238→      onSaved();
+  1239→    } catch {
+  1240→      toast.error("فشل الاتصال");
+  1241→    } finally {
+  1242→      setSaving(false);
+  1243→    }
+  1244→  }
+  1245→
+  1246→  return (
+  1247→    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+  1248→      <DialogContent>
+  1249→        <DialogHeader>
+  1250→          <DialogTitle className="flex items-center gap-2">
+  1251→            <Pencil className="w-5 h-5 text-primary" />تعديل الواجب
+  1252→          </DialogTitle>
+  1253→        </DialogHeader>
+  1254→        <div className="space-y-3 py-2">
+  1255→          <div className="space-y-1.5">
+  1256→            <Label htmlFor="cdAsgTitle">عنوان الواجب</Label>
+  1257→            <Input id="cdAsgTitle" value={title} onChange={(e) => setTitle(e.target.value)} />
+  1258→          </div>
+  1259→          <div className="space-y-1.5">
+  1260→            <Label htmlFor="cdAsgDue">تاريخ التسليم</Label>
+  1261→            <Input id="cdAsgDue" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+  1262→          </div>
+  1263→          <div className="space-y-1.5">
+  1264→            <Label htmlFor="cdAsgDesc">الوصف</Label>
+  1265→            <Textarea id="cdAsgDesc" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
+  1266→          </div>
+  1267→        </div>
+  1268→        <DialogFooter>
+  1269→          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+  1270→          <Button onClick={handleSave} disabled={saving}>
+  1271→            {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديل
+  1272→          </Button>
+  1273→        </DialogFooter>
+  1274→      </DialogContent>
+  1275→    </Dialog>
+  1276→  );
+  1277→}
+  1278→
+  1279→// full assignment details — the card clamps the description to 3 lines,
+  1280→// long instructions were unreadable inside the course
+  1281→function AssignmentDetailsDialog({ assignment, onClose }: {
+  1282→  assignment: AssignmentItem; onClose: () => void;
+  1283→}) {
+  1284→  return (
+  1285→    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+  1286→      <DialogContent>
+  1287→        <DialogHeader>
+  1288→          <DialogTitle className="flex items-center gap-2">
+  1289→            <Eye className="w-5 h-5 text-primary" />تفاصيل الواجب
+  1290→          </DialogTitle>
+  1291→        </DialogHeader>
+  1292→        <div className="space-y-3 py-2">
+  1293→          <p className="font-bold text-sm">{assignment.title}</p>
+  1294→          <div className="flex items-center gap-2 flex-wrap">
+  1295→            <Badge variant="outline" className="text-xs">العلامة: {assignment.maxScore}</Badge>
+  1296→            {assignment.dueDate && (
+  1297→              <Badge variant="outline" className="text-xs gap-1">
+  1298→                <CalendarDays className="w-3 h-3" />التسليم: {formatDateAr(assignment.dueDate)}
+  1299→              </Badge>
+  1300→            )}
+  1301→          </div>
+  1302→          {assignment.description ? (
+  1303→            <p className="text-sm leading-relaxed whitespace-pre-wrap border-t border-border/60 pt-3">
+  1304→              {assignment.description}
+  1305→            </p>
+  1306→          ) : (
+  1307→            <p className="text-sm text-muted-foreground">لا يوجد وصف مفصّل لهذا الواجب.</p>
+  1308→          )}
+  1309→        </div>
+  1310→        <DialogFooter>
+  1311→          <Button variant="outline" onClick={onClose}>إغلاق</Button>
+  1312→        </DialogFooter>
+  1313→      </DialogContent>
+  1314→    </Dialog>
+  1315→  );
+  1316→}
+  1317→
+  1318→// report a wrong assignment from inside the course (same /api/issues flow
+  1319→// as the assignments screen)
+  1320→function ReportAssignmentDialog({ title }: { title: string }) {
+  1321→  const [open, setOpen] = React.useState(false);
+  1322→  const [reason, setReason] = React.useState("");
+  1323→  const [saving, setSaving] = React.useState(false);
+  1324→
+  1325→  async function handleReport() {
+  1326→    if (!reason.trim()) { toast.error("اكتب وصف المشكلة"); return; }
+  1327→    setSaving(true);
+  1328→    try {
+  1329→      const res = await fetch("/api/issues", {
+  1330→        method: "POST",
+  1331→        headers: { "Content-Type": "application/json" },
+  1332→        body: JSON.stringify({ itemType: "واجب وتكليف", itemTitle: title, description: reason.trim() }),
+  1333→      });
+  1334→      const data = await res.json();
+  1335→      if (!res.ok) { toast.error(data.error ?? "فشل الإرسال"); return; }
+  1336→      toast.success("تم إرسال التبليغ بنجاح");
+  1337→      setOpen(false);
+  1338→      setReason("");
+  1339→    } catch {
+  1340→      toast.error("فشل الاتصال");
+  1341→    } finally {
+  1342→      setSaving(false);
+  1343→    }
+  1344→  }
+  1345→
+  1346→  return (
+  1347→    <Dialog open={open} onOpenChange={setOpen}>
+  1348→      <DialogTrigger asChild>
+  1349→        <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-amber-600">
+  1350→          <Flag className="w-3.5 h-3.5 ml-1" />تبليغ
+  1351→        </Button>
+  1352→      </DialogTrigger>
+  1353→      <DialogContent>
+  1354→        <DialogHeader><DialogTitle>تبليغ عن خطأ في الواجب</DialogTitle></DialogHeader>
+  1355→        <div className="space-y-3 py-2">
+  1356→          <p className="text-xs text-muted-foreground">الواجب: <span className="font-bold">{title}</span></p>
+  1357→          <div className="space-y-1.5">
+  1358→            <Label htmlFor="cdReportReason">وصف المشكلة</Label>
+  1359→            <Textarea
+  1360→              id="cdReportReason" value={reason}
+  1361→              onChange={(e) => setReason(e.target.value)}
+  1362→              placeholder="مثال: تاريخ التسليم غير صحيح..." rows={3}
+  1363→            />
+  1364→          </div>
+  1365→        </div>
+  1366→        <DialogFooter>
+  1367→          <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
+  1368→          <Button onClick={handleReport} disabled={saving}>
+  1369→            {saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}إرسال التبليغ
+  1370→          </Button>
+  1371→        </DialogFooter>
+  1372→      </DialogContent>
+  1373→    </Dialog>
+  1374→  );
+  1375→}
+  1376→
