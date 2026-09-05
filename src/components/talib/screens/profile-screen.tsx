@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell } from "@/app/app/page";
+import { abbreviateOrgName } from "@/lib/abbreviate";
 import { toast } from "sonner";
 
 interface Props {
@@ -121,7 +122,15 @@ export function TalibProfileScreen({ onSignOut }: Props) {
       <Card className="p-3">
         <div className="grid grid-cols-2 gap-2">
           <InfoCell icon={<IdCard className="w-3 h-3" />} label="الرقم التسلسلي" value={user.studentId} />
-          <InfoCell icon={<Building className="w-3 h-3" />} label="المؤسسة" value={profileDetails?.institution ?? ""} />
+          {/* round 37: المؤسسة معروضة باختصار ذكي when long — the distinctive
+              last name stays readable instead of a mid-word «…» cut; the
+              full official name remains in the cell's title tooltip. */}
+          <InfoCell
+            icon={<Building className="w-3 h-3" />}
+            label="المؤسسة"
+            value={profileDetails?.institution ? abbreviateOrgName(profileDetails.institution) : ""}
+            fullValue={profileDetails?.institution ?? ""}
+          />
           <InfoCell icon={<BookOpen className="w-3 h-3" />} label="التخصص" value={profileDetails?.specialtyName ?? ""} />
           <InfoCell icon={<Layers className="w-3 h-3" />} label="الملمح" value={profileDetails?.trackName ?? ""} />
           <InfoCell icon={<Calendar className="w-3 h-3" />} label="السنة" value={profileDetails?.yearName ?? ""} />
@@ -171,20 +180,25 @@ export function TalibProfileScreen({ onSignOut }: Props) {
             «إرسال التبليغ» الظاهر دائماً. */}
         <ReportIssueDialog />
 
-        {/* round 36: تغيير المسار الأكاديمي — the owner asked for the
-            "change path as I wish" feature back: any role (OWNER included)
-            can re-run the path wizard from حسابي, cancel-safe. */}
-        <Button
-          variant="outline"
-          className="w-full justify-between"
-          onClick={startPathChange}
-        >
-          <span className="flex items-center">
-            <Route className="w-4 h-4 ml-2 text-primary" />
-            تغيير المسار الأكاديمي
-          </span>
-          <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
-        </Button>
+        {/* round 37: تغيير المسار الأكاديمي — OWNER-only. The owner asked
+            that path switching stay a platform-owner power (a student must
+            not move themselves between specialties/groups); round 36 had it
+            for every role. Hidden for all other roles, and the shell +
+            /api/onboarding/complete enforce the same rule (defense in
+            depth). */}
+        {user.role === "OWNER" && (
+          <Button
+            variant="outline"
+            className="w-full justify-between"
+            onClick={startPathChange}
+          >
+            <span className="flex items-center">
+              <Route className="w-4 h-4 ml-2 text-primary" />
+              تغيير المسار الأكاديمي
+            </span>
+            <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
+          </Button>
+        )}
 
         <Button
           variant="outline"
@@ -286,12 +300,15 @@ function InfoCell({
   value,
   highlight,
   wide,
+  fullValue,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   highlight?: boolean;
   wide?: boolean;
+  /** round 37: optional un-abbreviated value used for the title tooltip. */
+  fullValue?: string;
 }) {
   return (
     <div className={`rounded-lg bg-muted/50 px-2.5 py-2 min-w-0 ${wide ? "col-span-2" : ""}`}>
@@ -300,7 +317,7 @@ function InfoCell({
         {label}
       </p>
       <p
-        title={value}
+        title={fullValue ?? value}
         className={`text-[13px] font-bold truncate mt-0.5 ${highlight ? "text-amber-600 dark:text-amber-400" : ""}`}
       >
         {value || "—"}
