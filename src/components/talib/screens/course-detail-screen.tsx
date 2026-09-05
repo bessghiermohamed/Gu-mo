@@ -524,6 +524,36 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
         </p>
       </Card>
 
+      {/* Round 40 — the upload entry lives at the COURSE level, not buried
+          in one tab: a supervisor opening ANY course sees the Drive upload
+          immediately on every tab («some courses have no upload buttons»).
+          Storage story in one line: the supervisor's own Drive becomes the
+          shared space students download from — zero bytes on Supabase.
+          Students never see this row (canManage gates it). */}
+      {canManage && (
+        <Card className="p-3 border-primary/25 bg-primary/5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-bold flex items-center gap-1.5">
+                <HardDrive className="w-3.5 h-3.5 text-primary shrink-0" />
+                رفع ملف لهذا المقياس
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                إلى Google Drive الخاص بك — مساحة مشتركة يحمّل منها الطلبة
+                الملفات مباشرة، دون أن يُخزَّن شيء على السيرفر.
+              </p>
+            </div>
+            <PublishToLibraryDialog
+              onCreated={() => setMaterialsTick((n) => n + 1)}
+              moduleId={course.id}
+              defaultCategory="محاضرة"
+              triggerLabel="رفع ملف (Drive)"
+              triggerClassName="shrink-0"
+            />
+          </div>
+        </Card>
+      )}
+
       {/* Content tabs */}
       <Tabs defaultValue="lessons">
         <TabsList className="grid w-full grid-cols-4">
@@ -612,7 +642,7 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
               icon={<FileText className="w-10 h-10" />}
               title="لا توجد مواد مرفوعة لهذا المقياس بعد"
               hint={canManage
-                ? "ارفع محاضرات وملخصات المقياس بزر «إضافة مادة للمقياس» — تُحفظ في حساب Drive الخاص بك ويحمّلها الطلبة مباشرة."
+                ? "استخدم زر «رفع ملف (Drive)» أعلى الصفحة — يُحفظ الملف في حساب Drive الخاص بك ويصبح متاحاً لكل الطلبة للتنزيل المباشر."
                 : "ستظهر محاضرات وملخصات هذا المقياس هنا عند رفعها من طرف المشرفين."}
             />
           )}

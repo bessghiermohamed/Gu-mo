@@ -61,12 +61,15 @@ export function PublishToLibraryDialog({
   moduleId,
   defaultCategory,
   triggerLabel = "إضافة ملف",
+  triggerClassName = "w-full",
 }: {
   onCreated: () => void;
   /** When set, the material is linked to this course (المواد tab). */
   moduleId?: number | null;
   defaultCategory?: string;
   triggerLabel?: string;
+  /** Round 40: the course header hosts a compact trigger (not full-width). */
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   // round 38: default to the REAL upload (رفع ملف إلى Drive) — the link
@@ -81,7 +84,7 @@ export function PublishToLibraryDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="w-full">
+        <Button className={triggerClassName}>
           <CloudUpload className="w-4 h-4 ml-1" />
           {triggerLabel}
         </Button>
@@ -407,8 +410,9 @@ function UploadMode({
 
       <p className="text-[11px] text-muted-foreground bg-muted/40 rounded-lg p-2.5 leading-relaxed">
         يُرفع الملف إلى مجلد «📚 مكتبة طالب» في حسابك على Drive (١٥ ج.ب) —{" "}
-        <strong className="text-foreground">لا يستهلك أي شيء من Supabase</strong> —
-        ويظهر للطلبة مباشرة بزر تنزيل.
+        <strong className="text-foreground">Drive الخاص بك يصبح مساحة مشتركة</strong>:
+        أي طالب يرى المادة في المقياس وينزّلها مباشرة من Drive،{" "}
+        <strong className="text-foreground">ولا يُخزَّن أي بايت على Supabase</strong>.
       </p>
 
       <DialogFooter>
