@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   Mail, IdCard, Building, BookOpen, Users, Shield, LogOut,
   ChevronLeft, Trash2, AlertTriangle, Loader2, UserPlus, Layers,
-  Calendar, FolderTree, Flag, Settings,
+  Calendar, FolderTree, Flag, Settings, Route,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +27,7 @@ interface Props {
 export function TalibProfileScreen({ onSignOut }: Props) {
   const { t } = useI18n();
   const { user } = useAuth();
-  const { navigate } = useShell();
+  const { navigate, startPathChange } = useShell();
 
   const [profileDetails, setProfileDetails] = React.useState<{
     institution: string;
@@ -170,6 +170,21 @@ export function TalibProfileScreen({ onSignOut }: Props) {
             ومن بينهم الطالب العادي — زر «الإبلاغ عن مشكلة» واضح هنا، مع زر
             «إرسال التبليغ» الظاهر دائماً. */}
         <ReportIssueDialog />
+
+        {/* round 36: تغيير المسار الأكاديمي — the owner asked for the
+            "change path as I wish" feature back: any role (OWNER included)
+            can re-run the path wizard from حسابي, cancel-safe. */}
+        <Button
+          variant="outline"
+          className="w-full justify-between"
+          onClick={startPathChange}
+        >
+          <span className="flex items-center">
+            <Route className="w-4 h-4 ml-2 text-primary" />
+            تغيير المسار الأكاديمي
+          </span>
+          <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
+        </Button>
 
         <Button
           variant="outline"

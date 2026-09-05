@@ -27,6 +27,11 @@ import { toast } from "sonner";
 
 interface Props {
   onComplete: () => void;
+  // round 36: change-path mode — re-run the flow from حسابي to switch the
+  // user's institution/specialty/track/year at any time (any role, OWNER
+  // included). onCancel returns to the profile without saving.
+  mode?: "initial" | "change";
+  onCancel?: () => void;
 }
 
 interface Institution {
@@ -51,10 +56,11 @@ interface AcademicTrack {
   code: string;
 }
 
-export function TalibOnboardingScreen({ onComplete }: Props) {
+export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }: Props) {
   const { t } = useI18n();
   const { user, signOut } = useAuth();
   const { dir } = useI18n();
+  const isChange = mode === "change";
 
   const [step, setStep] = React.useState(0);
   // 6 steps: identity, institution, specialty, track, year, summary
@@ -87,6 +93,44 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
 
   const [saving, setSaving] = React.useState(false);
 
+  // round 36 (change mode): pre-select the user's CURRENT path so the flow
+  // starts from where they are — every selection stays explicitly visible
+  // and editable (the R12-11 no-silent-default rule is preserved: these are
+  // the user's own saved values, restored once, never re-applied).
+  // currentScope keeps the ORIGINAL ids for the "مسارك الحالي" hint;
+  // preselectRef is consumed field-by-field as each list loads.
+  const currentScopeRef = React.useRef<{
+    institutionId: number | null; specialtyId: number | null;
+    trackId: number | null; yearId: number | null;
+  } | null>(
+    mode === "change"
+      ? {
+          institutionId: user?.scopeInstitutionId ?? null,
+          specialtyId: user?.scopeSpecialtyId ?? user?.assignedSpecialtyId ?? null,
+          trackId: user?.scopeTrackId ?? null,
+          yearId: user?.scopeAcademicYearId ?? null,
+        }
+      : null
+  );
+  const preselectRef = React.useRef(
+    currentScopeRef.current ? { ...currentScopeRef.current } : null
+  );
+
+  // round 36 (change mode): resolve the CURRENT path's display names for the
+  // hint banner — /api/profile/details returns all six names in both branches.
+  const [currentPath, setCurrentPath] = React.useState<{
+    institution: string; specialtyName: string; trackName: string; yearName: string;
+  } | null>(null);
+  React.useEffect(() => {
+    if (mode !== "change") return;
+    let alive = true;
+    fetch("/api/profile/details", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => { if (alive && data.profile) setCurrentPath(data.profile); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [mode]);
+
   React.useEffect(() => {
     let alive = true;
     setInstState("loading");
@@ -98,6 +142,12 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
       .then((data) => {
         if (!alive) return;
         setInstitutions(data.institutions ?? []);
+        // round 36: restore the current institution once (change mode)
+        const wanted = preselectRef.current?.institutionId ?? null;
+        if (wanted != null && (data.institutions ?? []).some((i: Institution) => i.id === wanted)) {
+          setSelectedInstitution(wanted);
+        }
+        if (preselectRef.current) preselectRef.current.institutionId = null;
         setInstState("ok");
       })
       .catch(() => alive && setInstState("error"));
@@ -117,6 +167,12 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
       .then((data) => {
         if (!alive) return;
         setSpecialties(data.specialties ?? []);
+        // round 36: restore the current specialty once (change mode)
+        const wanted = preselectRef.current?.specialtyId ?? null;
+        if (wanted != null && (data.specialties ?? []).some((s: Specialty) => s.id === wanted)) {
+          setSelectedSpecialty(wanted);
+        }
+        if (preselectRef.current) preselectRef.current.specialtyId = null;
         setSpecState("ok");
       })
       .catch(() => alive && setSpecState("error"));
@@ -146,6 +202,17 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
         if (!alive) return;
         setYears(yearsData.years ?? []);
         setTracks(tracksData.tracks ?? []);
+        // round 36: restore the current year + track once (change mode) —
+        // only if they still exist under the freshly loaded lists
+        const wantedYear = preselectRef.current?.yearId ?? null;
+        if (wantedYear != null && (yearsData.years ?? []).some((y: AcademicYear) => y.id === wantedYear)) {
+          setSelectedYear(wantedYear);
+        }
+        const wantedTrack = preselectRef.current?.trackId ?? null;
+        if (wantedTrack != null && (tracksData.tracks ?? []).some((tr: AcademicTrack) => tr.id === wantedTrack)) {
+          setSelectedTrack(wantedTrack);
+        }
+        if (preselectRef.current) { preselectRef.current.yearId = null; preselectRef.current.trackId = null; }
         setYearTrackState("ok");
       })
       .catch(() => {
@@ -226,13 +293,24 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
             {t("onboarding.step")} {step + 1} {t("onboarding.of")} {totalSteps}
           </span>
           {/* fix (R12-22): escape hatch — a user trapped in onboarding by a
-              persistent network failure can always log out and retry later. */}
-          <button
-            onClick={() => signOut()}
-            className="text-xs text-muted-foreground hover:text-red-600 underline underline-offset-4"
-          >
-            تسجيل الخروج
-          </button>
+              persistent network failure can always log out and retry later.
+              round 36: in change mode the escape is a CANCEL (back to حسابي,
+              nothing saved) — logging out would make no sense here. */}
+          {isChange ? (
+            <button
+              onClick={() => onCancel?.()}
+              className="text-xs text-muted-foreground hover:text-red-600 underline underline-offset-4"
+            >
+              إلغاء والعودة إلى حسابي
+            </button>
+          ) : (
+            <button
+              onClick={() => signOut()}
+              className="text-xs text-muted-foreground hover:text-red-600 underline underline-offset-4"
+            >
+              تسجيل الخروج
+            </button>
+          )}
         </div>
         <div className="h-2 bg-muted rounded-full overflow-hidden">
           <motion.div
@@ -244,6 +322,23 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
             transition={{ duration: 0.3 }}
           />
         </div>
+        {/* round 36: change-mode hint — the user's CURRENT path is always
+            visible so the swap is an informed decision, not a blind redo. */}
+        {isChange && (
+          <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+            <p className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-0.5">
+              أنت غيّر مسارك الأكاديمي — مسارك الحالي:
+            </p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {[
+                currentPath?.institution,
+                currentPath?.specialtyName,
+                currentPath?.trackName,
+                currentPath?.yearName,
+              ].filter(Boolean).join(" • ") || "غير محدد بعد"}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 max-w-2xl mx-auto w-full">
@@ -599,7 +694,7 @@ export function TalibOnboardingScreen({ onComplete }: Props) {
             className="min-w-24"
           >
             <Check className="w-4 h-4 ml-1" />
-            {t("onboarding.finish")}
+            {isChange ? "حفظ المسار الجديد" : t("onboarding.finish")}
           </Button>
         )}
       </div>

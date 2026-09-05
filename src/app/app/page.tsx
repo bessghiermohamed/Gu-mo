@@ -115,6 +115,10 @@ interface ShellContextValue {
   hideLoading: () => void;
   detailCourse: CourseSummary | null;
   navigateToCourse: (course: CourseSummary) => void;
+  // round 36: «تغيير المسار الأكاديمي» — re-runs onboarding from حسابي for
+  // ANY signed-in role (OWNER included) to switch institution/specialty/
+  // track/year without touching the account itself.
+  startPathChange: () => void;
 }
 
 const ShellContext = React.createContext<ShellContextValue | null>(null);
@@ -445,6 +449,13 @@ function ShellInner() {
     setLoadingMessage("");
   }, []);
 
+  // round 36: change-path state — when true, the onboarding flow renders in
+  // "change" mode (pre-filled with the current path + cancel escape) even
+  // though onboarding itself is already done. Never restored from the URL:
+  // a refresh simply lands back on the profile.
+  const [pathChange, setPathChange] = React.useState(false);
+  const startPathChange = React.useCallback(() => setPathChange(true), []);
+
   const shellValue: ShellContextValue = {
     currentScreen,
     navigate,
@@ -453,6 +464,7 @@ function ShellInner() {
     hideLoading,
     detailCourse,
     navigateToCourse,
+    startPathChange,
   };
 
   // Auth loading state
@@ -488,12 +500,16 @@ function ShellInner() {
 
   // Needs onboarding — pure render gate (no setState during render):
   // onboarding wins over ANY screen, including a restored deep link.
-  if (!onboardingDone) {
+  // round 36: pathChange re-enters the same flow in "change" mode.
+  if (!onboardingDone || pathChange) {
+    const isPathChange = onboardingDone && pathChange;
     return (
       <ShellContext.Provider value={shellValue}>
         <div dir={dir} className="min-h-screen bg-background flex flex-col">
           <main className="flex-1">
             <TalibOnboardingScreen
+              mode={isPathChange ? "change" : "initial"}
+              onCancel={isPathChange ? () => setPathChange(false) : undefined}
               onComplete={async () => {
                 if (user) {
                   localStorage.setItem(
@@ -505,8 +521,17 @@ function ShellInner() {
                 // after onboarding (assignedSpecialtyId = first specialty,
                 // null year/track) so the join screen leaked other
                 // specialties' groups until a full page reload. Refresh the
-                // session user BEFORE navigating home.
+                // session user BEFORE navigating.
                 await refresh();
+                if (isPathChange) {
+                  // round 36: change-path complete — back to حسابي where the
+                  // refreshed session already shows the new path.
+                  setPathChange(false);
+                  window.history.replaceState({ talib: "PROFILE" }, "", "#/profile");
+                  setCurrentScreen("PROFILE");
+                  toast.success("تم تحديث مسارك الأكاديمي بنجاح");
+                  return;
+                }
                 setOnboardingDone(true);
                 window.history.replaceState({ talib: "HOME" }, "", "#/home");
                 setCurrentScreen("HOME");
