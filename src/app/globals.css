@@ -53,97 +53,98 @@
 }
 
 /* =====================================================
-   ACADEMIC THEME - LIGHT (Emerald + Cream + Bronze)
+   FACEBOOK THEME - LIGHT (Blue #1877F2 + #F0F2F5 grays)
    Default theme: dir=rtl, lang=ar
    ===================================================== */
 :root,
 [data-theme="academic"] {
   --radius: 0.75rem;
 
-  /* Academic Emerald Primary */
-  --background: oklch(0.97 0.01 95);          /* Cream #F8F4ED */
-  --foreground: oklch(0.22 0.02 165);        /* #1B2420 */
-  --card: oklch(1 0 0);                       /* White surface */
-  --card-foreground: oklch(0.22 0.02 165);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.02 165);
+  /* Facebook Blue Primary */
+  --background: #F0F2F5;                      /* FB page background */
+  --foreground: #050505;                      /* FB primary text */
+  --card: #FFFFFF;                            /* White surface */
+  --card-foreground: #050505;
+  --popover: #FFFFFF;
+  --popover-foreground: #050505;
 
-  --primary: oklch(0.45 0.09 165);           /* Emerald #1B5E4B */
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.62 0.07 50);           /* Bronze #C8956C */
-  --secondary-foreground: oklch(1 0 0);
+  --primary: #1877F2;                        /* Facebook Blue */
+  --primary-foreground: #FFFFFF;
+  --secondary: #0866FF;                       /* FB action/CTA blue */
+  --secondary-foreground: #FFFFFF;
 
-  --muted: oklch(0.95 0.01 95);
-  --muted-foreground: oklch(0.48 0.02 165);
-  --accent: oklch(0.92 0.04 50);              /* Bronze light */
-  --accent-foreground: oklch(0.30 0.06 50);
+  --muted: #E4E6EB;                           /* FB secondary surface */
+  --muted-foreground: #65676B;                /* FB secondary text */
+  --accent: #E4E6EB;                          /* FB hover surface */
+  --accent-foreground: #050505;
 
-  --destructive: oklch(0.58 0.22 25);
-  --border: oklch(0.90 0.02 60);              /* Cream border */
-  --input: oklch(0.95 0.01 95);
-  --ring: oklch(0.45 0.09 165);
+  --destructive: #E41E3F;                     /* FB error red */
+  --border: #DDDDE1;                          /* FB divider */
+  --input: #F0F2F5;
+  --ring: #1877F2;
 
-  --chart-1: oklch(0.45 0.09 165);
-  --chart-2: oklch(0.62 0.07 50);
-  --chart-3: oklch(0.55 0.13 200);
-  --chart-4: oklch(0.70 0.15 80);
-  --chart-5: oklch(0.65 0.20 350);
+  --chart-1: #1877F2;                         /* Facebook Blue */
+  --chart-2: #42B72A;                         /* FB green (legacy CTA) */
+  --chart-3: #F7B928;                         /* FB amber */
+  --chart-4: #A033FF;                         /* FB gradient purple */
+  --chart-5: #E41E3F;                         /* FB red */
 
-  --sidebar: oklch(0.97 0.01 95);
-  --sidebar-foreground: oklch(0.22 0.02 165);
-  --sidebar-primary: oklch(0.45 0.09 165);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.92 0.04 50);
-  --sidebar-accent-foreground: oklch(0.30 0.06 50);
-  --sidebar-border: oklch(0.90 0.02 60);
-  --sidebar-ring: oklch(0.45 0.09 165);
+  --sidebar: #F0F2F5;
+  --sidebar-foreground: #050505;
+  --sidebar-primary: #1877F2;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #E4E6EB;
+  --sidebar-accent-foreground: #050505;
+  --sidebar-border: #DDDDE1;
+  --sidebar-ring: #1877F2;
 }
 
 /* =====================================================
-   ACADEMIC THEME - DARK
+   FACEBOOK THEME - DARK (#18191A surfaces, FB dark mode)
    ===================================================== */
 .dark[data-theme="academic"],
 .dark[data-theme="academic "] {
-  --background: oklch(0.13 0.02 165);         /* #0C1D18 */
-  --foreground: oklch(0.97 0.01 145);        /* #F4F9F6 */
-  --card: oklch(0.18 0.02 165);              /* #142B23 */
-  --card-foreground: oklch(0.97 0.01 145);
-  --popover: oklch(0.18 0.02 165);
-  --popover-foreground: oklch(0.97 0.01 145);
+  --background: #18191A;                      /* FB dark background */
+  --foreground: #E4E6EB;                      /* FB dark primary text */
+  --card: #242526;                            /* FB dark card */
+  --card-foreground: #E4E6EB;
+  --popover: #242526;
+  --popover-foreground: #E4E6EB;
 
-  --primary: oklch(0.62 0.09 165);           /* Emerald light */
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.72 0.07 50);           /* Bronze light */
-  --secondary-foreground: oklch(0.10 0.02 50);
+  --primary: #1877F2;                        /* Facebook Blue */
+  --primary-foreground: #FFFFFF;
+  --secondary: #0866FF;                       /* FB action blue */
+  --secondary-foreground: #FFFFFF;
 
-  --muted: oklch(0.22 0.02 165);
-  --muted-foreground: oklch(0.70 0.02 145);
-  --accent: oklch(0.25 0.05 165);             /* #1D3B31 */
-  --accent-foreground: oklch(0.92 0.04 50);
+  --muted: #3A3B3C;                           /* FB dark secondary surface */
+  --muted-foreground: #B0B3B8;                /* FB dark secondary text */
+  --accent: #3A3B3C;                          /* FB dark hover surface */
+  --accent-foreground: #E4E6EB;
 
-  --destructive: oklch(0.65 0.22 25);
-  --border: oklch(0.25 0.02 165);
-  --input: oklch(0.22 0.02 165);
-  --ring: oklch(0.62 0.09 165);
+  --destructive: #FF6968;                     /* FB dark error red */
+  --border: #3E4042;                          /* FB dark divider */
+  --input: #3A3B3C;
+  --ring: #1877F2;
 
-  --chart-1: oklch(0.62 0.09 165);
-  --chart-2: oklch(0.72 0.07 50);
-  --chart-3: oklch(0.65 0.13 200);
-  --chart-4: oklch(0.75 0.15 80);
-  --chart-5: oklch(0.70 0.20 350);
+  --chart-1: #2D88FF;                         /* Bright FB blue */
+  --chart-2: #45BD62;                         /* FB dark green */
+  --chart-3: #F7B928;                         /* FB amber */
+  --chart-4: #A033FF;                         /* FB gradient purple */
+  --chart-5: #FF6968;                         /* FB dark red */
 
-  --sidebar: oklch(0.18 0.02 165);
-  --sidebar-foreground: oklch(0.97 0.01 145);
-  --sidebar-primary: oklch(0.62 0.09 165);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.25 0.05 165);
-  --sidebar-accent-foreground: oklch(0.92 0.04 50);
-  --sidebar-border: oklch(0.25 0.02 165);
-  --sidebar-ring: oklch(0.62 0.09 165);
+  --sidebar: #242526;
+  --sidebar-foreground: #E4E6EB;
+  --sidebar-primary: #1877F2;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #3A3B3C;
+  --sidebar-accent-foreground: #E4E6EB;
+  --sidebar-border: #3E4042;
+  --sidebar-ring: #1877F2;
 }
 
 /* =====================================================
-   MODERN THEME - LIGHT (Purple #8B5CF6)
+   MODERN THEME - LIGHT (Purple #8B5CF6) — alternative palette,
+   unchanged; switchable from Settings > Appearance
    ===================================================== */
 [data-theme="modern"] {
   --radius: 0.625rem;

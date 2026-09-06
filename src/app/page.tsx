@@ -215,7 +215,7 @@ export default function HomePage() {
 
               <div className="relative mx-auto w-full max-w-md">
                 <img
-                  src="/talib/hero-banner.jpg"
+                  src="/talib/hero-banner.svg"
                   alt="منصة طالب الدراسية — نظرة عامة على الخدمات الأكاديمية"
                   width={1536}
                   height={768}

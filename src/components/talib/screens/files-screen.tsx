@@ -108,7 +108,7 @@ export function TalibFilesScreen() {
       id: Date.now(),
       title: newTitle.trim() || "بدون عنوان",
       content: newContent.trim(),
-      color: "#1B5E4B",
+      color: "#1877F2",
     };
     persist([note, ...notes]);
     setNewTitle("");

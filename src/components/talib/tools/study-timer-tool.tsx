@@ -207,7 +207,7 @@ export function StudyTimerTool({ onBack }: { onBack: () => void }) {
 
   const phaseColor =
     phase === "focus" ? "text-primary" : "text-secondary";
-  const ringColor = phase === "focus" ? "#1B5E4B" : "#C8956C";
+  const ringColor = phase === "focus" ? "#1877F2" : "#0866FF";
 
   return (
     <div className="space-y-4">
