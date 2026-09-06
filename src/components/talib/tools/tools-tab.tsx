@@ -14,6 +14,10 @@
  * Round 43: 7 → 10 — ضغط الصور and صورة إلى نص (both on-device, same
  * privacy contract) plus المساعد الذكي: the first ONLINE tool, visually
  * distinct (violet accent + «جديد» badge) with its own honest privacy note.
+ *
+ * Round 44: المساعد الذكي became a full ChatGPT-style conversation
+ * (speech bubbles, history sidebar, streaming) — same entry point here,
+ * the redesign lives entirely inside ai-assistant-tool.tsx.
  */
 
 import * as React from "react";
@@ -127,7 +131,7 @@ const TOOLS: Array<{
     id: "ai",
     icon: <Sparkles className="w-6 h-6" />,
     title: "المساعد الذكي",
-    desc: "يلخّص الدرس ويشرحه ببساطة ويختبرك — بالعربية",
+    desc: "محادثة دراسية بالعربية — يلخّص ويشرح ويختبرك ويجيب أسئلتك",
     ai: true,
     badge: "جديد",
   },

@@ -145,9 +145,9 @@ export function TalibHomeScreen() {
     {
       // round 29: حاسبة الطالب screen removed — the tile now opens أدواتي
       // (whose first tool IS the GPA calculator, same talib-grades storage).
-      // round 43: subtitle reflects the 10 tools incl. OCR + AI assistant.
+      // round 44: subtitle reflects the conversational المساعد الذكي redesign.
       title: t("nav.tools"),
-      subtitle: "حاسبة، PDF، صورة إلى نص، مساعد ذكي",
+      subtitle: "حاسبة، PDF، صورة إلى نص، مساعد ذكي محادثة",
       icon: <Wrench className="w-5 h-5" />,
       route: "TOOLS",
       delay: 0.15,
