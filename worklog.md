@@ -342,3 +342,20 @@ Work Log:
 Stage Summary:
 - Deliverable: course materials uploaded by ANY authorized manager are now visible to the course's students — the write path stamps the course's specialty, the read path authorizes via the course (OWNER bypass), and legacy stranded rows heal automatically with no migration.
 - Key decisions: authorize module-scoped reads against the COURSE (not the row's specialty) so healing needs no data fix; keep the specialty filter on general-library reads (tenancy intact there); cross-specialty upload write-access stays OWNER-only exactly like courses PATCH/DELETE.
+
+---
+Task ID: 20
+Agent: main (Super Z)
+Task: Round 42 — unblock production deploy (Vercel: scripts/r41-prod-verify.ts:13 TS2451 "Cannot redeclare block-scoped variable 'name'") + decide whether scripts/ belongs in the prod TS build at all.
+
+Work Log:
+- Root cause: the file has no top-level import/export → tsc treats it as a global script; `const name` collides with the DOM lib global `window.name`. The r41 scripts that predated it only escaped by luck; any future sloppy script could block prod deploys the same way.
+- Fix 1 (in-file): renamed `name` → `studentName` at its 3 uses (declaration, signup body, onboarding body).
+- Fix 2 (structural, the more appropriate one): added "scripts" to tsconfig.json "exclude" — all 19 files under scripts/ are one-time dev/ops tooling (seeds, cleanups, probes, verifications), zero are app runtime; `next build` no longer type-checks them, so this bug class can never block prod again. Scripts remain runnable via bun (transpiles independently of tsconfig). Grep-verified no src/ file imports from scripts/.
+- Verified: tsc --noEmit 0 errors; next build green (route table intact, public pages still SSG); pushed 301689c..5328596; Vercel deploy success confirmed via GitHub commit status API; live health check clean.
+- Deliberately did NOT re-run r41-prod-verify.ts against prod: the fix it verifies (43a9f2c) was already deployed and end-to-end verified in Task 19; this round only unblocked the pipeline.
+- Report: تقرير-إصلاحات-الجولة-42.md.
+
+Stage Summary:
+- Deliverable: production deploys are green again, and dev-only scripts are structurally out of the prod build forever (tsconfig exclude) — the exact failure class reported is now impossible.
+- Key decisions: both fixes together (rename keeps the file valid even if ever re-included; exclusion is the systemic guard). No app code touched — zero runtime changes this round.
