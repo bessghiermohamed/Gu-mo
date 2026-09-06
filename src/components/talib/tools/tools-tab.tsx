@@ -10,6 +10,10 @@
  * cards (the same card pattern as the "دروس تيليجرام" feature card on the
  * home screen — no new design patterns). Tapping a card swaps to the tool's
  * dedicated sub-screen with a back chevron.
+ *
+ * Round 43: 7 → 10 — ضغط الصور and صورة إلى نص (both on-device, same
+ * privacy contract) plus المساعد الذكي: the first ONLINE tool, visually
+ * distinct (violet accent + «جديد» badge) with its own honest privacy note.
  */
 
 import * as React from "react";
@@ -19,13 +23,17 @@ import {
   ChevronLeft,
   Coffee,
   Combine,
+  ImageDown,
   Images,
+  ScanText,
   Scissors,
   ShieldCheck,
   Shrink,
+  Sparkles,
   Type,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { cn } from "@/lib/utils";
 import { ImageToPdfTool } from "./image-to-pdf-tool";
@@ -35,14 +43,31 @@ import { GpaTool } from "./gpa-tool";
 import { ExtractPdfTool } from "./extract-pdf-tool";
 import { WordCounterTool } from "./word-counter-tool";
 import { StudyTimerTool } from "./study-timer-tool";
+import { CompressImageTool } from "./compress-image-tool";
+import { OcrTool } from "./ocr-tool";
+import { AiAssistantTool } from "./ai-assistant-tool";
 
-type ToolId = "gpa" | "images" | "compress" | "merge" | "extract" | "counter" | "timer";
+type ToolId =
+  | "gpa"
+  | "images"
+  | "compress"
+  | "merge"
+  | "extract"
+  | "counter"
+  | "timer"
+  | "compress-img"
+  | "ocr"
+  | "ai";
 
 const TOOLS: Array<{
   id: ToolId;
   icon: React.ReactNode;
   title: string;
   desc: string;
+  /** round 43 — AI helper: online, distinct accent + badge so it never
+   *  hides behind the offline promise of the file tools. */
+  ai?: boolean;
+  badge?: string;
 }> = [
   {
     id: "gpa",
@@ -86,6 +111,26 @@ const TOOLS: Array<{
     title: "مؤقّت المراجعة",
     desc: "جلسات تركيز قصيرة واستراحات — تقنية بومودورو",
   },
+  {
+    id: "compress-img",
+    icon: <ImageDown className="w-6 h-6" />,
+    title: "ضغط الصور",
+    desc: "صغّر صور السبورة والوثائق قبل إرسالها للمجموعة",
+  },
+  {
+    id: "ocr",
+    icon: <ScanText className="w-6 h-6" />,
+    title: "صورة إلى نص",
+    desc: "صوّر السبورة أو الورقة — انسخ النص عربياً أو فرنسياً",
+  },
+  {
+    id: "ai",
+    icon: <Sparkles className="w-6 h-6" />,
+    title: "المساعد الذكي",
+    desc: "يلخّص الدرس ويشرحه ببساطة ويختبرك — بالعربية",
+    ai: true,
+    badge: "جديد",
+  },
 ];
 
 export function ToolsTab() {
@@ -112,6 +157,15 @@ export function ToolsTab() {
   }
   if (activeTool === "timer") {
     return <StudyTimerTool onBack={() => setActiveTool(null)} />;
+  }
+  if (activeTool === "compress-img") {
+    return <CompressImageTool onBack={() => setActiveTool(null)} />;
+  }
+  if (activeTool === "ocr") {
+    return <OcrTool onBack={() => setActiveTool(null)} />;
+  }
+  if (activeTool === "ai") {
+    return <AiAssistantTool onBack={() => setActiveTool(null)} />;
   }
 
   return (
@@ -141,12 +195,36 @@ export function ToolsTab() {
             onClick={() => setActiveTool(tool.id)}
             className="group w-full text-right"
           >
-            <Card className="p-4 flex-row items-center gap-3 hover:border-primary/50 hover:shadow-md transition-all hover:-translate-y-0.5">
-              <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0 group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+            <Card
+              className={cn(
+                "p-4 flex-row items-center gap-3 hover:shadow-md transition-all hover:-translate-y-0.5",
+                tool.ai
+                  ? "border-violet-500/30 bg-violet-500/5 hover:border-violet-500/60"
+                  : "hover:border-primary/50"
+              )}
+            >
+              <div
+                className={cn(
+                  "w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-colors",
+                  tool.ai
+                    ? "bg-violet-500/10 text-violet-500 group-hover:bg-violet-600 group-hover:text-white"
+                    : "bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground"
+                )}
+              >
                 {tool.icon}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-sm">{tool.title}</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm">{tool.title}</h3>
+                  {tool.badge && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] px-1.5 py-0 bg-violet-500/15 text-violet-600 dark:text-violet-400"
+                    >
+                      {tool.badge}
+                    </Badge>
+                  )}
+                </div>
                 <p className="text-xs text-muted-foreground mt-0.5">{tool.desc}</p>
               </div>
               <ChevronLeft

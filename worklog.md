@@ -359,3 +359,22 @@ Work Log:
 Stage Summary:
 - Deliverable: production deploys are green again, and dev-only scripts are structurally out of the prod build forever (tsconfig exclude) — the exact failure class reported is now impossible.
 - Key decisions: both fixes together (rename keeps the file valid even if ever re-included; exclusion is the systemic guard). No app code touched — zero runtime changes this round.
+
+---
+Task ID: 21
+Agent: main (Super Z)
+Task: Round 43 — implement the GitHub-research picks: useful additions to أدواتي + first AI capability (owner: "take useful items that can be added to my tools, and if there are any projects that offer artificial intelligence capabilities, bring those too").
+
+Work Log:
+- Found أدواتي already at 7 tools (r29/r31: GPA, image→PDF, compress PDF, merge, extract pages, word counter, pomodoro) — extended to 10 with the vetted MIT/Apache libraries from the r42 research.
+- ضغط الصور: browser-image-compression (MIT) in a web worker, 3 presets, ≤20 images, honest "الأصل أفضل" rule when output ≥ input.
+- صورة إلى نص (OCR): tesseract.js (Apache-2.0) fully on-device (image NEVER uploaded); engine+lang data download once from CDN (stated in-UI), ara / ara+eng / fra / eng, staged Arabic progress labels, result copy/download/share.
+- المساعد الذكي: task-based AI (لخّص / اشرح / اختبرني / اسأل حرّاً) — new /api/ai route, plain-REST provider chain GROQ_API_KEY → GEMINI_API_KEY → 200 {needsConfig:true} (same convention as library needsSchema). Guards: session auth, 8000-char text cap, per-IP 5s cooldown + 60/day in-memory cap (valid requests only), 45s timeout, Arabic prompts with anti-hallucination instruction. Role-aware config card (owner sees env setup, students see قريباً). Violet accent + «جديد» + «يحتاج إنترنت» badge — the first ONLINE tool, visually separated from the offline file tools.
+- Home tile subtitle updated («حاسبة، PDF، صورة إلى نص، مساعد ذكي»).
+- Local functional probe (scripts/r43-api-probe.ts over bun dev + fresh SQLite via scripts/r43-seed-min.ts): anonymous 401 → signup 200 → authed {needsConfig:true} → validation 400 → self-delete 200. ALL PASS. Probe caught a real ordering bug (rate limiter burned cooldown on invalid requests → 429 instead of 400) — fixed: validation runs before rateLimited().
+- tsc 0, eslint clean, build green (68 pages). dev.db/.env.local gitignored (verified). Report: تقرير-الجولة-43.md.
+
+Stage Summary:
+- Deliverable: أدواتي now 10 tools — 9 fully offline/on-device + the platform's first AI feature (Arabic task-based study assistant) with honest privacy notes everywhere and a zero-breakage activation path (add GROQ_API_KEY in Vercel → card auto-becomes the working tool).
+- Key decisions: task-based AI over free chat (cheaper, safer, better Arabic quality control); Groq-first provider chain with Gemini fallback; OCR engine via CDN instead of vendoring megabytes; rate-limit only valid requests.
+- Owner action (one-time, free): set GROQ_API_KEY (console.groq.com) and/or GEMINI_API_KEY (aistudio.google.com/apikey) in Vercel env vars.
