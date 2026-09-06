@@ -99,8 +99,7 @@ export function TalibProfileScreen({ onSignOut }: Props) {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-black mb-1">{t("nav.profile")}</h1>
-        <p className="text-sm text-muted-foreground">معلوماتك الشخصية والأكاديمية</p>
+        <h1 className="text-2xl font-black">{t("nav.profile")}</h1>
       </div>
 
       <Card className="p-5 space-y-4">

@@ -156,14 +156,7 @@ export function TalibScheduleScreen() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-black mb-1">{t("schedule.title")}</h1>
-        <p className="text-sm text-muted-foreground">
-          {mode === "manual"
-            ? "الجدول الرسمي لتخصصك وحصصك الشخصية في مكان واحد"
-            : mode === "image"
-            ? "ارفع صورة جدولك الخاص"
-            : "سجل غياباتك الشخصية لكل مقياس"}
-        </p>
+        <h1 className="text-2xl font-black">{t("schedule.title")}</h1>
       </div>
 
       <Tabs value={mode} onValueChange={(v) => setMode(v as "manual" | "image" | "attendance")}>

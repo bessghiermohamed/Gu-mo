@@ -98,8 +98,7 @@ export function TalibAssignmentsScreen() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-black mb-1">{t("nav.assignments")}</h1>
-        <p className="text-sm text-muted-foreground">الواجبات والتكليفات الدراسية</p>
+        <h1 className="text-2xl font-black">{t("nav.assignments")}</h1>
       </div>
 
       {canManage && <AddAssignmentDialog onCreated={fetchAssignments} />}

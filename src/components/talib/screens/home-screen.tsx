@@ -34,7 +34,6 @@ interface LatestAnnouncement {
 
 interface QuickAction {
   title: string;
-  subtitle: string;
   icon: React.ReactNode;
   route: ScreenRoute;
   delay: number;
@@ -123,21 +122,18 @@ export function TalibHomeScreen() {
   const actions: QuickAction[] = [
     {
       title: t("nav.courses"),
-      subtitle: "مقاييس ومحاضرات",
       icon: <BookOpen className="w-5 h-5" />,
       route: "COURSES",
       delay: 0,
     },
     {
       title: t("nav.schedule"),
-      subtitle: "حصص الأسبوع",
       icon: <CalendarDays className="w-5 h-5" />,
       route: "SCHEDULE",
       delay: 0.05,
     },
     {
       title: t("nav.exams"),
-      subtitle: "مواعيد الاختبارات",
       icon: <FlaskConical className="w-5 h-5" />,
       route: "EXAMS",
       delay: 0.1,
@@ -145,37 +141,31 @@ export function TalibHomeScreen() {
     {
       // round 29: حاسبة الطالب screen removed — the tile now opens أدواتي
       // (whose first tool IS the GPA calculator, same talib-grades storage).
-      // round 44: subtitle reflects the conversational المساعد الذكي redesign.
       title: t("nav.tools"),
-      subtitle: "حاسبة، PDF، صورة إلى نص، مساعد ذكي محادثة",
       icon: <Wrench className="w-5 h-5" />,
       route: "TOOLS",
       delay: 0.15,
     },
     {
       title: t("nav.files"),
-      subtitle: "المكتبة، الملاحظات وسحابتي",
       icon: <FolderOpen className="w-5 h-5" />,
       route: "FILES",
       delay: 0.2,
     },
     {
       title: t("nav.announcements"),
-      subtitle: "تنبيهات الفوج",
       icon: <Megaphone className="w-5 h-5" />,
       route: "ANNOUNCEMENTS",
       delay: 0.25,
     },
     {
       title: t("nav.assignments"),
-      subtitle: "واجبات وتكليفات",
       icon: <CheckSquare className="w-5 h-5" />,
       route: "ASSIGNMENTS",
       delay: 0.3,
     },
     {
       title: t("nav.group"),
-      subtitle: "زملاء الفوج",
       icon: <Users className="w-5 h-5" />,
       route: "GROUP",
       delay: 0.35,
@@ -353,9 +343,6 @@ export function TalibHomeScreen() {
                   <ChevronLeft className="w-4 h-4 text-muted-foreground/40 group-hover:text-primary transition-colors" />
                 </div>
                 <h3 className="font-bold text-sm">{action.title}</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {action.subtitle}
-                </p>
               </div>
             </motion.button>
           ))}

@@ -55,8 +55,7 @@ export function TalibCoursesScreen() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-black mb-1">{t("courses.title")}</h1>
-        <p className="text-sm text-muted-foreground">تصفّح مقرراتك حسب السداسي</p>
+        <h1 className="text-2xl font-black">{t("courses.title")}</h1>
       </div>
 
       {/* round 7: بوابة دروس تيليجرام — المحتوى المرتبط بالمقاييس من القنوات */}

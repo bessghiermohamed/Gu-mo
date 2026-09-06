@@ -45,10 +45,7 @@ export function TalibGroupScreen() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-black mb-1">{t("group.title")}</h1>
-        <p className="text-sm text-muted-foreground">
-          {hasGroup ? "زملاء فوجك الدراسي" : "حالتك: بانتظار الإلحاق بفوج"}
-        </p>
+        <h1 className="text-2xl font-black">{t("group.title")}</h1>
       </div>
 
       {!hasGroup ? (

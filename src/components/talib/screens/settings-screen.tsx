@@ -104,8 +104,7 @@ export function TalibSettingsScreen() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-black mb-1">الإعدادات</h1>
-        <p className="text-sm text-muted-foreground">اضبط التطبيق على مقاسك</p>
+        <h1 className="text-2xl font-black">الإعدادات</h1>
       </div>
 
       {/* notification preferences: the anti-spam control
@@ -226,8 +225,6 @@ export function TalibSettingsScreen() {
           </h3>
           <p className="text-xs text-muted-foreground leading-relaxed">
             طالب | Talib — رفيقك الأكاديمي
-            <br />
-            جدولك ومقرراتك واختباراتك وإعلانات فوجك في مكان واحد
           </p>
         </div>
       </Card>

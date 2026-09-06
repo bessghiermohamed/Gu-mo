@@ -20,13 +20,10 @@ export function TalibToolsScreen() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-black mb-1 flex items-center gap-2">
+        <h1 className="text-2xl font-black flex items-center gap-2">
           <Wrench className="w-6 h-6 text-primary" />
           أدواتي
         </h1>
-        <p className="text-sm text-muted-foreground">
-          حاسبة المعدل وأدوات PDF والمذاكرة — كلها تعمل داخل جهازك
-        </p>
       </div>
       <ToolsTab />
     </div>

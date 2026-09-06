@@ -181,10 +181,7 @@ export function TalibAdminPanelScreen() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-black mb-1">{t("admin.title")}</h1>
-        <p className="text-sm text-muted-foreground">
-          إدارة الهيكل الأكاديمي، المجموعات والأفواج، الطلبات، التبليغات، والمحتوى
-        </p>
+        <h1 className="text-2xl font-black">{t("admin.title")}</h1>
       </div>
 
       <Tabs value={adminTab} onValueChange={setAdminTab}>

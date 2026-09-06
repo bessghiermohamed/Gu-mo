@@ -192,13 +192,10 @@ export function TalibTelegramScreen() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-black mb-1 flex items-center gap-2">
+          <h1 className="text-2xl font-black flex items-center gap-2">
             <Send className="w-6 h-6 text-primary" />
             دروس تيليجرام
           </h1>
-          <p className="text-sm text-muted-foreground">
-            محاضرات وواجبات وتمارين قنوات تيليجرام — منظمة حسب المقياس، والوصول للأصل برابط مباشر
-          </p>
         </div>
         {canManageRoles(user ?? null) && (
           <Button

@@ -147,10 +147,7 @@ export function TalibFilesScreen() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-black mb-1">{t("files.title")}</h1>
-        <p className="text-sm text-muted-foreground">
-          المكتبة، ملاحظاتك، وملفاتك السحابية في مكان واحد
-        </p>
+        <h1 className="text-2xl font-black">{t("files.title")}</h1>
       </div>
 
       <Tabs defaultValue="library">

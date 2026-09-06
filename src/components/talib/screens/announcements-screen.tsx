@@ -100,10 +100,7 @@ export function TalibAnnouncementsScreen() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-black mb-1">{t("announcements.title")}</h1>
-          <p className="text-sm text-muted-foreground">
-            تنبيهات وإعلانات الفوج والتخصص
-          </p>
+          <h1 className="text-2xl font-black">{t("announcements.title")}</h1>
         </div>
         {canPublish && <AddAnnouncementDialog onCreated={fetchAnnouncements} />}
       </div>

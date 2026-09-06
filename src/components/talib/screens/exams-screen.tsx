@@ -93,10 +93,7 @@ export function TalibExamsScreen() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-black mb-1">{t("exams.title")}</h1>
-          <p className="text-sm text-muted-foreground">
-            مواعيد الاختبارات والامتحانات القادمة
-          </p>
+          <h1 className="text-2xl font-black">{t("exams.title")}</h1>
         </div>
         {canManage && <AddExamDialog onCreated={fetchExams} />}
       </div>
