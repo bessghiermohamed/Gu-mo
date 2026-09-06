@@ -378,3 +378,22 @@ Stage Summary:
 - Deliverable: أدواتي now 10 tools — 9 fully offline/on-device + the platform's first AI feature (Arabic task-based study assistant) with honest privacy notes everywhere and a zero-breakage activation path (add GROQ_API_KEY in Vercel → card auto-becomes the working tool).
 - Key decisions: task-based AI over free chat (cheaper, safer, better Arabic quality control); Groq-first provider chain with Gemini fallback; OCR engine via CDN instead of vendoring megabytes; rate-limit only valid requests.
 - Owner action (one-time, free): set GROQ_API_KEY (console.groq.com) and/or GEMINI_API_KEY (aistudio.google.com/apikey) in Vercel env vars.
+
+---
+Task ID: 22
+Agent: main (Super Z)
+Task: Round 44 — fix the permanent «تعذّر الحصول على إجابة الآن» failure (root cause: no real provider fallback + GROK/GROQ key mixup) and redesign المساعد الذكي as a ChatGPT/DeepSeek-style conversation (owner: "add speech bubbles, make it like ChatGPT and DeepSeek").
+
+Work Log:
+- Diagnosed r43's /api/ai: the documented provider chain never existed in code — `groqKey ? callGroq() : callGemini()` meant any value in GROQ_API_KEY (incl. the owner's xai- Grok key) 502'd the request with Gemini never tried; plus hardcoded gemini-2.0-flash which 404s on this key (proven in the Telegram pipeline probe).
+- NEW src/lib/ai/providers.ts: real attempt chain (Groq → Gemini → xAI), per-failure classification (auth skips the whole provider, model/server errors try the next model, rate skips to next provider), key-format auto-detection (xai- key misplaced in GROQ_API_KEY is re-routed to x.ai as a working third provider), model chains env-overridable (GROQ_MODEL/GEMINI_MODEL/XAI_MODEL; Gemini chain = the live-verified one from classify.ts).
+- Rewrote /api/ai as a chat endpoint: multi-turn {messages} in, SSE stream out (meta → delta* → error? → [DONE]) with stream:false JSON fallback; auth + validation before rate limit (r43 lesson); per-USER limits (3s gap, 150/day) instead of per-IP; 60s maxDuration; needsConfig convention kept; role-aware Arabic errors (OWNER gets key-format hints).
+- Rewrote ai-assistant-tool.tsx as a full-screen RTL conversation: speech bubbles (violet user / muted assistant with gradient avatar), session sidebar (new-chat, titles, relative time, delete; static on desktop, sliding drawer + backdrop on mobile), live token streaming with typing dots + pulsing cursor + stop button (keeps partial), markdown rendering (react-markdown + remark-gfm — both MIT, added remark-gfm@4.0.1), copy + regenerate + retry-in-error-bubble, suggestion chips preserving the 4 r43 workflows as composer prefills, device-local history in localStorage (talib-ai-chat-v1-<userId>, 40 sessions, zero DB load), updated needsConfig card with the GROK≠GROQ explainer.
+- tools-tab.tsx desc + home tile subtitle updated; r44 probe (scripts/r44-api-probe.ts) + cleanup script added.
+- Verification: tsc 0 · eslint clean · build green (68 pages). Local probe over next start + seeded SQLite: anon 401 → signup 200 → empty 400 → assistant-last 400 → {needsConfig:true} without keys AND graceful Arabic SSE error event with dummy keys (chain walk proven live: Groq auth-rejected → provider skipped → Gemini models exhausted) → self-delete 200. ALL PASS. Real-browser UI test at 1280px + 390×844: empty state, suggestions, send, error bubble + retry, session appears in sidebar, history survives reload, mobile drawer, back button (screenshots in download/r44-*.png). Test accounts wiped (dev DB: 0 users).
+- Report: تقرير-الجولة-44.md.
+
+Stage Summary:
+- Deliverable: المساعد الذكي is now a real chat product — bubbles, history sidebar, streaming, stop/regenerate/copy — and the «service busy» outage is structurally impossible: every key combination the owner may configure routes to a valid provider or degrades with an honest Arabic message.
+- Key decisions: SSE streaming server-side with rAF-throttled client rendering; history stays device-local (privacy + zero Supabase load); Grok key mixup handled by auto-detection instead of documentation alone; provider errors classified so students never see raw hints (owner-only).
+- Owner action (2 min): put a gsk_ key from console.groq.com in GROQ_API_KEY (or leave the xai- key there — it auto-routes), keep GEMINI_API_KEY, optionally add XAI_API_KEY, redeploy.
