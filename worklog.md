@@ -397,3 +397,19 @@ Stage Summary:
 - Deliverable: المساعد الذكي is now a real chat product — bubbles, history sidebar, streaming, stop/regenerate/copy — and the «service busy» outage is structurally impossible: every key combination the owner may configure routes to a valid provider or degrades with an honest Arabic message.
 - Key decisions: SSE streaming server-side with rAF-throttled client rendering; history stays device-local (privacy + zero Supabase load); Grok key mixup handled by auto-detection instead of documentation alone; provider errors classified so students never see raw hints (owner-only).
 - Owner action (2 min): put a gsk_ key from console.groq.com in GROQ_API_KEY (or leave the xai- key there — it auto-routes), keep GEMINI_API_KEY, optionally add XAI_API_KEY, redeploy.
+
+---
+Task ID: 23
+Agent: main (Super Z)
+Task: Round 45 — remove all filler/uninformative UI text (owner: «in the course section it says "Your course materials are here", in the timetable "Your class schedule is here" — not an explanation, not helpful — remove all of this unnecessary text»).
+
+Work Log:
+- Live-inspected the whole app with a throwaway OWNER account (agent-browser 430×932) + r45-seed.ts sample data; catalogued every screen's header area. Found ONE recurring pattern: a subtitle <p> under each screen <h1> that restates the title or says «X في مكان واحد».
+- Removed the subtitle from 13 screens: courses («تصفّح مقرراتك حسب السداسي»), schedule (mode-conditional «...في مكان واحد» / «ارفع صورة جدولك الخاص» / «سجل غياباتك...»), exams, files («...في مكان واحد»), announcements, assignments (literal title duplicate), group, profile, settings («اضبط التطبيق على مقاسك» + «...في مكان واحد» line in the about card), admin (tab list as prose), tools, telegram, and the 8 home service-tile captions («واجبات وتكليفات» under «الواجبات» etc. — QuickAction.subtitle field deleted entirely).
+- Deliberately KEPT: empty states that explain workflow («ستظهر الواجبات هنا عند نشرها من طرف الإدارة»), the orange personal-classes legend, the telegram-lessons feature captions (non-obvious feature), Drive-upload explainer, the first-run tour (feature, shown once), and all public marketing/guide pages.
+- Verified: tsc 0 · eslint clean (13 files) · build green (68 routes). Real-browser re-check of every modified screen — all start straight with content after the title. Screenshots download/r45/. Test account + sessions wiped from dev.db.
+- Report: تقرير-الجولة-45.md. Commits e3f4da8 (feature) + report commit — LOCAL ONLY: push failed (could not read Username for github.com) — the r44 GitHub token died with the old session; no stored credentials. NOT deployed yet.
+
+Stage Summary:
+- Deliverable: every app screen now opens title → content with zero restating filler; home grid is icon+label only.
+- Blocker: needs a fresh GitHub token (fine-grained or classic with repo scope) to push 2 commits to bessghiermohamed/Gu-mo main — Vercel deploys automatically on push.
