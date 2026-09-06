@@ -10,7 +10,7 @@
  */
 const SITE = "https://gu-mo.vercel.app";
 const stamp = Date.now().toString(36);
-const name = `طالب اختبار ${stamp}`;
+const studentName = `طالب اختبار ${stamp}`;
 const email = `r41probe-${stamp}@test.dz`;
 const jar = { cookie: "" };
 
@@ -30,11 +30,11 @@ async function api(path: string, init: RequestInit = {}) {
 }
 
 async function main() {
-  const su = await api("/api/auth/signup", { method: "POST", body: JSON.stringify({ fullName: name, email }) });
+  const su = await api("/api/auth/signup", { method: "POST", body: JSON.stringify({ fullName: studentName, email }) });
   console.log("signup:", su.status, JSON.stringify((su.body.user as { id?: number; role?: string }) ?? su.body));
   const ob = await api("/api/onboarding/complete", {
     method: "POST",
-    body: JSON.stringify({ fullName: name, email, specialtyId: 6, academicYearId: 8, mode: "initial" }),
+    body: JSON.stringify({ fullName: studentName, email, specialtyId: 6, academicYearId: 8, mode: "initial" }),
   });
   console.log("onboard → spec 6/year 8:", ob.status);
 
