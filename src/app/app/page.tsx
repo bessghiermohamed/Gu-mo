@@ -208,6 +208,10 @@ function ShellInner() {
 
   // round 10 (review §3/§4): app notifications feed — join-request
   // outcomes for students, waiting items for supervisors.
+  // round 52 — إشعارات المتصفح: when the unread count GROWS while the tab
+  // is in the background (like every other app), the newest item surfaces
+  // as a browser notification (permission is requested from الإعدادات).
+  const prevNotifUnreadRef = React.useRef(0);
   const refreshNotifications = React.useCallback(async () => {
     if (!user) {
       setNotifications([]);
@@ -218,8 +222,35 @@ function ShellInner() {
       const res = await fetch("/api/notifications", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
+        const nextUnread = data.unreadCount ?? 0;
         setNotifications(data.notifications ?? []);
-        setNotifUnread(data.unreadCount ?? 0);
+        setNotifUnread(nextUnread);
+        const grew = nextUnread > prevNotifUnreadRef.current;
+        prevNotifUnreadRef.current = nextUnread;
+        const latest = (data.notifications ?? []).find((n: { readAt?: string | null }) => !n.readAt);
+        if (
+          grew && latest &&
+          document.visibilityState === "hidden" &&
+          typeof Notification !== "undefined" &&
+          Notification.permission === "granted"
+        ) {
+          try {
+            const pn = new Notification(latest.title || "إشعار جديد", {
+              body: latest.body || "",
+              icon: "/talib/icon.svg",
+              badge: "/talib/icon.svg",
+              dir: "rtl",
+              lang: "ar",
+              tag: `talib-notif-${latest.id}`,
+            });
+            pn.onclick = () => {
+              window.focus();
+              pn.close();
+            };
+          } catch {
+            // some browsers restrict construction — the in-app badge still works
+          }
+        }
       }
     } catch {
       // silent fail — badge simply stays stale until next poll
@@ -607,7 +638,7 @@ function ShellInner() {
                   onClick={togglePalette}
                   className="shrink-0 h-10 w-10"
                   aria-label="Toggle palette"
-                  title={palette === "academic" ? "أكاديمي" : "عصري"}
+                  title={palette === "academic" ? "أكاديمي (أخضر)" : palette === "modern" ? "عصري (بنفسجي)" : "أزرق"}
                 >
                   <Palette className="w-4 h-4" />
                 </Button>

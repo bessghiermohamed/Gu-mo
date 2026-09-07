@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/components/talib/auth-provider";
-import { usePalette } from "@/components/talib/theme-provider";
+import { usePalette, PALETTES } from "@/components/talib/theme-provider";
 import { useShell } from "@/app/app/page";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -47,12 +47,34 @@ export function TalibSettingsScreen() {
   const { user } = useAuth();
   const { navigate } = useShell();
   const { theme, setTheme } = useTheme();
-  const { palette, togglePalette } = usePalette();
+  const { palette, setPalette } = usePalette();
 
   // notification preferences state (moved unchanged from profile-screen)
   const [prefsAvailable, setPrefsAvailable] = React.useState<boolean | null>(null);
   const [muted, setMuted] = React.useState<string[]>([]);
   const [savingPref, setSavingPref] = React.useState(false);
+  // round 52 — browser notification permission ("default" | "granted" | "denied" | "unsupported")
+  const [notifPerm, setNotifPerm] = React.useState<string>("default");
+
+  React.useEffect(() => {
+    // async settle — avoids the sync setState-in-effect lint error
+    const t = setTimeout(() => {
+      setNotifPerm(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  async function askNotifPermission() {
+    if (typeof Notification === "undefined") return;
+    try {
+      const p = await Notification.requestPermission();
+      setNotifPerm(p);
+      if (p === "granted") toast.success("تم تفعيل إشعارات المتصفح — يصلك التنبيه حتى في الخلفية");
+      else if (p === "denied") toast.error("حُظرت الإشعارات — يمكنك تفعيلها من إعدادات الموقع في المتصفح");
+    } catch {
+      toast.error("تعذّر طلب الإذن من المتصفح");
+    }
+  }
 
   React.useEffect(() => {
     if (!user) return;
@@ -169,6 +191,28 @@ export function TalibSettingsScreen() {
             })}
           </div>
         )}
+
+        {/* round 52 — إشعارات المتصفح: «مثل باقي التطبيقات» — التنبيه يصل
+            حتى والتبويب في الخلفية، بشرط منح الإذن من هنا */}
+        {notifPerm !== "unsupported" && (
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">إشعارات المتصفح</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                {notifPerm === "granted"
+                  ? "مُفعّلة — يظهر تنبيه النظام فور وصول إشعار جديد"
+                  : notifPerm === "denied"
+                    ? "محظورة من المتصفح — فعّلها من إعدادات الموقع"
+                    : "فعّلها ليصلك تنبيه فور وصول إشعار جديد حتى في الخلفية"}
+              </p>
+            </div>
+            {notifPerm === "default" && (
+              <Button size="sm" variant="outline" className="shrink-0" onClick={askNotifPermission}>
+                تفعيل
+              </Button>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* round 26 — appearance: the dark-mode and palette toggles existed
@@ -205,15 +249,37 @@ export function TalibSettingsScreen() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium">نمط الألوان</p>
               <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
-                {palette === "academic" ? "أكاديمي — الهوية الرسمية للتطبيق" : "عصري — ألوان حيوية وأنيقة"}
+                {palette === "academic" ? "أكاديمي — الهوية الرسمية للتطبيق" : palette === "modern" ? "عصري — ألوان حيوية وأنيقة" : "أزرق — هوية هادئة قابلة للاستبدال"}
               </p>
             </div>
-            <Switch
-              checked={palette === "modern"}
-              onCheckedChange={() => togglePalette()}
-              aria-label="نمط الألوان"
-            />
+            <Palette className="w-4 h-4 text-muted-foreground shrink-0" />
           </div>
+        </div>
+        {/* round 52 — منتقي الأنماط الثلاثة بدل مبدّل ثنائي: الأخضر
+            الأكاديمي، البنفسجي العصري، والأزرق الجديد القابل للاستبدال */}
+        <div className="grid grid-cols-3 gap-2">
+          {PALETTES.map((p) => {
+            const active = palette === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPalette(p.id)}
+                aria-pressed={active}
+                className={`flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 text-center transition-colors ${
+                  active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                }`}
+              >
+                <span
+                  className="w-6 h-6 rounded-full border border-black/10"
+                  style={{ background: p.swatch }}
+                  aria-hidden
+                />
+                <span className={`text-xs font-bold ${active ? "text-primary" : "text-foreground"}`}>{p.label}</span>
+                <span className="text-[10px] text-muted-foreground leading-tight">{p.desc}</span>
+              </button>
+            );
+          })}
         </div>
       </Card>
 

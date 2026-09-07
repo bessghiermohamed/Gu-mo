@@ -1,32 +1,31 @@
 "use client";
 
 import * as React from "react";
-import { Megaphone, AlertCircle, Info, Calendar, Plus, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Megaphone, AlertCircle, Info, Calendar, Loader2, Pencil, Trash2, Target } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { canManageRoles } from "@/lib/auth/permissions";
+import {
+  AddAnnouncementDialog, EditAnnouncementDialog, type AnnouncementRowData,
+} from "@/components/talib/announcements-compose";
 import { toast } from "sonner";
 
 // fix ج: announcements screen had NO way to create announcements.
-// Now supervisors (with scope) get a floating "+" button + form.
+// Now supervisors (with scope) get a "+" button + form.
+// round 52: النافذتان (إضافة/تعديل) صارتا مكوّناً مشتركاً
+// announcements-compose.tsx مع منتقي النطاق — والبطاقة تعرض شارة النطاق.
 
-interface Announcement {
-  id: number;
-  title: string;
-  content: string;
+interface Announcement extends AnnouncementRowData {
   author: string;
   date: string;
-  urgency: string;
   specialtyId: number | null;
+  scopeLabel?: string;
 }
 
 // r50 (design review): the announcement date rendered raw ISO ("2026-09-07")
@@ -159,10 +158,19 @@ export function TalibAnnouncementsScreen() {
             return (
               <Card key={ann.id} className="p-4 space-y-2">
                 <div className="flex items-center justify-between">
-                  <Badge className={`${cfg.color} text-white gap-1`}>
-                    {cfg.icon}
-                    {cfg.label}
-                  </Badge>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Badge className={`${cfg.color} text-white gap-1`}>
+                      {cfg.icon}
+                      {cfg.label}
+                    </Badge>
+                    {/* round 52 — شارة النطاق: التخصص/السنة/الفوج المستهدف */}
+                    {ann.visibilityScope && ann.visibilityScope !== "تخصص كامل" && (
+                      <Badge variant="outline" className="gap-1 text-[10px] text-primary border-primary/30">
+                        <Target className="w-3 h-3" />
+                        {ann.scopeLabel ?? "نطاق محدد"}
+                      </Badge>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1">
                     {manage && (
                       <>
@@ -193,125 +201,5 @@ export function TalibAnnouncementsScreen() {
         </div>
       )}
     </div>
-  );
-}
-
-function AddAnnouncementDialog({ onCreated }: { onCreated: () => void }) {
-  const [open, setOpen] = React.useState(false);
-  const [title, setTitle] = React.useState("");
-  const [content, setContent] = React.useState("");
-  const [urgency, setUrgency] = React.useState("عام");
-  const [saving, setSaving] = React.useState(false);
-
-  async function handleSave() {
-    if (!title.trim() || !content.trim()) { toast.error("العنوان والمحتوى مطلوبان"); return; }
-    setSaving(true);
-    try {
-      const res = await fetch("/api/announcements", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), content: content.trim(), urgency }),
-      });
-      const data = await res.json();
-      if (!res.ok) { toast.error(data.error ?? "فشل النشر"); return; }
-      toast.success("تم نشر الإعلان");
-      setOpen(false); setTitle(""); setContent(""); setUrgency("عام");
-      onCreated();
-    } finally { setSaving(false); }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button><Plus className="w-4 h-4 ml-1" />إعلان</Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader><DialogTitle>نشر إعلان جديد</DialogTitle></DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="annTitle">العنوان</Label>
-            <Input id="annTitle" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: تأجيل محاضرة الأدب الجاهلي" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="annContent">المحتوى</Label>
-            <Textarea id="annContent" value={content} onChange={(e) => setContent(e.target.value)} placeholder="اكتب تفاصيل الإعلان هنا..." rows={4} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>الأهمية</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {[{ k: "عام", l: "عام" }, { k: "هام", l: "هام" }, { k: "عاجل", l: "عاجل" }].map((o) => (
-                <button key={o.k} type="button" onClick={() => setUrgency(o.k)}
-                  className={`py-2 rounded-lg text-xs font-bold border-2 ${urgency === o.k ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}>
-                  {o.l}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
-          <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}نشر</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// round 5: edit an existing announcement (title / content / urgency).
-// Only shown to users the server-side rule also allows.
-function EditAnnouncementDialog({ announcement, onClose, onSaved }: {
-  announcement: Announcement; onClose: () => void; onSaved: () => void;
-}) {
-  const [title, setTitle] = React.useState(announcement.title);
-  const [content, setContent] = React.useState(announcement.content);
-  const [urgency, setUrgency] = React.useState(announcement.urgency);
-  const [saving, setSaving] = React.useState(false);
-
-  async function handleSave() {
-    if (!title.trim() || !content.trim()) { toast.error("العنوان والمحتوى مطلوبان"); return; }
-    setSaving(true);
-    try {
-      const res = await fetch("/api/announcements", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: announcement.id, title: title.trim(), content: content.trim(), urgency }),
-      });
-      const data = await res.json();
-      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
-      toast.success("تم تعديل الإعلان");
-      onSaved();
-    } catch { toast.error("فشل الاتصال"); }
-    finally { setSaving(false); }
-  }
-
-  return (
-    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent>
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="w-5 h-5" />تعديل الإعلان</DialogTitle></DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="editAnnTitle">العنوان</Label>
-            <Input id="editAnnTitle" value={title} onChange={(e) => setTitle(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="editAnnContent">المحتوى</Label>
-            <Textarea id="editAnnContent" value={content} onChange={(e) => setContent(e.target.value)} rows={4} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>الأهمية</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {[{ k: "عام", l: "عام" }, { k: "هام", l: "هام" }, { k: "عاجل", l: "عاجل" }].map((o) => (
-                <button key={o.k} type="button" onClick={() => setUrgency(o.k)}
-                  className={`py-2 rounded-lg text-xs font-bold border-2 ${urgency === o.k ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}>
-                  {o.l}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
-          <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حفظ التعديل</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

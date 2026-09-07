@@ -16,7 +16,9 @@
  * mode stays as the secondary option):
  *
  * When `moduleId` is passed, the created row is tagged with the course so
- * the material also appears in that course's المواد tab.
+ * the file also appears in that course's tabs AND in the student's
+ * «ملفاتي» library (round 52: files live in ONE place — the categorized
+ * library — and واجب/اختبار files surface in the course's own tabs).
  */
 
 import * as React from "react";
@@ -234,6 +236,8 @@ function LinkMode({
           <option value="ملخص">ملخص</option>
           <option value="سلسلة تمارين">سلسلة تمارين</option>
           <option value="محاضرة">محاضرة</option>
+          <option value="واجب">واجب</option>
+          <option value="اختبار">اختبار</option>
           <option value="أخرى">أخرى</option>
         </select>
       </div>
@@ -346,9 +350,15 @@ function UploadMode({
         if (data.needsSchema) { setNeedsSchemaSql(data.sql); return; }
         toast.error(data.error ?? "فشل نشر الملف"); return;
       }
-      toast.success(isCourseScoped
-        ? `أُضيفت المادة إلى مقياس «${courseName!.trim()}» — في تبويب المواد ولدى كل الطلبة`
-        : "تم نشر الملف في مكتبة التخصص — أصبح متاحاً للطلبة للتنزيل");
+      // round 52: the success message follows the category — واجب/اختبار
+      // files land in the course's own tabs, everything else in ملفاتي.
+      const cat = category.trim();
+      toast.success(
+        isCourseScoped && cat === "واجب" ? `أُضيف ملف واجب إلى مقياس «${courseName!.trim()}» — في تبويب الواجبات ولدى كل الطلبة`
+        : isCourseScoped && cat === "اختبار" ? `أُضيف ملف اختبار إلى مقياس «${courseName!.trim()}» — في تبويب الاختبارات ولدى كل الطلبة`
+        : isCourseScoped ? `أُضيف الملف إلى مقياس «${courseName!.trim()}» — في «ملفاتي» لدى كل الطلبة`
+        : "تم نشر الملف في ملفات التخصص — أصبح متاحاً للطلبة للتنزيل"
+      );
       onDone();
     } catch (err) {
       setPct(null);
@@ -427,6 +437,33 @@ function UploadMode({
         onChange={pickFile}
       />
 
+      {/* round 52 — الحقول اليدوية أولاً ثم الملف: العنوان (حقل الكتابة)
+          يأتي قبل بطاقة اختيار الملف/الصورة، فلا تستقبل النافذةُ المالكَ
+          بصورة كبيرة قبل أي حقل نصي (ملاحظة المالك: «الصورة تسبق الحقل
+          اليدوي في الجدول»). */}
+      <div className="space-y-1.5">
+        <Label htmlFor="pubTitle">العنوان</Label>
+        <Input id="pubTitle" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: محاضرة ١ — مقدمة في النحو" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="pubCategory">التصنيف</Label>
+          <select id="pubCategory" value={category} onChange={(e) => setCategory(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+            <option value="كتاب مرجعي">كتاب مرجعي</option>
+            <option value="ملخص">ملخص</option>
+            <option value="سلسلة تمارين">سلسلة تمارين</option>
+            <option value="محاضرة">محاضرة</option>
+            <option value="واجب">واجب</option>
+            <option value="اختبار">اختبار</option>
+            <option value="أخرى">أخرى</option>
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="pubAuthor">المُعد / الأستاذ</Label>
+          <Input id="pubAuthor" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="اختياري" />
+        </div>
+      </div>
+
       {file ? (
         <Card className="p-3 flex items-center justify-between gap-2">
           <div className="min-w-0">
@@ -446,31 +483,11 @@ function UploadMode({
           className="w-full rounded-xl border border-dashed border-muted-foreground/40 bg-muted/30 p-6 text-center hover:bg-muted/50 transition-colors"
         >
           <CloudUpload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-          <span className="text-sm font-bold block">اختيار ملف</span>
+          <span className="text-sm font-bold block">اختيار الملف</span>
           <span className="text-[11px] text-muted-foreground">PDF، Word، PowerPoint، صورة — من جهازك</span>
         </button>
       )}
 
-      <div className="space-y-1.5">
-        <Label htmlFor="pubTitle">العنوان</Label>
-        <Input id="pubTitle" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: محاضرة ١ — مقدمة في النحو" />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="pubAuthor">المُعد / الأستاذ</Label>
-          <Input id="pubAuthor" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="اختياري" />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="pubCategory">التصنيف</Label>
-          <select id="pubCategory" value={category} onChange={(e) => setCategory(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
-            <option value="كتاب مرجعي">كتاب مرجعي</option>
-            <option value="ملخص">ملخص</option>
-            <option value="سلسلة تمارين">سلسلة تمارين</option>
-            <option value="محاضرة">محاضرة</option>
-            <option value="أخرى">أخرى</option>
-          </select>
-        </div>
-      </div>
       <div className="space-y-1.5">
         <Label htmlFor="pubDesc">وصف مختصر</Label>
         <Textarea id="pubDesc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="وصف اختياري..." rows={2} />
@@ -490,9 +507,10 @@ function UploadMode({
         {isCourseScoped ? (
           <>
             يُرفع الملف إلى مجلد المقياس «📘 {courseName!.trim()}» في حسابك على Drive{" "}
-            (١٥ ج.ب) — <strong className="text-foreground">يظهر فوراً في تبويب المواد
-            في المقياس نفسه</strong> ويحمّله الطلبة مباشرة من Drive —{" "}
-            <strong className="text-foreground">لا علاقة له بالمكتبة العامة ولا Supabase</strong>.
+            (١٥ ج.ب) — <strong className="text-foreground">يظهر فوراً في «ملفاتي» لدى
+            كل الطلبة مصنّفاً</strong>، وملف الواجب في تبويب الواجبات وملف الاختبار
+            في تبويب الاختبارات — ويحمّله الطلبة مباشرة من Drive،{" "}
+            <strong className="text-foreground">دون تخزين أي بايت على السيرفر</strong>.
           </>
         ) : (
           <>

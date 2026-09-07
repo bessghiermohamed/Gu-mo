@@ -386,7 +386,7 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
       const res = await fetch(`/api/library?id=${materialToDelete.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
-      toast.success("تم حذف المادة من المقياس");
+      toast.success("تم حذف الملف من المقياس");
       setMaterialToDelete(null);
       setMaterialsTick((n) => n + 1);
     } catch {
@@ -455,6 +455,13 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
     return (b.postedAt ?? "").localeCompare(a.postedAt ?? "");
   });
 
+  // round 52 — ملفات هذا المقياس المرفوعة تُقسّم بحسب تصنيفها: ملف «واجب»
+  // يظهر في تبويب الواجبات، وملف «اختبار» في تبويب الاختبارات، وكل ما عدا
+  // ذلك يُقرأ من «ملفاتي» (المكتبة المصنّفة) — لم تعد هناك قائمة «مواد»
+  // منفصلة داخل المقياس.
+  const assignmentFiles = materials.filter((m) => m.category === "واجب");
+  const examFiles = materials.filter((m) => m.category === "اختبار");
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -497,15 +504,15 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
             </p>
           </div>
           <div className="border-x border-border/70">
-            <p className="text-[11px] text-muted-foreground mb-0.5">المواد</p>
+            <p className="text-[11px] text-muted-foreground mb-0.5">الواجبات</p>
             <p className="text-lg font-black text-primary">
-              {materialsState === "loading" ? "…" : materials.length}
+              {assignmentsState === "loading" ? "…" : assignments.length + assignmentFiles.length}
             </p>
           </div>
           <div>
             <p className="text-[11px] text-muted-foreground mb-0.5">الاختبارات</p>
             <p className="text-lg font-black text-primary">
-              {examsState === "loading" ? "…" : exams.length}
+              {examsState === "loading" ? "…" : exams.length + examFiles.length}
             </p>
           </div>
         </div>
@@ -542,8 +549,9 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
               </p>
               <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
                 إلى مجلد هذا المقياس «📘 {course.name}» في Drive الخاص بك —
-                يظهر في تبويب «المواد» هنا ويحمّله الطلبة مباشرة، دون أن
-                يُخزَّن شيء على السيرفر.
+                يظهر لدى الطلبة في «ملفاتي» مصنّفاً (ملف واجب في تبويب
+                الواجبات، وملف اختبار في تبويب الاختبارات)، دون أن يُخزَّن
+                شيء على السيرفر.
               </p>
             </div>
             <PublishToLibraryDialog
@@ -558,14 +566,13 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
         </Card>
       )}
 
-      {/* Content tabs */}
+      {/* Content tabs — round 52: تبويب «المواد» أُلغي (ملاحظة المالك:
+          «الدروس موجودة للمقاييس، فلماذا قسم للمواد؟»). ملفات الواجب
+          والاختبار تُعرض داخل تبويبيهما، وكل الملفات في «ملفاتي». */}
       <Tabs defaultValue="lessons">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="lessons" className="data-[state=active]:font-bold text-xs px-1">
             <Send className="w-3.5 h-3.5 ml-1" />الدروس
-          </TabsTrigger>
-          <TabsTrigger value="materials" className="data-[state=active]:font-bold text-xs px-1">
-            <FileText className="w-3.5 h-3.5 ml-1" />المواد
           </TabsTrigger>
           <TabsTrigger value="exams" className="data-[state=active]:font-bold text-xs px-1">
             <FlaskConical className="w-3.5 h-3.5 ml-1" />الاختبارات
@@ -617,139 +624,42 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
           )}
         </TabsContent>
 
-        {/* ---- المواد (round 33) ---- */}
-        <TabsContent value="materials" className="mt-4 space-y-3">
+        {/* ---- Exams ---- */}
+        <TabsContent value="exams" className="mt-4 space-y-3">
+          {/* round 52 — ملف اختبار يُرفع مباشرة من تبويبه */}
           {canManage && (
             <PublishToLibraryDialog
               onCreated={() => setMaterialsTick((n) => n + 1)}
               moduleId={course.id}
-              defaultCategory="محاضرة"
-              triggerLabel="إضافة مادة للمقياس"
+              defaultCategory="اختبار"
+              triggerLabel="رفع ملف اختبار"
               courseName={course.name}
             />
           )}
-
-          {materialsState === "loading" && <SectionLoading />}
           {materialsState === "error" && (
             <SectionError onRetry={() => setMaterialsTick((n) => n + 1)} />
           )}
-          {materialsState === "ok" && materialsNeedsSchema && (
-            <NeedsSchemaCard
-              sql={materialsSchemaSql ?? undefined}
-              onRetried={() => setMaterialsTick((n) => n + 1)}
-            />
-          )}
-          {materialsState === "ok" && !materialsNeedsSchema && materials.length === 0 && (
-            <SectionEmpty
-              icon={<FileText className="w-10 h-10" />}
-              title="لا توجد مواد مرفوعة لهذا المقياس بعد"
-              hint={canManage
-                ? "استخدم زر «رفع ملف (Drive)» أعلى الصفحة — يُحفظ الملف في حساب Drive الخاص بك ويصبح متاحاً لكل الطلبة للتنزيل المباشر."
-                : "ستظهر محاضرات وملخصات هذا المقياس هنا عند رفعها من طرف المشرفين."}
-            />
-          )}
-          {materialsState === "ok" && materials.length > 0 && (
+          {materialsState === "ok" && examFiles.length > 0 && (
             <div className="space-y-2">
-              {materials.map((m) => (
-                <Card key={m.id} className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {/* round 39 — the title IS the reference: clickable
-                            whenever a URL exists, not just dead words */}
-                        {m.downloadUrl ? (
-                          <a
-                            href={m.downloadUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-bold text-sm text-primary hover:underline"
-                          >
-                            {m.title}
-                          </a>
-                        ) : (
-                          <h3 className="font-bold text-sm">{m.title}</h3>
-                        )}
-                        <Badge variant="outline" className="text-xs">{m.fileFormat}</Badge>
-                        {m.fileSize != null && (
-                          <Badge variant="outline" className="text-xs">{formatBytes(m.fileSize)}</Badge>
-                        )}
-                        {m.driveFileId && (
-                          <Badge className="text-[10px] bg-primary/10 text-primary border border-primary/20">
-                            <HardDrive className="w-3 h-3 ml-1" />على Drive
-                          </Badge>
-                        )}
-                        {!m.downloadUrl && (
-                          <Badge variant="outline" className="text-xs text-muted-foreground">بدون رابط</Badge>
-                        )}
-                      </div>
-                      {m.description && (
-                        <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{m.description}</p>
-                      )}
-                      {m.author && (
-                        <p className="text-xs text-muted-foreground mt-2">بواسطة: {m.author}</p>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1 shrink-0">
-                      {m.downloadUrl && (
-                        <a href={m.downloadUrl} target="_blank" rel="noopener noreferrer">
-                          {m.driveFileId ? (
-                            <Button size="sm" variant="outline" className="h-8"><Download className="w-3.5 h-3.5 ml-1" />تنزيل</Button>
-                          ) : (
-                            <Button size="sm" variant="outline" className="h-8"><ExternalLink className="w-3.5 h-3.5 ml-1" />فتح</Button>
-                          )}
-                        </a>
-                      )}
-                      <div className="flex items-center gap-0.5">
-                        {m.downloadUrl && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-primary"
-                            onClick={() => copyMaterialLink(m.downloadUrl)}
-                            aria-label="نسخ رابط المادة"
-                          >
-                            <Copy className="w-4 h-4" />
-                          </Button>
-                        )}
-                        {canManage && (
-                          <>
-                            <Button
-                              variant="ghost" size="icon" className="h-8 w-8"
-                              onClick={() => setMaterialToEdit(m)}
-                              aria-label="تعديل المادة"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost" size="icon"
-                              className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                              onClick={() => setMaterialToDelete(m)}
-                              aria-label="حذف المادة"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </Card>
+              {examFiles.map((m) => (
+                <CourseFileCard
+                  key={m.id} m={m} canManage={canManage}
+                  onEdit={() => setMaterialToEdit(m)}
+                  onDelete={() => setMaterialToDelete(m)}
+                  onCopy={() => copyMaterialLink(m.downloadUrl)}
+                />
               ))}
             </div>
           )}
-        </TabsContent>
-
-        {/* ---- Exams ---- */}
-        <TabsContent value="exams" className="mt-4 space-y-3">
           {examsState === "loading" && <SectionLoading />}
           {examsState === "error" && (
             <SectionError onRetry={() => setExamsTick((n) => n + 1)} />
           )}
-          {examsState === "ok" && exams.length === 0 && (
+          {examsState === "ok" && exams.length === 0 && examFiles.length === 0 && (
             <SectionEmpty
               icon={<FlaskConical className="w-10 h-10" />}
               title="لا توجد اختبارات مسجّلة لهذا المقياس"
-              hint="عندما يضيف المشرف موعد اختبار لهذا المقياس سيظهر هنا وستصلك التفاصيل."
+              hint="عندما يضيف المشرف موعد اختبار أو يرفع ملف اختبار لهذا المقياس سيظهر هنا وستصلك التفاصيل."
             />
           )}
           {examsState === "ok" && exams.length > 0 && exams.map((e) => (
@@ -809,15 +719,40 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
 
         {/* ---- Assignments ---- */}
         <TabsContent value="assignments" className="mt-4 space-y-3">
+          {/* round 52 — ملف واجب يُرفع مباشرة من تبويبه */}
+          {canManage && (
+            <PublishToLibraryDialog
+              onCreated={() => setMaterialsTick((n) => n + 1)}
+              moduleId={course.id}
+              defaultCategory="واجب"
+              triggerLabel="رفع ملف واجب"
+              courseName={course.name}
+            />
+          )}
+          {materialsState === "error" && (
+            <SectionError onRetry={() => setMaterialsTick((n) => n + 1)} />
+          )}
+          {materialsState === "ok" && assignmentFiles.length > 0 && (
+            <div className="space-y-2">
+              {assignmentFiles.map((m) => (
+                <CourseFileCard
+                  key={m.id} m={m} canManage={canManage}
+                  onEdit={() => setMaterialToEdit(m)}
+                  onDelete={() => setMaterialToDelete(m)}
+                  onCopy={() => copyMaterialLink(m.downloadUrl)}
+                />
+              ))}
+            </div>
+          )}
           {assignmentsState === "loading" && <SectionLoading />}
           {assignmentsState === "error" && (
             <SectionError onRetry={() => setAssignmentsTick((n) => n + 1)} />
           )}
-          {assignmentsState === "ok" && assignments.length === 0 && (
+          {assignmentsState === "ok" && assignments.length === 0 && assignmentFiles.length === 0 && (
             <SectionEmpty
               icon={<CheckSquare className="w-10 h-10" />}
               title="لا توجد واجبات مفتوحة لهذا المقياس"
-              hint="عند تكليف واجب جديد بهذا المقياس سيظهر هنا مع تاريخ التسليم والعلامة القصوى."
+              hint="عند تكليف واجب جديد أو رفع ملف واجب لهذا المقياس سيظهر هنا مع تاريخ التسليم والعلامة القصوى."
             />
           )}
           {assignmentsState === "ok" && assignments.length > 0 && assignments.map((a) => (
@@ -901,11 +836,11 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
           <DialogContent>
             <DialogHeader>
               <DialogTitle className="text-destructive flex items-center gap-2">
-                <Trash2 className="w-5 h-5" />حذف مادة من المقياس
+                <Trash2 className="w-5 h-5" />حذف ملف من المقياس
               </DialogTitle>
             </DialogHeader>
             <p className="text-sm">
-              هل تريد حذف <strong>{materialToDelete.title}</strong> من مواد هذا المقياس؟
+              هل تريد حذف <strong>{materialToDelete.title}</strong> من ملفات هذا المقياس؟
               سيختفي من قائمة كل الطلبة — لا يمكن التراجع.
             </p>
             <DialogFooter>
@@ -982,6 +917,97 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
 }
 
 // ---- round 39 components ----
+
+// round 52 — بطاقة ملف مرفوع داخل المقياس (واجب/اختبار): عنوانه هو الرابط،
+// مع تنزيل مباشر من Drive ونسخ الرابط وتعديل/حذف للمشرفين.
+function CourseFileCard({ m, canManage, onEdit, onDelete, onCopy }: {
+  m: MaterialItem;
+  canManage: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  onCopy: () => void;
+}) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            {m.downloadUrl ? (
+              <a
+                href={m.downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold text-sm text-primary hover:underline"
+              >
+                {m.title}
+              </a>
+            ) : (
+              <h3 className="font-bold text-sm">{m.title}</h3>
+            )}
+            <Badge variant="secondary" className="text-xs">{m.category}</Badge>
+            <Badge variant="outline" className="text-xs">{m.fileFormat}</Badge>
+            {m.fileSize != null && (
+              <Badge variant="outline" className="text-xs">{formatBytes(m.fileSize)}</Badge>
+            )}
+            {m.driveFileId && (
+              <Badge className="text-[10px] bg-primary/10 text-primary border border-primary/20">
+                <HardDrive className="w-3 h-3 ml-1" />على Drive
+              </Badge>
+            )}
+            {!m.downloadUrl && (
+              <Badge variant="outline" className="text-xs text-muted-foreground">بدون رابط</Badge>
+            )}
+          </div>
+          {m.description && (
+            <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{m.description}</p>
+          )}
+          {m.author && (
+            <p className="text-xs text-muted-foreground mt-2">بواسطة: {m.author}</p>
+          )}
+        </div>
+        <div className="flex flex-col gap-1 shrink-0">
+          {m.downloadUrl && (
+            <a href={m.downloadUrl} target="_blank" rel="noopener noreferrer">
+              {m.driveFileId ? (
+                <Button size="sm" variant="outline" className="h-8"><Download className="w-3.5 h-3.5 ml-1" />تنزيل</Button>
+              ) : (
+                <Button size="sm" variant="outline" className="h-8"><ExternalLink className="w-3.5 h-3.5 ml-1" />فتح</Button>
+              )}
+            </a>
+          )}
+          <div className="flex items-center gap-0.5">
+            {m.downloadUrl && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                onClick={onCopy}
+                aria-label="نسخ رابط الملف"
+              >
+                <Copy className="w-4 h-4" />
+              </Button>
+            )}
+            {canManage && (
+              <>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onEdit} aria-label="تعديل الملف">
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost" size="icon"
+                  className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                  onClick={onDelete}
+                  aria-label="حذف الملف"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 function LessonCard({ item, isNew }: { item: TgItem; isNew: boolean }) {
   const [imgError, setImgError] = React.useState(false);

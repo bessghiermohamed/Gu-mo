@@ -47,13 +47,43 @@ function isMissingModuleColumn(e: unknown): boolean {
   );
 }
 
+/** round 52 — resolve course names for module-linked files so «ملفاتي» can
+ *  badge each file with its course. LibraryReference has no FK relation in
+ *  the Prisma schema, so the names are fetched in one extra query. Never
+ *  throws — a failed lookup simply leaves moduleName empty. */
+async function attachModuleNames(
+  items: Array<{ moduleId: number | null; [k: string]: unknown }>
+): Promise<Array<{ moduleId: number | null; moduleName?: string | null; [k: string]: unknown }>> {
+  const ids = Array.from(new Set(items.map((i) => i.moduleId).filter((n): n is number => n != null)));
+  if (ids.length === 0) return items;
+  const nameById = new Map<number, string>();
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data } = await supabase.from("module_courses").select("id, name").in("id", ids);
+      (data ?? []).forEach((r: Record<string, unknown>) => nameById.set(Number(r.id), String(r.name ?? "")));
+    } else {
+      const rows = await db.moduleCourse.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+      rows.forEach((r) => nameById.set(r.id, r.name));
+    }
+  } catch {
+    // names stay empty — the list still renders
+  }
+  return items.map((i) => ({
+    ...i,
+    moduleName: i.moduleId != null ? nameById.get(i.moduleId) ?? null : null,
+  }));
+}
+
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ items: [] });
-  // round 33: optional course filter — تفاصيل المقياس → المواد tab fetches
-  // /api/library?moduleId=N. Without the param the specialty-wide list is
-  // returned exactly as before.
+  // round 33: optional course filter — تفاصيل المقياس fetches /api/library?moduleId=N.
+  // Without the param the specialty-wide list is returned exactly as before.
   const moduleId = req.nextUrl.searchParams.get("moduleId");
+  // round 52: «ملفاتي» يطلب includeCourseFiles=1 ليُظهر كذلك ملفات المقاييس
+  // مصنّفة (كانت محصورة داخل المقياس فقط) — مع اسم المقياس لكل ملف مرتبط.
+  const includeCourseFiles = req.nextUrl.searchParams.get("includeCourseFiles") === "1";
   try {
     // round 41 fix — authorize a module-scoped read against the COURSE, not
     // against the viewer's specialty. BUG this replaces: the query below used
@@ -100,9 +130,9 @@ export async function GET(req: NextRequest) {
             query = query.is("module_id", null);
           }
         }
-        return query.order("id", { ascending: false }).limit(100);
+        return query.order("id", { ascending: false }).limit(200);
       };
-      let { data, error } = await fetchList(true);
+      let { data, error } = await fetchList(!includeCourseFiles);
       if (error && !moduleId) {
         // module_id column may not exist yet (owner hasn't run the SQL) —
         // degrade to the old unfiltered list instead of an empty library.
@@ -112,15 +142,17 @@ export async function GET(req: NextRequest) {
         if (moduleId) return NextResponse.json({ items: [], needsSchema: true, sql: COURSE_SCHEMA_SQL });
         return NextResponse.json({ items: [] });
       }
-      const items = (data ?? []).map((r: Record<string, unknown>) => ({
-        id: Number(r.id), title: String(r.title ?? ""), author: String(r.author ?? ""),
-        category: String(r.category ?? "كتاب مرجعي"), description: String(r.description ?? ""),
-        fileFormat: String(r.file_format ?? "PDF"), downloadUrl: String(r.download_url ?? ""),
-        // round 32: optional Drive-publish metadata (missing column → null)
-        fileSize: r.file_size != null ? Number(r.file_size) : null,
-        driveFileId: r.storage_path ? String(r.storage_path) : null,
-        moduleId: r.module_id != null ? Number(r.module_id) : null,
-      }));
+      const items = await attachModuleNames(
+        (data ?? []).map((r: Record<string, unknown>) => ({
+          id: Number(r.id), title: String(r.title ?? ""), author: String(r.author ?? ""),
+          category: String(r.category ?? "كتاب مرجعي"), description: String(r.description ?? ""),
+          fileFormat: String(r.file_format ?? "PDF"), downloadUrl: String(r.download_url ?? ""),
+          // round 32: optional Drive-publish metadata (missing column → null)
+          fileSize: r.file_size != null ? Number(r.file_size) : null,
+          driveFileId: r.storage_path ? String(r.storage_path) : null,
+          moduleId: r.module_id != null ? Number(r.module_id) : null,
+        }))
+      );
       return NextResponse.json({ items });
     }
     const rows = await db.libraryReference.findMany({
@@ -130,18 +162,18 @@ export async function GET(req: NextRequest) {
         : {
             specialtyId: user.assignedSpecialtyId,
             // round 41: course materials live at the course, not the library
-            moduleId: null,
+            ...(includeCourseFiles ? {} : { moduleId: null }),
           },
       orderBy: { id: "desc" },
-      take: 100,
+      take: 200,
     });
     return NextResponse.json({
-      items: rows.map((r) => ({
+      items: await attachModuleNames(rows.map((r) => ({
         id: r.id, title: r.title, author: r.author, category: r.category,
         description: r.description, fileFormat: r.fileFormat, downloadUrl: r.downloadUrl,
         fileSize: r.fileSize ?? null, driveFileId: r.storagePath ?? null,
         moduleId: r.moduleId ?? null,
-      })),
+      }))),
     });
   } catch (e) {
     if (isMissingModuleColumn(e)) return needsSchemaResponse();

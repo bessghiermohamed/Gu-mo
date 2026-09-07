@@ -328,27 +328,71 @@ export async function notifyReportSubmitted(opts: {
 
 /** Load the ids of every user routed to a specialty (both layers),
  *  excluding the actor. Returns [] on any failure — a failed census
- *  must never fail the publish action itself. */
-async function loadUsersOfSpecialty(specialtyId: number, excludeId: number): Promise<number[]> {
+ *  must never fail the publish action itself.
+ *  round 52 — scope-aware: when a cohort or year target is passed, the
+ *  census keeps only the members of that cohort/year (plus — for year
+ *  targeting — anyone whose cohort belongs to the year), so a
+ *  cohort-scoped announcement no longer spams the whole specialty. */
+async function loadUsersOfSpecialty(
+  specialtyId: number,
+  excludeId: number,
+  target?: { cohortId?: number | null; yearId?: number | null }
+): Promise<number[]> {
   try {
+    const cohortId = target?.cohortId ?? null;
+    const yearId = target?.yearId ?? null;
+    const scoped = cohortId != null || yearId != null;
+    let users: Array<{
+      id: number;
+      scopeCohortGroupId: number | null;
+      scopeAcademicYearId: number | null;
+    }> = [];
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      const { data, error } = await supabase
+      const base = supabase
         .from("app_users")
-        .select("id")
+        .select("id, scope_cohort_group_id, scope_academic_year_id")
         .eq("assigned_specialty_id", specialtyId)
         .neq("id", excludeId);
+      const { data, error } = await base;
       if (error) {
         console.error("[notifications] specialty census failed:", error.message);
         return [];
       }
-      return (data ?? []).map((u: Record<string, unknown>) => Number(u.id));
+      users = (data ?? []).map((u: Record<string, unknown>) => ({
+        id: Number(u.id),
+        scopeCohortGroupId: u.scope_cohort_group_id != null ? Number(u.scope_cohort_group_id) : null,
+        scopeAcademicYearId: u.scope_academic_year_id != null ? Number(u.scope_academic_year_id) : null,
+      }));
+    } else {
+      const rows = await db.appUser.findMany({
+        where: { assignedSpecialtyId: specialtyId, id: { not: excludeId } },
+        select: { id: true, scopeCohortGroupId: true, scopeAcademicYearId: true },
+      });
+      users = rows;
     }
-    const users = await db.appUser.findMany({
-      where: { assignedSpecialtyId: specialtyId, id: { not: excludeId } },
-      select: { id: true },
-    });
-    return users.map((u) => u.id);
+    if (!scoped) return users.map((u) => u.id);
+    // year targeting also reaches cohorts of that year (a student is
+    // attached to a cohort, and the cohort carries the year)
+    let cohortIdsOfYear: Set<number> | null = null;
+    if (yearId != null) {
+      cohortIdsOfYear = new Set();
+      try {
+        const ctx = await loadScopeContext();
+        ctx.cohorts.forEach((c, id) => {
+          if (c.yearId === yearId) cohortIdsOfYear!.add(id);
+        });
+      } catch {
+        // context failed — year match falls back to scopeAcademicYearId only
+      }
+    }
+    return users
+      .filter((u) => {
+        if (cohortId != null) return u.scopeCohortGroupId === cohortId;
+        if (u.scopeAcademicYearId === yearId) return true;
+        return u.scopeCohortGroupId != null && cohortIdsOfYear?.has(u.scopeCohortGroupId) === true;
+      })
+      .map((u) => u.id);
   } catch (e) {
     console.error("[notifications] specialty census failed:", (e as Error).message);
     return [];
@@ -357,7 +401,8 @@ async function loadUsersOfSpecialty(specialtyId: number, excludeId: number): Pro
 
 /** Announce newly published academic content to every user of that
  *  specialty (minus the actor; minus muted categories). Awaited by
- *  the publish routes — one census query on a rare admin action. */
+ *  the publish routes — one census query on a rare admin action.
+ *  round 52: cohortId/yearId narrow the fan-out to the content's scope. */
 export async function notifyContentPublished(opts: {
   actorId: number;
   actorName: string;
@@ -366,9 +411,14 @@ export async function notifyContentPublished(opts: {
   title: string;
   body: string;
   meta?: Record<string, unknown>;
+  cohortId?: number | null;
+  yearId?: number | null;
 }): Promise<void> {
   try {
-    const recipientIds = await loadUsersOfSpecialty(opts.specialtyId, opts.actorId);
+    const recipientIds = await loadUsersOfSpecialty(opts.specialtyId, opts.actorId, {
+      cohortId: opts.cohortId,
+      yearId: opts.yearId,
+    });
     await createNotifications(
       recipientIds.map((userId) => ({
         userId,

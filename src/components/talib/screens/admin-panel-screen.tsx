@@ -8,7 +8,7 @@ import {
   Flag, AlertTriangle, CheckCheck, RotateCcw, Send, Eye, EyeOff, Star, Link2, Sparkles, Power,
   FlaskConical, Zap, ExternalLink, Mail, IdCard,
   Network, ChevronDown, ChevronLeft, Search, ArrowLeftRight, UserMinus, UserCog,
-  LayoutDashboard, Inbox,
+  LayoutDashboard, Inbox, Megaphone, Target,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,9 @@ import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  AddAnnouncementDialog, EditAnnouncementDialog, type AnnouncementRowData,
+} from "@/components/talib/announcements-compose";
 
 // =====================================================
 // Shared types + cascade hook (fix أ.1/أ.2/ب)
@@ -199,10 +202,10 @@ export function TalibAdminPanelScreen() {
             — one clean row). Every capability stays visible and reachable
             (fix أ.5 preserved). Badges on «الطلبات» و«التبليغات» (round 10,
             §16) keep pending counts visible without opening the tab. */}
-        <TabsList className="grid w-full h-auto grid-cols-4 sm:grid-cols-7 gap-1.5 bg-transparent p-0 items-stretch">
+        <TabsList className="grid w-full h-auto grid-cols-4 sm:grid-cols-8 gap-1.5 bg-transparent p-0 items-stretch">
           <TabsTrigger
             value="overview"
-            className="col-span-4 sm:col-span-7 h-12 rounded-lg border border-input bg-background text-xs cursor-pointer transition-colors duration-200 hover:border-primary/40 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:font-bold data-[state=active]:hover:border-primary dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/10"
+            className="col-span-4 sm:col-span-8 h-12 rounded-lg border border-input bg-background text-xs cursor-pointer transition-colors duration-200 hover:border-primary/40 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:font-bold data-[state=active]:hover:border-primary dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/10"
           >
             <LayoutDashboard className="w-4 h-4 ml-1" />مركز التحكم
           </TabsTrigger>
@@ -233,6 +236,7 @@ export function TalibAdminPanelScreen() {
             </span>
           </TabsTrigger>
           <TabsTrigger value="telegram" className={TAB_BOX_CLS}><Send className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>تيليجرام</span></TabsTrigger>
+          <TabsTrigger value="announcements" className={TAB_BOX_CLS}><Megaphone className="w-4 h-4 text-primary" /><span className={TAB_LABEL_CLS}>الإعلانات</span></TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -251,6 +255,7 @@ export function TalibAdminPanelScreen() {
         <TabsContent value="subordinates" className="mt-4"><SubordinatesManager /></TabsContent>
         <TabsContent value="issues" className="mt-4"><IssuesManager /></TabsContent>
         <TabsContent value="telegram" className="mt-4"><TelegramManager /></TabsContent>
+        <TabsContent value="announcements" className="mt-4"><AnnouncementsManager /></TabsContent>
       </Tabs>
     </div>
   );
@@ -3919,3 +3924,178 @@ function RemoveSupervisorDialog({ user, onClose, onDone }: { user: SupervisorNod
 }
 
 
+
+
+// =====================================================
+// AnnouncementsManager — round 52 (لوحة الإشراف: «تحسين أكثر»)
+// المكان المركزي لإدارة إعلانات التخصص: نشر بنطاق (تخصص/سنة/فوج)
+// عبر نفس نافذة شاشة الإعلانات، تعديل الأهمية والنطاق، وحذف ما لم
+// يعد له حاجة. المشرفون يرون كل إعلانات تخصصهم هنا (seeAll).
+// =====================================================
+interface AdminAnnouncement extends AnnouncementRowData {
+  author: string;
+  date: string;
+  scopeLabel?: string;
+}
+
+function formatDateArAdmin(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("ar-DZ", { day: "numeric", month: "long", year: "numeric" });
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
+function AnnouncementsManager() {
+  const [announcements, setAnnouncements] = React.useState<AdminAnnouncement[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [editAnn, setEditAnn] = React.useState<AdminAnnouncement | null>(null);
+  const [annToDelete, setAnnToDelete] = React.useState<AdminAnnouncement | null>(null);
+  const [deletingAnn, setDeletingAnn] = React.useState(false);
+
+  const fetchAnnouncements = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/announcements", { cache: "no-store" });
+      const data = await res.json();
+      setAnnouncements(data.announcements ?? []);
+    } catch {
+      // silent — retry via the button
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { fetchAnnouncements(); }, [fetchAnnouncements]);
+
+  async function handleDelete() {
+    if (!annToDelete) return;
+    setDeletingAnn(true);
+    try {
+      const res = await fetch(`/api/announcements?id=${annToDelete.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
+      toast.success("تم حذف الإعلان");
+      setAnnToDelete(null);
+      fetchAnnouncements();
+    } catch {
+      toast.error("فشل الحذف");
+    } finally {
+      setDeletingAnn(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <Card className="p-3 border-primary/25 bg-primary/5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <p className="text-xs font-bold flex items-center gap-1.5">
+              <Megaphone className="w-3.5 h-3.5 text-primary shrink-0" />
+              إدارة إعلانات التخصص
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+              انشر إعلاناً بنطاق محدد — التخصص كامل، أو سنة دراسية، أو فوج بعينه —
+              ويصل إشعار للنطاق المستهدف فور النشر. الطلبة يرون النطاق على البطاقة.
+            </p>
+          </div>
+          <AddAnnouncementDialog onCreated={fetchAnnouncements} triggerLabel="إعلان جديد" />
+        </div>
+      </Card>
+
+      {editAnn && (
+        <EditAnnouncementDialog
+          announcement={editAnn}
+          onClose={() => setEditAnn(null)}
+          onSaved={() => { setEditAnn(null); fetchAnnouncements(); }}
+        />
+      )}
+
+      {annToDelete && (
+        <Dialog open onOpenChange={() => setAnnToDelete(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="text-destructive flex items-center gap-2">
+                <Trash2 className="w-5 h-5" />حذف إعلان
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm">
+              هل تريد حذف إعلان <strong>{annToDelete.title}</strong>؟ لا يمكن التراجع.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAnnToDelete(null)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deletingAnn}>
+                {deletingAnn && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائي
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {loading ? (
+        <Card className="p-8 text-center">
+          <Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground mb-2" />
+          <p className="text-sm text-muted-foreground">جارٍ التحميل…</p>
+        </Card>
+      ) : announcements.length === 0 ? (
+        <Card className="p-8 text-center bg-muted/30 border-dashed">
+          <Megaphone className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+          <h3 className="font-bold text-sm mb-1">لا توجد إعلانات بعد</h3>
+          <p className="text-xs text-muted-foreground">
+            انشر أول إعلان لطلبتك بزر «إعلان جديد» — واختر نطاقه: التخصص أو السنة أو الفوج.
+          </p>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {announcements.map((ann) => (
+            <Card key={ann.id} className="p-4 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Badge
+                    className={cn(
+                      "gap-1 text-[10px]",
+                      ann.urgency === "عاجل" ? "bg-red-500 text-white"
+                      : ann.urgency === "هام" ? "bg-amber-500 text-white"
+                      : "bg-primary/10 text-primary border border-primary/20"
+                    )}
+                  >
+                    {ann.urgency}
+                  </Badge>
+                  <Badge variant="outline" className="gap-1 text-[10px] text-primary border-primary/30">
+                    <Target className="w-3 h-3" />
+                    {ann.scopeLabel ?? ann.visibilityScope ?? "تخصص كامل"}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="icon" variant="ghost" className="h-8 w-8"
+                    onClick={() => setEditAnn(ann)} aria-label="تعديل الإعلان"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    size="icon" variant="ghost"
+                    className="text-destructive hover:bg-destructive/10 h-8 w-8"
+                    onClick={() => setAnnToDelete(ann)} aria-label="حذف الإعلان"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <CalendarDays className="w-3 h-3" />
+                    {formatDateArAdmin(ann.date || null)}
+                  </span>
+                </div>
+              </div>
+              <h3 className="font-bold text-sm">{ann.title}</h3>
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">{ann.content}</p>
+              <p className="text-[11px] text-muted-foreground pt-1.5 border-t border-border">
+                بواسطة: {ann.author}
+              </p>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

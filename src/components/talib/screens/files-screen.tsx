@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -52,7 +53,15 @@ interface LibraryItem {
   // round 32: present when the file was published from a supervisor's Drive
   fileSize: number | null;
   driveFileId: string | null;
+  // round 52: course link — files uploaded inside a course now surface here
+  // too, badged with their course name and filterable by category.
+  moduleId?: number | null;
+  moduleName?: string | null;
 }
+
+// round 52 — ثوابت التصنيف (مطابقة لنافذة الرفع) — الفلاتر تُبنى ديناميكياً
+// من الملفات الموجودة بحيث لا يظهر تصنيف فارغ أبداً، مع ترتيب ثابت معروف.
+const CATEGORY_ORDER = ["محاضرة", "ملخص", "سلسلة تمارين", "كتاب مرجعي", "واجب", "اختبار", "أخرى"];
 
 // round 31: أدواتي was extracted into its own standalone screen (tools-screen.tsx)
 // — it used to be a tab here AND a home tile, which duplicated navigation.
@@ -65,16 +74,26 @@ export function TalibFilesScreen() {
   const [newContent, setNewContent] = React.useState("");
   const [library, setLibrary] = React.useState<LibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = React.useState(true);
+  // round 52: category filter — «الكل» افتراضياً، والفلاتر تُشتق من الملفات
+  const [categoryFilter, setCategoryFilter] = React.useState<string>("الكل");
   // round 6: edit/delete state for library items
   const [editItem, setEditItem] = React.useState<LibraryItem | null>(null);
   const [deleteItem, setDeleteItem] = React.useState<LibraryItem | null>(null);
   const [deletingItem, setDeletingItem] = React.useState(false);
   const canManage = canManageRoles(user ?? null);
 
+  // round 52: derive the visible list from the category filter
+  const filteredLibrary = React.useMemo(
+    () => (categoryFilter === "الكل" ? library : library.filter((i) => i.category === categoryFilter)),
+    [library, categoryFilter]
+  );
+
   const fetchLibrary = React.useCallback(async () => {
     setLibraryLoading(true);
     try {
-      const res = await fetch("/api/library", { cache: "no-store" });
+      // round 52: includeCourseFiles — ملفات المقاييس تُقرأ هنا أيضاً حتى
+      // تجد الملفات كلها في مكان واحد مصنّفة (كانت محصورة داخل المقياس).
+      const res = await fetch("/api/library?includeCourseFiles=1", { cache: "no-store" });
       const data = await res.json();
       setLibrary(data.items ?? []);
     } catch { /* silent */ }
@@ -169,6 +188,43 @@ export function TalibFilesScreen() {
         <TabsContent value="library" className="mt-4 space-y-3">
           {canManage && <PublishToLibraryDialog onCreated={fetchLibrary} />}
 
+          {/* round 52 — فلاتر التصنيف: شرائح أفقية قابلة للتمرير تُبنى من
+              التصنيفات الموجودة فعلاً في ملفات التخصص، مع العدد لكل شريحة. */}
+          {library.length > 0 && (() => {
+            const counts = new Map<string, number>();
+            for (const item of library) counts.set(item.category, (counts.get(item.category) ?? 0) + 1);
+            const ordered = [
+              ...CATEGORY_ORDER.filter((c) => counts.has(c)),
+              ...Array.from(counts.keys()).filter((c) => !CATEGORY_ORDER.includes(c)),
+            ];
+            return (
+              <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1" role="tablist" aria-label="تصفية حسب التصنيف">
+                {["الكل", ...ordered].map((c) => {
+                  const active = categoryFilter === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setCategoryFilter(c)}
+                      className={cn(
+                        "shrink-0 h-8 px-3 rounded-full text-xs font-bold border transition-colors",
+                        active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                      )}
+                      aria-pressed={active}
+                    >
+                      {c}
+                      <span className={cn("mr-1.5 tabular-nums", active ? "opacity-80" : "opacity-60")}>
+                        {c === "الكل" ? library.length : counts.get(c) ?? 0}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
           {/* round 6: edit dialog for library items */}
           {editItem && <EditLibraryItemDialog item={editItem} onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); fetchLibrary(); }} />}
 
@@ -194,16 +250,20 @@ export function TalibFilesScreen() {
           ) : library.length === 0 ? (
             <Card className="p-8 text-center bg-muted/30 border-dashed">
               <BookMarked className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-              <h3 className="font-bold text-sm mb-1">المكتبة فارغة</h3>
+              <h3 className="font-bold text-sm mb-1">لا توجد ملفات بعد</h3>
               <p className="text-xs text-muted-foreground">
                 {canManage
-                  ? "أضف ملفات ومراجع عامة لتخصصك بزر «إضافة ملف» — ملفات المقاييس تُرفع من داخل المقياس نفسه فتظهر في مواده."
-                  : "ستظهر الكتب والملفات المرجعية هنا عند إضافتها من طرف الممثل أو الإدارة — ومواد كل مقياس تجدها في صفحة المقياس."}
+                  ? "أضف ملفات ومراجع عامة لتخصصك بزر «إضافة ملف» — وملفات المقاييس تُرفع من داخل المقياس فتظهر هنا مصنّفة."
+                  : "ستظهر ملفات تخصصك هنا عند رفعها من طرف الممثل أو الإدارة — وملفات كل مقياس تجدها في صفحة المقياس وفي هذه القائمة أيضاً."}
               </p>
+            </Card>
+          ) : filteredLibrary.length === 0 ? (
+            <Card className="p-6 text-center bg-muted/30 border-dashed">
+              <p className="text-xs text-muted-foreground">لا توجد ملفات بتصنيف «{categoryFilter}» — اختر تصنيفاً آخر.</p>
             </Card>
           ) : (
             <div className="space-y-2">
-              {library.map((item) => (
+              {filteredLibrary.map((item) => (
                 <Card key={item.id} className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -211,6 +271,11 @@ export function TalibFilesScreen() {
                         <h3 className="font-bold text-sm">{item.title}</h3>
                         <Badge variant="outline" className="text-xs">{item.fileFormat}</Badge>
                         <Badge variant="secondary" className="text-xs">{item.category}</Badge>
+                        {item.moduleName && (
+                          <Badge variant="outline" className="text-xs text-primary border-primary/30">
+                            📘 {item.moduleName}
+                          </Badge>
+                        )}
                         {item.fileSize != null && (
                           <Badge variant="outline" className="text-xs">{formatBytes(item.fileSize)}</Badge>
                         )}

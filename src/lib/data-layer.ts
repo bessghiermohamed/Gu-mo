@@ -379,7 +379,41 @@ export async function fetchCohortsByGroup(
 // =====================================================
 // Announcements
 // =====================================================
-export async function fetchAnnouncements(specialtyId: number): Promise<Announcement[]> {
+// round 52 — نطاق الإعلانات أصبح حقيقياً: visibilityScope يقبل
+// «تخصص كامل» (الكل)، «سنة دراسية» (targetGroups = معرف السنة)،
+// «فوج» (targetGroups = معرف الفوج). الطلبة يرون ما يستهدفهم فقط،
+// أما المشرفون (seeAll) فيرون كل إعلانات تخصصهم لإدارتها.
+export interface AnnouncementScopeOptions {
+  /** the caller's cohort (AppUser.scopeCohortGroupId) — null = بدون فوج */
+  cohortId?: number | null;
+  /** every year the caller belongs to (their year + their cohort's year) */
+  yearIds?: number[];
+  /** supervisors see the whole specialty regardless of targeting */
+  seeAll?: boolean;
+}
+
+function announcementVisible(
+  a: { visibilityScope?: string; targetGroups?: string },
+  opts?: AnnouncementScopeOptions
+): boolean {
+  const scope = a.visibilityScope ?? "تخصص كامل";
+  if (scope === "سنة دراسية") {
+    if (opts?.seeAll) return true;
+    const target = Number(a.targetGroups);
+    return Number.isFinite(target) && (opts?.yearIds ?? []).includes(target);
+  }
+  if (scope === "فوج") {
+    if (opts?.seeAll) return true;
+    const target = Number(a.targetGroups);
+    return Number.isFinite(target) && opts?.cohortId != null && opts.cohortId === target;
+  }
+  return true; // «تخصص كامل» أو أي قيمة قديمة غير معروفة
+}
+
+export async function fetchAnnouncements(
+  specialtyId: number,
+  opts?: AnnouncementScopeOptions
+): Promise<Announcement[]> {
   if (isVercel) {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
@@ -387,20 +421,24 @@ export async function fetchAnnouncements(specialtyId: number): Promise<Announcem
       .select("*")
       .or(`specialty_id.is.null,specialty_id.eq.${specialtyId}`)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
     if (error) return [];
-    return (data ?? []).map(mapAnnouncement);
+    return (data ?? [])
+      .map(mapAnnouncement)
+      .filter((a) => announcementVisible(a, opts));
   }
   const items = await db.announcement.findMany({
     where: { OR: [{ specialtyId: null }, { specialtyId }] },
     orderBy: { createdAt: "desc" },
-    take: 50,
+    take: 100,
   });
-  return items.map((a) => ({
-    id: a.id, title: a.title, content: a.content, author: a.author, date: a.date,
-    urgency: a.urgency, specialtyId: a.specialtyId, isRead: a.isRead,
-    visibilityScope: a.visibilityScope, targetGroups: a.targetGroups,
-  }));
+  return items
+    .map((a) => ({
+      id: a.id, title: a.title, content: a.content, author: a.author, date: a.date,
+      urgency: a.urgency, specialtyId: a.specialtyId, isRead: a.isRead,
+      visibilityScope: a.visibilityScope, targetGroups: a.targetGroups,
+    }))
+    .filter((a) => announcementVisible(a, opts));
 }
 
 // =====================================================
