@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AdUnit } from "@/components/ads/ad-unit";
+import { AdSlot } from "@/components/ads/ad-slot";
+import { ADSENSE_SLOT_MIMO } from "@/lib/ads";
 
 /**
  * Owner-only ads test page at a CONFIGURABLE path.
@@ -61,15 +62,7 @@ export default async function AdsTestPage({
           </p>
         </header>
 
-        <section className="space-y-3 rounded-2xl border bg-muted/30 p-4">
-          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span className="font-semibold text-foreground">وحدة «Mimo»</span>
-            <span className="font-mono" dir="ltr">
-              slot 4214645931 · responsive
-            </span>
-          </div>
-          <AdUnit adSlot="4214645931" adTest={!REAL_ADS} />
-        </section>
+        <AdSlot adSlot={ADSENSE_SLOT_MIMO} adTest={!REAL_ADS} showSlotId />
 
         <p className="text-xs leading-relaxed text-muted-foreground">
           ملاحظة: الإعلانات الحقيقية لن تظهر قبل موافقة Google على الموقع. في

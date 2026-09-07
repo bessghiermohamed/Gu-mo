@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ArrowLeft, CalendarDays, Clock } from "lucide-react";
 import { SiteHeader } from "@/components/site/site-header";
 import { SiteFooter } from "@/components/site/site-footer";
-import { AdUnit } from "@/components/ads/ad-unit";
+import { AdSlot } from "@/components/ads/ad-slot";
+import { ADSENSE_SLOT_MIMO } from "@/lib/ads";
 import { BLOG_POSTS } from "@/lib/blog";
 
 export const metadata: Metadata = {
@@ -76,9 +77,7 @@ export default function BlogIndexPage() {
           ))}
         </div>
 
-        <div className="mt-10 rounded-xl border bg-muted/30 p-3" aria-label="مساحة إعلانية">
-          <AdUnit adSlot="4214645931" />
-        </div>
+        <AdSlot adSlot={ADSENSE_SLOT_MIMO} className="mt-10" />
       </main>
       <SiteFooter />
     </>

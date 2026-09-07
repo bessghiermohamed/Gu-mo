@@ -18,7 +18,8 @@ import {
 } from "lucide-react";
 import { SiteHeader } from "@/components/site/site-header";
 import { SiteFooter } from "@/components/site/site-footer";
-import { AdUnit } from "@/components/ads/ad-unit";
+import { AdSlot } from "@/components/ads/ad-slot";
+import { ADSENSE_SLOT_MIMO } from "@/lib/ads";
 import { SITE_URL, SITE_NAME, SITE_DESCRIPTION } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -343,8 +344,8 @@ export default function HomePage() {
         </section>
 
         {/* ===================== AD ===================== */}
-        <section aria-label="مساحة إعلانية" className="mx-auto max-w-5xl px-4 pb-6">
-          <AdUnit adSlot="4214645931" className="rounded-xl overflow-hidden" />
+        <section aria-label="مساحة إعلانية" className="mx-auto max-w-3xl px-4 py-2">
+          <AdSlot adSlot={ADSENSE_SLOT_MIMO} />
         </section>
 
         {/* ===================== FAQ PREVIEW ===================== */}

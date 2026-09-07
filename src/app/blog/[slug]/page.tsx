@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, CalendarDays, Clock } from "lucide-react";
 import { SiteHeader } from "@/components/site/site-header";
 import { SiteFooter } from "@/components/site/site-footer";
-import { AdUnit } from "@/components/ads/ad-unit";
+import { AdSlot } from "@/components/ads/ad-slot";
+import { ADSENSE_SLOT_MIMO } from "@/lib/ads";
 import { BLOG_POSTS } from "@/lib/blog";
 import { SITE_URL } from "@/lib/site";
 
@@ -116,14 +117,7 @@ export default async function BlogPostPage({
                     {para}
                   </p>
                 ))}
-                {i === 1 && (
-                  <div
-                    className="rounded-xl border bg-muted/30 p-3"
-                    aria-label="مساحة إعلانية"
-                  >
-                    <AdUnit adSlot="4214645931" />
-                  </div>
-                )}
+                {i === 1 && <AdSlot adSlot={ADSENSE_SLOT_MIMO} className="mt-2" />}
               </section>
             ))}
           </div>

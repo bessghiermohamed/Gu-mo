@@ -413,3 +413,23 @@ Work Log:
 Stage Summary:
 - Deliverable: every app screen now opens title → content with zero restating filler; home grid is icon+label only.
 - Blocker: needs a fresh GitHub token (fine-grained or classic with repo scope) to push 2 commits to bessghiermohamed/Gu-mo main — Vercel deploys automatically on push.
+
+---
+Task ID: 24
+Agent: main (Super Z)
+Task: Round 49 — redesign the AdSense ad experience (owner: "redesign AdSense + feedback on un-redesigned elements").
+
+Work Log:
+- Restored context: shared chat link is auth-walled (blank SPA render, API 401), so identified project via GitHub API with the fresh token: bessghiermohamed/Gu-mo, last activity r47 today. Cloned (shallow), read worklog + r45/r46 reports: app interior already redesigned (filler removal, Facebook-blue identity, tools section); the AD element was still the original bare AdUnit.
+- Audited all 6 placements (landing, features, blog list, blog post, guide, hidden ads-test page): no reserved height (CLS), no visible ad label, 5 different container wraps, no loading state, and unfilled units leave permanent dead bordered boxes (site ads currently unfilled — account under review).
+- KEY LIVE DISCOVERY: an UNFILLED AdSense unit still contains a visible ~280px measurement iframe — "iframe exists" is NOT proof of a served ad; data-ad-status (filled/unfilled) is the only trustworthy signal. Documented in code.
+- NEW src/components/ads/ad-slot.tsx: unified Facebook-theme card (rounded-2xl border bg-card) with tiny «إعلان» label row + Megaphone icon, reserved min-height (110/140px anti-CLS), pulsing skeleton, data-ad-status-driven state machine (loading/filled/empty) + 5s timeout for never-loaded script, 0fr/1fr grid-rows smooth collapse for unfilled units (aria-hidden, zero dead boxes), live MutationObserver with late-fill recovery (collapsed slot re-expands if an ad arrives later — never hides a served impression), adTest/showSlotId owner diagnostics, dark-mode via tokens (verified #242526/#B0B3B8).
+- src/lib/ads.ts: added ADSENSE_SLOT_MIMO constant (magic "4214645931" was repeated in 6 files).
+- Refactored all 6 placements to <AdSlot> (landing now aligned to the FAQ column max-w-3xl; features/blog-post/guide in-content mt-2; blog list mt-10; ads-test page uses adTest+showSlotId, kept its amber header). Deleted ad-unit.tsx (grep: zero remaining importers).
+- ESLint fix during verify: react-hooks/set-state-in-effect → moved initial status sync into rAF.
+- Verification: tsc 0 · eslint clean (8 files) · next build green (68/68). Real-browser on production build (caught EADDRINUSE serving a stale build mid-verify — killed old next-server, re-verified on the correct build): skeleton+label visible at load; unfilled → grid 0px + aria-hidden on landing/blog at 1280 & 390px (scrollWidth 390, no overflow); manual data-ad-status="filled" simulation on a collapsed slot → re-expanded 326px (late-fill path proven); dark-mode tokens match FB palette; ads-test page renders (localhost unfilled — Google serves only registered domains; prod will show test creative); zero page console errors. Screenshots download/r48/.
+- Wrote تقرير-الجولة-48.md; committed and pushed to origin/main with the session token.
+
+Stage Summary:
+- Deliverable: the ad element is now a designed product surface — labeled, space-reserved (CLS-safe), skeleton-loaded, theme-aware, consistent across all six placements, and self-collapsing when unfilled (the current live state), with recovery when ads start serving.
+- Key decisions: trust data-ad-status only (measurement-iframe trap); no new placements (density policy); no new env gating (scope); per-placement slot ids + EEA consent flagged to owner as follow-ups in the report.

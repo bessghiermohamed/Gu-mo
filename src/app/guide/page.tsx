@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { SiteHeader } from "@/components/site/site-header";
 import { SiteFooter } from "@/components/site/site-footer";
-import { AdUnit } from "@/components/ads/ad-unit";
+import { AdSlot } from "@/components/ads/ad-slot";
+import { ADSENSE_SLOT_MIMO } from "@/lib/ads";
 
 export const metadata: Metadata = {
   title: "دليل الاستخدام خطوة بخطوة | طالب | Talib",
@@ -107,9 +108,7 @@ export default function GuidePage() {
                 </figure>
               )}
               {i === 4 && (
-                <div className="rounded-xl border bg-muted/30 p-3" aria-label="مساحة إعلانية">
-                  <AdUnit adSlot="4214645931" />
-                </div>
+                <AdSlot adSlot={ADSENSE_SLOT_MIMO} className="mt-2" />
               )}
             </section>
           ))}
