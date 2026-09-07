@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import {
   BookOpen,
   CalendarDays,
@@ -132,7 +133,14 @@ const SCREENS = [
   { src: "/talib/screens/r27-personal-row.png", alt: "الجدول الذكي في منصة طالب مع الحصص الشخصية", caption: "الجدول — رسمي وشخصي معًا" },
 ];
 
-export default function HomePage() {
+// round 49: the landing is auth-aware. A visitor carrying a session cookie
+// is an EXISTING user — the hero greets them with «متابعة إلى تطبيقي»
+// instead of pitching a new signup, and the header CTA becomes «فتح
+// تطبيقي». Cookie-presence only (no DB hit): the /app route enforces the
+// real session, this is purely a friendlier entry point.
+export default async function HomePage() {
+  const signedIn = (await cookies()).get("talib_session") != null;
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@graph": [
@@ -162,7 +170,7 @@ export default function HomePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <SiteHeader />
+      <SiteHeader signedIn={signedIn} />
       <main id="main">
         {/* ===================== HERO ===================== */}
         <section className="relative overflow-hidden border-b bg-gradient-to-b from-primary/5 via-background to-background">
@@ -187,7 +195,7 @@ export default function HomePage() {
                   href="/app"
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-base font-bold text-primary-foreground shadow-lg shadow-primary/20 transition-opacity hover:opacity-90"
                 >
-                  ابدأ الآن — إنشاء حساب مجاني
+                  {signedIn ? "المتابعة إلى تطبيقي" : "ابدأ الآن — إنشاء حساب مجاني"}
                   <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 </Link>
                 <Link

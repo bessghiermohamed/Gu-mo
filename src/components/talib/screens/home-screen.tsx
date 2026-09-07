@@ -10,12 +10,10 @@ import {
   FolderOpen,
   Megaphone,
   Users,
-  TrendingUp,
   CheckSquare,
   Send,
   ChevronLeft,
   Clock,
-  GraduationCap,
   RefreshCw,
   CalendarX2,
 } from "lucide-react";
@@ -24,7 +22,6 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type ScreenRoute } from "@/app/app/page";
-import { computeGpa } from "@/lib/grades";
 
 interface LatestAnnouncement {
   id: number;
@@ -108,32 +105,6 @@ export function TalibHomeScreen() {
     }, 60_000);
     return () => clearInterval(timer);
   }, []);
-
-  // Real module count for the hero stats (critique: hardcoded "0")
-  const [moduleCount, setModuleCount] = React.useState<number | null>(null);
-  React.useEffect(() => {
-    fetch("/api/courses", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setModuleCount((d.courses ?? []).length))
-      .catch(() => setModuleCount(null));
-  }, []);
-
-  // fix (R12-01): the hero reads the same localStorage rows as the GPA tool
-  // through the SAME shared helper — one GPA concept everywhere. Read once
-  // in a lazy initializer (the shell gates this screen behind `mounted`,
-  // so this never runs during SSR) — no setState-in-effect.
-  const [heroGpa] = React.useState<number | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const stored = localStorage.getItem("talib-grades");
-      if (!stored) return null;
-      const rows = JSON.parse(stored);
-      return Array.isArray(rows) ? computeGpa(rows) : null;
-    } catch {
-      // corrupted storage — hero stays "—"
-      return null;
-    }
-  });
 
   // ── جدول اليوم: أعلى سؤال قيمة في لوحة الطالب («ماذا عندي اليوم؟») ──
   // بلا تخصص لا يوجد جلب إطلاقاً — تُشتق الحالة «فارغ» من user نفسه بدل
@@ -250,66 +221,31 @@ export function TalibHomeScreen() {
 
   return (
     <div className="space-y-5">
-      {/* ═══ بطاقة الترحيب — لحظة الهوية ═══
-          round 48 (ui-ux-pro-max): استبدال صورة البانر الإعلانية ببطاقة
-          متدرجة مدمجة تقود بالبيانات: تحية بحسب الوقت، تاريخ اليوم، رقم
-          الطالب، وثلاثة مؤشرات (المعدل/المقاييس/حصص اليوم). التدرج مبني
-          على tokens فقط (from-primary + طبقتا إضاءة محايدتان) ليبقى صحيحاً
-          مع مبدّل الألوان (أكاديمي/عصري) وفي الوضعين الفاتح والداكن.
-          hero-banner.jpg ما يزال في /public لمن يريد استرجاعه. */}
-      <motion.section
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.35 }}
-        className="relative overflow-hidden rounded-3xl bg-primary text-primary-foreground shadow-md"
-        aria-label="لوحة الطالب"
-      >
-        {/* طبقتا عمق محايدتان (تعملان فوق أي لون هوية) */}
-        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/15" />
-        <GraduationCap
-          aria-hidden="true"
-          className="absolute -bottom-9 -left-7 w-40 h-40 text-white/10 rotate-12 pointer-events-none"
-        />
-        <div className="relative p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              {/* min-h ثابت للسطرين يمنع قفز التخطيط لحظة حساب التاريخ */}
-              <p className="text-xs font-medium text-primary-foreground/85 min-h-4">
-                {nowMeta.greet}
-              </p>
-              <h1 className="text-xl font-black truncate mt-0.5">{greeting}</h1>
-              <p className="text-[11px] text-primary-foreground/70 mt-1 min-h-4">
-                {nowMeta.date}
-              </p>
-            </div>
-            {user && (
-              <Badge className="shrink-0 bg-white/20 backdrop-blur-sm text-white border border-white/25 font-bold">
-                {user.studentId}
-              </Badge>
-            )}
+      {/* ═══ ترويسة ترحيب نصية — بلا بانر ═══
+          round 49 (طلب المالك): إزالة البانر المتدرج نهائياً. ترويسة نصية
+          هادئة على خلفية الشاشة نفسها: تحية + اسم + تاريخ + رقم الطالب،
+          بلا بطاقة ولا تدرج ولا مؤشرات — المحتوى الفعلي يبدأ فوراً بـ«جدول
+          اليوم» (حصص اليوم) والمؤشرات الأخرى تعيش في شاشاتها (المعدل في
+          أدواتي، المقاييس في المقررات). */}
+      <header className="pt-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            {/* min-h ثابت للسطرين يمنع قفز التخطيط لحظة حساب التاريخ */}
+            <p className="text-xs font-medium text-muted-foreground min-h-4">
+              {nowMeta.greet}
+            </p>
+            <h1 className="text-xl font-black truncate mt-0.5">{greeting}</h1>
+            <p className="text-[11px] text-muted-foreground mt-1 min-h-4">
+              {nowMeta.date}
+            </p>
           </div>
-
-          {/* المؤشرات: قيم حقيقية، بدون قفز — «…» أثناء التحميل */}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <HeroStat
-              icon={<TrendingUp className="w-3.5 h-3.5" />}
-              label={t("home.gpa")}
-              value={heroGpa != null ? `${heroGpa.toFixed(2)} / 20` : "—"}
-              title="يُحسب من حاسبة المعدل في أدواتي"
-            />
-            <HeroStat
-              icon={<BookOpen className="w-3.5 h-3.5" />}
-              label={t("home.modulesCount")}
-              value={moduleCount != null ? String(moduleCount) : "…"}
-            />
-            <HeroStat
-              icon={<CalendarDays className="w-3.5 h-3.5" />}
-              label="حصص اليوم"
-              value={todayItems ? String(rows.length) : hasSpecialty ? "…" : "—"}
-            />
-          </div>
+          {user && (
+            <Badge variant="outline" className="shrink-0 font-bold tabular-nums">
+              {user.studentId}
+            </Badge>
+          )}
         </div>
-      </motion.section>
+      </header>
 
       {/* round 10 (review §4): join-request status banner — visible answer
           to "do I have a pending request?" / "where do I join a group?" */}
@@ -618,26 +554,3 @@ export function TalibHomeScreen() {
   );
 }
 
-/** رقاقة مؤشر داخل بطاقة الترحيب — زجاجية فاتحة تعمل فوق أي درجة أزرق/بنفسجي */
-function HeroStat({
-  icon,
-  label,
-  value,
-  title,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  title?: string;
-}) {
-  return (
-    <div
-      title={title}
-      className="flex items-center gap-1.5 rounded-xl bg-white/15 backdrop-blur-sm px-2.5 py-1.5"
-    >
-      <span className="text-primary-foreground/85 [&>svg]:w-3.5 [&>svg]:h-3.5">{icon}</span>
-      <span className="text-[11px] text-primary-foreground/80">{label}:</span>
-      <span className="text-xs font-bold tabular-nums">{value}</span>
-    </div>
-  );
-}

@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Bell, VolumeX, Info, Loader2, Palette, Moon, Sun, Sparkles } from "lucide-react";
+import { Bell, VolumeX, Info, Loader2, Palette, Moon, Sun, Sparkles, Compass } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/components/talib/auth-provider";
 import { usePalette } from "@/components/talib/theme-provider";
+import { useShell } from "@/app/app/page";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
@@ -43,6 +45,7 @@ function isSupervisor(role: string | undefined): boolean {
 
 export function TalibSettingsScreen() {
   const { user } = useAuth();
+  const { navigate } = useShell();
   const { theme, setTheme } = useTheme();
   const { palette, togglePalette } = usePalette();
 
@@ -53,7 +56,8 @@ export function TalibSettingsScreen() {
 
   React.useEffect(() => {
     if (!user) return;
-    setPrefsAvailable(null);
+    // لا تصفير متزامن داخل الـ effect (قاعدة set-state-in-effect): الحالة
+    // تبدأ null، والشاشة تُركَّب بعد تسجيل الدخول فقط فلا حاجة لإعادة ضبط.
     fetch("/api/notifications/preferences", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
@@ -211,6 +215,44 @@ export function TalibSettingsScreen() {
             />
           </div>
         </div>
+      </Card>
+
+      {/* round 49 — replay the first-run tour. The tour shows ONCE per
+          account by design (round 27); until now there was no way to bring
+          it back, which read as «الشرح العائم اختفى». Removing the flag and
+          jumping HOME re-arms the overlay (its effect re-runs on the
+          HOME transition and the flag is gone). */}
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <Compass className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-sm">الجولة التعريفية</h3>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              شرح عائم على ثلاث خطوات لأهم شاشات التطبيق — يظهر مرة واحدة عند أول دخول، ويمكنك إعادته متى شئت
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => {
+            if (!user) return;
+            try {
+              localStorage.removeItem(`talib-tour-${user.id}`);
+            } catch {
+              toast.error("تعذّر إعادة الجولة — التخزين المحلي معطّل على هذا الجهاز");
+              return;
+            }
+            navigate("HOME");
+            toast.info("ستبدأ الجولة تلقائياً في الشاشة الرئيسية");
+          }}
+        >
+          <Compass className="w-3.5 h-3.5 ml-1" />
+          إعادة الجولة التعريفية
+        </Button>
       </Card>
 
       {/* round 26 — about: a quiet identity card. Deliberately version-free

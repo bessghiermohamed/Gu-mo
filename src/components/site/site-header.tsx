@@ -12,7 +12,11 @@ const NAV = [
   { href: "/contact", label: "اتصل بنا" },
 ];
 
-export function SiteHeader() {
+// round 49: the header now knows whether a session cookie exists —
+// a signed-in visitor sees «فتح تطبيقي» instead of «دخول التطبيق» so the
+// public site stops presenting itself as a login wall to existing users.
+// (Cookie-presence only — the app route enforces the real session.)
+export function SiteHeader({ signedIn = false }: { signedIn?: boolean }) {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-3 px-4">
@@ -39,7 +43,7 @@ export function SiteHeader() {
           className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-bold text-primary-foreground transition-opacity hover:opacity-90"
         >
           <LogIn className="h-4 w-4" aria-hidden="true" />
-          دخول التطبيق
+          {signedIn ? "فتح تطبيقي" : "دخول التطبيق"}
         </Link>
       </div>
 

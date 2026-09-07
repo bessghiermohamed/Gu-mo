@@ -117,7 +117,9 @@ function useCascade() {
 // =====================================================
 const TAB_BOX_CLS =
   "h-16 flex-col gap-1 rounded-lg border border-input bg-background " +
-  "data-[state=active]:border-primary data-[state=active]:bg-primary/10 " +
+  "cursor-pointer transition-colors duration-200 hover:border-primary/40 hover:bg-muted/50 " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background " +
+  "data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:hover:border-primary " +
   "dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/10";
 const TAB_LABEL_CLS = "text-[11px] font-bold leading-none";
 
@@ -182,6 +184,11 @@ export function TalibAdminPanelScreen() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">{t("admin.title")}</h1>
+        <p className="text-xs text-muted-foreground mt-1">
+          نطاق الإشراف: {user?.fullName}
+          {" — "}
+          {user?.role === "OWNER" ? "المالك" : user?.role === "SPECIALTY_ADMIN" ? "مشرف تخصص" : "رئيس فوج"}
+        </p>
       </div>
 
       <Tabs value={adminTab} onValueChange={setAdminTab}>
@@ -195,7 +202,7 @@ export function TalibAdminPanelScreen() {
         <TabsList className="grid w-full h-auto grid-cols-4 sm:grid-cols-7 gap-1.5 bg-transparent p-0 items-stretch">
           <TabsTrigger
             value="overview"
-            className="col-span-4 sm:col-span-7 h-12 rounded-lg border border-input bg-background text-xs data-[state=active]:border-primary data-[state=active]:bg-primary/10 dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/10 data-[state=active]:font-bold"
+            className="col-span-4 sm:col-span-7 h-12 rounded-lg border border-input bg-background text-xs cursor-pointer transition-colors duration-200 hover:border-primary/40 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:font-bold data-[state=active]:hover:border-primary dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/10"
           >
             <LayoutDashboard className="w-4 h-4 ml-1" />مركز التحكم
           </TabsTrigger>
