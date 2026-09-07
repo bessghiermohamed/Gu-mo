@@ -459,8 +459,11 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
   // يظهر في تبويب الواجبات، وملف «اختبار» في تبويب الاختبارات، وكل ما عدا
   // ذلك يُقرأ من «ملفاتي» (المكتبة المصنّفة) — لم تعد هناك قائمة «مواد»
   // منفصلة داخل المقياس.
+  // round 54 — طلب المالك: ملف «محاضرة/درس» يُرفع ويُعرض داخل تبويب
+  // الدروس أيضاً، مطابقًا لتبويبَي الواجبات والاختبارات.
   const assignmentFiles = materials.filter((m) => m.category === "واجب");
   const examFiles = materials.filter((m) => m.category === "اختبار");
+  const lectureFiles = materials.filter((m) => m.category === "محاضرة");
 
   return (
     <div className="space-y-4">
@@ -500,7 +503,7 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
           <div className="border-x border-border/70">
             <p className="text-[11px] text-muted-foreground mb-0.5">الدروس</p>
             <p className="text-lg font-black text-primary">
-              {lessonsState === "loading" ? "…" : lessons.length}
+              {lessonsState === "loading" ? "…" : lessons.length + lectureFiles.length}
             </p>
           </div>
           <div className="border-x border-border/70">
@@ -550,8 +553,8 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
               </p>
               <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
                 ارفع ملفاً من جهازك أو أضف رابطاً — يظهر لدى الطلبة في
-                «ملفاتي» مصنّفاً، وملف الواجب داخل تبويب الواجبات وملف
-                الاختبار داخل تبويب الاختبارات، دون أن يُخزَّن
+                «ملفاتي» مصنّفاً، وملف الدرس داخل تبويب الدروس، وملف الواجب
+                داخل تبويب الواجبات، وملف الاختبار داخل تبويب الاختبارات، دون أن يُخزَّن
                 شيء على السيرفر.
               </p>
             </div>
@@ -585,16 +588,42 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
 
         {/* ---- Lessons ---- */}
         <TabsContent value="lessons" className="mt-4 space-y-3">
+          {/* round 54 — طلب المالك «في الدروس أضف زر رفع»: ملف الدرس
+              يُرفع مباشرة من تبويبه ويظهر داخله، مطابقًا للواجبات والاختبارات */}
+          {canManage && (
+            <PublishToLibraryDialog
+              onCreated={() => setMaterialsTick((n) => n + 1)}
+              moduleId={course.id}
+              defaultCategory="محاضرة"
+              triggerLabel="رفع ملف درس"
+              courseName={course.name}
+            />
+          )}
+          {materialsState === "error" && (
+            <SectionError onRetry={() => setMaterialsTick((n) => n + 1)} />
+          )}
+          {materialsState === "ok" && lectureFiles.length > 0 && (
+            <div className="space-y-2">
+              {lectureFiles.map((m) => (
+                <CourseFileCard
+                  key={m.id} m={m} canManage={canManage}
+                  onEdit={() => setMaterialToEdit(m)}
+                  onDelete={() => setMaterialToDelete(m)}
+                  onCopy={() => copyMaterialLink(m.downloadUrl)}
+                />
+              ))}
+            </div>
+          )}
           {lessonsState === "loading" && <SectionLoading />}
           {lessonsState === "error" && (
             <SectionError onRetry={() => setLessonsTick((n) => n + 1)} />
           )}
-          {lessonsState === "ok" && sortedLessons.length === 0 && (
+          {lessonsState === "ok" && sortedLessons.length === 0 && lectureFiles.length === 0 && (
             <>
               <SectionEmpty
                 icon={<GraduationCap className="w-10 h-10" />}
                 title="لا توجد دروس منشورة لهذا المقياس بعد"
-                hint="الدروس المنشورة في قنوات تيليجرام ومساحة الفوج ومرتبطة بهذا المقياس ستظهر هنا تلقائياً."
+                hint="الدروس المنشورة في قنوات تيليجرام ومساحة الفوج ومرتبطة بهذا المقياس ستظهر هنا تلقائياً، ويمكن للمشرفين رفع ملفات الدروس من الزر أعلاه."
               />
               <Button variant="outline" className="w-full" onClick={() => navigate("TELEGRAM")}>
                 <Send className="w-4 h-4 ml-1" />تصفّح دروس تيليجرام الكاملة
