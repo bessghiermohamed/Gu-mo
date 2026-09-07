@@ -14,18 +14,39 @@ import {
   Send,
   ChevronLeft,
   Clock,
+  TrendingUp,
+  GraduationCap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type ScreenRoute } from "@/app/app/page";
+import { computeGpa } from "@/lib/grades";
 
 interface QuickAction {
   title: string;
   icon: React.ReactNode;
   route: ScreenRoute;
   delay: number;
+}
+
+/** صف من جدول الحصص كما يعيده /api/schedule — لمؤشر «حصص اليوم» */
+interface ScheduleRow {
+  id: number;
+  dayOfWeek: number;
+  startTime: string;
+}
+
+/** "08:30" → 510 دقيقة من منتصف الليل */
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map((n) => parseInt(n, 10));
+  return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
+}
+
+/** تقسيم اليوم وفق اصطلاح التطبيق (1=الأحد … 7=السبت) كما في شاشة الجدول */
+function appDayFromJsDate(d: Date): number {
+  return d.getDay() + 1; // JS: 0=الأحد
 }
 
 export function TalibHomeScreen() {
@@ -50,6 +71,67 @@ export function TalibHomeScreen() {
     }).format(d);
     return { greet, date };
   });
+
+  // ── بيانات مؤشرات البانر الثلاثة (r53: عاد البانر بمؤشراته) ──
+
+  // المعدل التقديري: من نفس مخزن حاسبة المعدل (talib-grades) عبر نفس
+  // الدالة المشتركة — مفهوم واحد للمعدل في كامل التطبيق. قراءة واحدة
+  // في مُهيّئ كسول (الشاشة لا تُعرض إلا بعد جلسة مسجلة) — بلا
+  // setState داخل effect.
+  const [heroGpa] = React.useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = localStorage.getItem("talib-grades");
+      if (!stored) return null;
+      const rows = JSON.parse(stored);
+      return Array.isArray(rows) ? computeGpa(rows) : null;
+    } catch {
+      // مخزن تالف — يبقى المؤشر «—»
+      return null;
+    }
+  });
+
+  // عدد المقاييس الحقيقي (بدل رقم ثابت)
+  const [moduleCount, setModuleCount] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    let alive = true;
+    fetch("/api/courses", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive) setModuleCount((d.courses ?? []).length);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // حصص اليوم: عدّاد فقط — الودجت الكاملة تبقى محذوفة (r51 بطلب المالك)
+  // والمؤشر يجيب سؤال «هل عندي حصص اليوم؟» بنظرة واحدة.
+  const hasSpecialty = user?.assignedSpecialtyId != null;
+  const [todayCount, setTodayCount] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    if (!hasSpecialty) return;
+    let alive = true;
+    fetch("/api/schedule", { cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        if (!alive) return;
+        const rows: ScheduleRow[] = d.items ?? [];
+        const appDay = appDayFromJsDate(new Date());
+        const todays = rows
+          .filter((i) => i.dayOfWeek === appDay)
+          .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+        setTodayCount(todays.length);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [user, hasSpecialty]);
 
   // round 51 (طلب المالك: «حذف آخر الإعلانات والجدول» من الرئيسية):
   // ودجتا «جدول اليوم» و«آخر الإعلانات» (إضافة r48) أُزيلتا — الرئيسية
@@ -90,29 +172,69 @@ export function TalibHomeScreen() {
 
   return (
     <div className="space-y-5">
-      {/* ═══ ترويسة ترحيب نصية — بلا بانر ═══
-          round 49 (طلب المالك): إزالة البانر المتدرج نهائياً. ترويسة نصية
-          هادئة على خلفية الشاشة نفسها: تحية + اسم + تاريخ + رقم الطالب.
-          round 51: المحتوى يبدأ الآن مباشرة بالخدمات بعد حذف الودجتين. */}
-      <header className="pt-1">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            {/* min-h ثابت للسطرين يمنع قفز التخطيط لحظة حساب التاريخ */}
-            <p className="text-xs font-medium text-muted-foreground min-h-4">
-              {nowMeta.greet}
-            </p>
-            <h1 className="text-xl font-black truncate mt-0.5">{greeting}</h1>
-            <p className="text-[11px] text-muted-foreground mt-1 min-h-4">
-              {nowMeta.date}
-            </p>
+      {/* ═══ بطاقة الترحيب — لحظة الهوية ═══
+          round 53 (طلب المالك: «أعد البانر»): البانر المتدرج يعود إلى
+          الرئيسية بعد الدخول. لأجل الشفافية: أُزيل في r49 تفسيراً لتعليمة
+          «أزل البانر من الصفحة الرئيسية» حيث كانت «الرئيسية» آنذاك تعني
+          هذه الشاشة، ثم ذهبت جولة r51 بتعليمة «Re-banner» إلى استرجاع
+          لافتة الهبوط فبقي بانر هذه الشاشة محذوفاً — وهو ما يُصحّح الآن.
+          البطاقة تقود بالبيانات: تحية بحسب الوقت، تاريخ اليوم، رقم
+          الطالب، وثلاثة مؤشرات حقيقية (المعدل/المقاييس/حصص اليوم).
+          التدرج مبني على tokens فقط (bg-primary + طبقتا عمق محايدتان)
+          ليبقى صحيحاً مع الثلاث هويات (أخضر/بنفسجي/أزرق) وفي الوضعين. */}
+      <motion.section
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.35 }}
+        className="relative overflow-hidden rounded-3xl bg-primary text-primary-foreground shadow-md"
+        aria-label="لوحة الطالب"
+      >
+        {/* طبقتا عمق محايدتان (تعملان فوق أي لون هوية) */}
+        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/15" />
+        <GraduationCap
+          aria-hidden="true"
+          className="absolute -bottom-9 -left-7 w-40 h-40 text-white/10 rotate-12 pointer-events-none"
+        />
+        <div className="relative p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              {/* min-h ثابت للسطرين يمنع قفز التخطيط لحظة حساب التاريخ */}
+              <p className="text-xs font-medium text-primary-foreground/85 min-h-4">
+                {nowMeta.greet}
+              </p>
+              <h1 className="text-xl font-black truncate mt-0.5">{greeting}</h1>
+              <p className="text-[11px] text-primary-foreground/70 mt-1 min-h-4">
+                {nowMeta.date}
+              </p>
+            </div>
+            {user && (
+              <Badge className="shrink-0 bg-white/20 backdrop-blur-sm text-white border border-white/25 font-bold">
+                {user.studentId}
+              </Badge>
+            )}
           </div>
-          {user && (
-            <Badge variant="outline" className="shrink-0 font-bold tabular-nums">
-              {user.studentId}
-            </Badge>
-          )}
+
+          {/* المؤشرات: قيم حقيقية، بدون قفز — «…» أثناء التحميل */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <HeroStat
+              icon={<TrendingUp className="w-3.5 h-3.5" />}
+              label={t("home.gpa")}
+              value={heroGpa != null ? `${heroGpa.toFixed(2)} / 20` : "—"}
+              title="يُحسب من حاسبة المعدل في أدواتي"
+            />
+            <HeroStat
+              icon={<BookOpen className="w-3.5 h-3.5" />}
+              label={t("home.modulesCount")}
+              value={moduleCount != null ? String(moduleCount) : "…"}
+            />
+            <HeroStat
+              icon={<CalendarDays className="w-3.5 h-3.5" />}
+              label="حصص اليوم"
+              value={todayCount != null ? String(todayCount) : hasSpecialty ? "…" : "—"}
+            />
+          </div>
         </div>
-      </header>
+      </motion.section>
 
       {/* round 10 (review §4): join-request status banner — visible answer
           to "do I have a pending request?" / "where do I join a group?" */}
@@ -241,6 +363,31 @@ export function TalibHomeScreen() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** رقاقة مؤشر داخل بطاقة الترحيب — زجاجية فاتحة تعمل فوق أي درجة
+ *  هوية (أخضر/بنفسجي/أزرق) وفي الوضعين الفاتح والداكن */
+function HeroStat({
+  icon,
+  label,
+  value,
+  title,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  title?: string;
+}) {
+  return (
+    <div
+      title={title}
+      className="flex items-center gap-1.5 rounded-xl bg-white/15 backdrop-blur-sm px-2.5 py-1.5"
+    >
+      <span className="text-primary-foreground/85 [&>svg]:w-3.5 [&>svg]:h-3.5">{icon}</span>
+      <span className="text-[11px] text-primary-foreground/80">{label}:</span>
+      <span className="text-xs font-bold tabular-nums">{value}</span>
     </div>
   );
 }

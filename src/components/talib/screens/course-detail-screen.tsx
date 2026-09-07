@@ -35,7 +35,7 @@ import {
   BookOpen, FlaskConical, CheckSquare, Send, Loader2, ExternalLink,
   FileText, ImageIcon, Video, Headphones, File, MessageSquare, LinkIcon,
   CalendarDays, Clock, MapPin, User, GraduationCap, AlertTriangle,
-  RefreshCw, ChevronLeft, Star, Sparkles, Download, HardDrive,
+  RefreshCw, ChevronLeft, Star, Sparkles, Download, HardDrive, CloudUpload,
   Pencil, Trash2, Copy, CalendarPlus, Eye, Square, Check, Flag,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -534,23 +534,24 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
       </Card>
 
       {/* Round 40 — the upload entry lives at the COURSE level, not buried
-          in one tab: a supervisor opening ANY course sees the Drive upload
+          in one tab: a supervisor opening ANY course sees the upload
           immediately on every tab («some courses have no upload buttons»).
-          Storage story in one line: the supervisor's own Drive becomes the
-          shared space students download from — zero bytes on Supabase.
+          round 53 (طلب المالك): الزر بلغة «رفع ملف» الموحّدة بلا هوية
+          Drive في التسمية — مطابق لأزرار تبويبَي الواجبات والاختبارات؛
+          التخزين السحابي يبقى كما هو ويُشرح داخل النافذة نفسها.
           Students never see this row (canManage gates it). */}
       {canManage && (
         <Card className="p-3 border-primary/25 bg-primary/5">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-bold flex items-center gap-1.5">
-                <HardDrive className="w-3.5 h-3.5 text-primary shrink-0" />
+                <CloudUpload className="w-3.5 h-3.5 text-primary shrink-0" />
                 رفع ملف لهذا المقياس
               </p>
               <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                إلى مجلد هذا المقياس «📘 {course.name}» في Drive الخاص بك —
-                يظهر لدى الطلبة في «ملفاتي» مصنّفاً (ملف واجب في تبويب
-                الواجبات، وملف اختبار في تبويب الاختبارات)، دون أن يُخزَّن
+                ارفع ملفاً من جهازك أو أضف رابطاً — يظهر لدى الطلبة في
+                «ملفاتي» مصنّفاً، وملف الواجب داخل تبويب الواجبات وملف
+                الاختبار داخل تبويب الاختبارات، دون أن يُخزَّن
                 شيء على السيرفر.
               </p>
             </div>
@@ -558,7 +559,7 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
               onCreated={() => setMaterialsTick((n) => n + 1)}
               moduleId={course.id}
               defaultCategory="محاضرة"
-              triggerLabel="رفع ملف (Drive)"
+              triggerLabel="رفع ملف"
               triggerClassName="shrink-0"
               courseName={course.name}
             />

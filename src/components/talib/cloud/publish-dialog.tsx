@@ -7,13 +7,14 @@
  *   • ملفاتي → المكتبة → «إضافة ملف»          (specialty-wide)
  *   • تفاصيل المقياس → المواد → «إضافة مادة»  (course-scoped, moduleId set)
  *
- * Two modes (round 38: «رفع ملف (Drive)» is now the DEFAULT — the owner
+ * Two modes (round 38: the REAL upload is the DEFAULT — the owner
  * opened the dialog, saw only a link form, and concluded the app uploads
- * to the server instead of Drive; the real upload must be the first thing
+ * to the server; the real upload must be the first thing
  * the dialog offers. Bytes go browser → the supervisor's own Drive with a
  * progress bar, the file is shared anyone-with-link, students download
  * directly from Drive — Supabase stores only the metadata row. The link
- * mode stays as the secondary option):
+ * mode stays as the secondary option. round 53 (طلب المالك): تُسمية
+ * الزر صارت «رفع ملف» الموحّدة — بلا هوية Drive في التسمية):
  *
  * When `moduleId` is passed, the created row is tagged with the course so
  * the file also appears in that course's tabs AND in the student's
@@ -143,7 +144,7 @@ export function PublishToLibraryDialog({
             variant={mode === "upload" ? "default" : "outline"}
             onClick={() => setMode("upload")}
           >
-            <CloudUpload className="w-3.5 h-3.5 ml-1" />رفع ملف (Drive)
+            <CloudUpload className="w-3.5 h-3.5 ml-1" />رفع ملف
           </Button>
           <Button
             type="button" size="sm"
@@ -252,9 +253,9 @@ function LinkMode({
       <p className="text-[11px] text-muted-foreground">
         لا تملك ملفاً جاهزاً؟ اختر{" "}
         <button type="button" className="underline text-primary" onClick={onSwitchToUpload}>
-          «رفع ملف (Drive)»
+          «رفع ملف»
         </button>{" "}
-        ليرفع الملف إلى Drive وينزل الطلبة الملف مباشرة.
+        لترفع الملف من جهازك وينزل الطلبة الملف مباشرة.
       </p>
       <DialogFooter>
         <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}إضافة</Button>
