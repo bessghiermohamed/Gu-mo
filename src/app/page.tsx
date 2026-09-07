@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import {
   BookOpen,
   CalendarDays,
@@ -133,13 +134,16 @@ const SCREENS = [
   { src: "/talib/screens/r27-personal-row.png", alt: "الجدول الذكي في منصة طالب مع الحصص الشخصية", caption: "الجدول — رسمي وشخصي معًا" },
 ];
 
-// round 49: the landing is auth-aware. A visitor carrying a session cookie
-// is an EXISTING user — the hero greets them with «متابعة إلى تطبيقي»
-// instead of pitching a new signup, and the header CTA becomes «فتح
-// تطبيقي». Cookie-presence only (no DB hit): the /app route enforces the
-// real session, this is purely a friendlier entry point.
+// round 51 — طلب المالك: «المسجَّل دخوله لا يرى AdSense في كل مرة،
+// بل يدخل تطبيقه مباشرة»:
+// a visitor carrying a session cookie is an EXISTING user — they go
+// STRAIGHT to the app instead of being shown the pre-login marketing
+// pages (which is where all AdSense units live) on every visit.
+// Cookie-presence only (no DB hit): /app enforces the real session, so
+// a stale cookie simply lands on the login screen — no loop.
 export default async function HomePage() {
   const signedIn = (await cookies()).get("talib_session") != null;
+  if (signedIn) redirect("/app");
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -170,55 +174,75 @@ export default async function HomePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <SiteHeader signedIn={signedIn} />
+      <SiteHeader signedIn={false} />
       <main id="main">
-        {/* ===================== HERO ===================== */}
+        {/* ===================== HERO =====================
+            round 51 («Re-banner» بطلب المالك): لافتة الهيرو تعود —
+            بنسختها الخضراء الأكاديمية المستعادة، بعمودين على الشاشات
+            الكبيرة ومتكدسة في الوسط على الهاتف. */}
         <section className="relative overflow-hidden border-b bg-gradient-to-b from-primary/5 via-background to-background">
-          <div className="mx-auto max-w-3xl px-4 py-12 text-center sm:py-16">
-            <div className="space-y-6">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary/15 px-3 py-1 text-xs font-bold text-secondary">
-                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                منصة جزائرية ١٠٠٪ — بالعربية وبالاتجاه الصحيح
-              </span>
-              <h1 className="text-3xl font-extrabold leading-tight text-foreground sm:text-4xl">
-                طالب — رفيقك الأكاديمي
-                <span className="block text-primary">من أول محاضرة إلى التخرج</span>
-              </h1>
-              <p className="mx-auto max-w-2xl text-base leading-relaxed text-muted-foreground">
-                توقّف عن المطاردة بين مجموعات الواتساب وصور الجدول القديمة والورق
-                المبعثر. منصة «طالب» تجمع مقرراتك، جدولك، علاماتك، واجباتك،
-                وملفاتك في مكان واحد منظم — مصممة بوعي لطلبة الجزائر، بلغتهم،
-                وبتقنية لا تتجسس عليك.
-              </p>
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                <Link
-                  href="/app"
-                  className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-base font-bold text-primary-foreground shadow-lg shadow-primary/20 transition-opacity hover:opacity-90"
-                >
-                  {signedIn ? "المتابعة إلى تطبيقي" : "ابدأ الآن — إنشاء حساب مجاني"}
-                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                </Link>
-                <Link
-                  href="/features"
-                  className="inline-flex items-center gap-2 rounded-full border bg-card px-6 py-3 text-base font-bold text-foreground transition-colors hover:bg-muted"
-                >
-                  اكتشف المميزات
-                </Link>
+          <div className="mx-auto max-w-5xl px-4 py-12 sm:py-16">
+            <div className="grid items-center gap-10 md:grid-cols-2">
+              <div className="space-y-6">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary/15 px-3 py-1 text-xs font-bold text-secondary">
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  منصة جزائرية ١٠٠٪ — بالعربية وبالاتجاه الصحيح
+                </span>
+                <h1 className="text-3xl font-extrabold leading-tight text-foreground sm:text-4xl">
+                  طالب — رفيقك الأكاديمي
+                  <span className="block text-primary">من أول محاضرة إلى التخرج</span>
+                </h1>
+                <p className="max-w-md text-base leading-relaxed text-muted-foreground">
+                  توقّف عن المطاردة بين مجموعات الواتساب وصور الجدول القديمة والورق
+                  المبعثر. منصة «طالب» تجمع مقرراتك، جدولك، علاماتك، واجباتك،
+                  وملفاتك في مكان واحد منظم — مصممة بوعي لطلبة الجزائر، بلغتهم،
+                  وبتقنية لا تتجسس عليك.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Link
+                    href="/app"
+                    className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-base font-bold text-primary-foreground shadow-lg shadow-primary/20 transition-opacity hover:opacity-90"
+                  >
+                    ابدأ الآن — إنشاء حساب مجاني
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  </Link>
+                  <Link
+                    href="/features"
+                    className="inline-flex items-center gap-2 rounded-full border bg-card px-6 py-3 text-base font-bold text-foreground transition-colors hover:bg-muted"
+                  >
+                    اكتشف المميزات
+                  </Link>
+                </div>
+                <ul className="flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-muted-foreground">
+                  <li className="inline-flex items-center gap-1.5">
+                    <ShieldCheck className="h-4 w-4 text-primary" aria-hidden="true" />
+                    خصوصية محترمة — لا بيع للبيانات
+                  </li>
+                  <li className="inline-flex items-center gap-1.5">
+                    <Smartphone className="h-4 w-4 text-primary" aria-hidden="true" />
+                    يعمل على الهاتف والحاسوب
+                  </li>
+                  <li className="inline-flex items-center gap-1.5">
+                    <GraduationCap className="h-4 w-4 text-primary" aria-hidden="true" />
+                    مصمم لـ ENS بوزريعة
+                  </li>
+                </ul>
               </div>
-              <ul className="flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs font-semibold text-muted-foreground">
-                <li className="inline-flex items-center gap-1.5">
-                  <ShieldCheck className="h-4 w-4 text-primary" aria-hidden="true" />
-                  خصوصية محترمة — لا بيع للبيانات
-                </li>
-                <li className="inline-flex items-center gap-1.5">
-                  <Smartphone className="h-4 w-4 text-primary" aria-hidden="true" />
-                  يعمل على الهاتف والحاسوب
-                </li>
-                <li className="inline-flex items-center gap-1.5">
-                  <GraduationCap className="h-4 w-4 text-primary" aria-hidden="true" />
-                  مصمم لـ ENS بوزريعة
-                </li>
-              </ul>
+
+              <div className="relative mx-auto w-full max-w-md">
+                <img
+                  src="/talib/hero-banner.svg"
+                  alt="منصة طالب الدراسية — نظرة عامة على الخدمات الأكاديمية"
+                  width={800}
+                  height={400}
+                  className="w-full rounded-2xl border shadow-xl"
+                  fetchPriority="high"
+                />
+                <div className="absolute -bottom-4 -right-2 hidden rounded-xl border bg-card px-4 py-2 shadow-md sm:block">
+                  <p className="text-xs font-bold text-foreground">٩ خدمات أكاديمية</p>
+                  <p className="text-[10px] text-muted-foreground">في تطبيق واحد خفيف</p>
+                </div>
+              </div>
             </div>
           </div>
         </section>

@@ -154,7 +154,7 @@ export function TalibScheduleScreen() {
   }
 
   return (
-    <div className="space-y-4">
+    <div id="talib-tour-schedule" className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">{t("schedule.title")}</h1>
       </div>

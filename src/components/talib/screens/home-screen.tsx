@@ -14,8 +14,6 @@ import {
   Send,
   ChevronLeft,
   Clock,
-  RefreshCw,
-  CalendarX2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,51 +21,11 @@ import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type ScreenRoute } from "@/app/app/page";
 
-interface LatestAnnouncement {
-  id: number;
-  title: string;
-  date: string;
-  urgency: string;
-}
-
 interface QuickAction {
   title: string;
   icon: React.ReactNode;
   route: ScreenRoute;
   delay: number;
-}
-
-/** صف من جدول الحصص كما يعيده /api/schedule */
-interface ScheduleRow {
-  id: number;
-  dayOfWeek: number;
-  startTime: string;
-  endTime: string;
-  moduleName: string;
-  type?: string | null;
-  room?: string | null;
-  professor?: string | null;
-}
-
-/** "08:30" → 510 دقيقة من منتصف الليل */
-function toMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map((n) => parseInt(n, 10));
-  return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
-}
-
-/** ISO (2026-09-07) → «7 سبتمبر 2026» — توحيداً مع بقية الشاشات؛
- *  أي صيغة أخرى تُمرر كما هي. */
-function humanizeDate(s: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = new Date(`${s}T00:00:00`);
-  return isNaN(d.getTime())
-    ? s
-    : new Intl.DateTimeFormat("ar-DZ", { day: "numeric", month: "long", year: "numeric" }).format(d);
-}
-
-/** تقسيم اليوم وفق اصطلاح التطبيق (1=الأحد … 7=السبت) كما في شاشة الجدول */
-function appDayFromJsDate(d: Date): number {
-  return d.getDay() + 1; // JS: 0=الأحد
 }
 
 export function TalibHomeScreen() {
@@ -93,86 +51,12 @@ export function TalibHomeScreen() {
     return { greet, date };
   });
 
-  // ── ساعة الدقيقة الحالية لإبراز الحصة الجارية/التالية ──
-  const [nowMin, setNowMin] = React.useState<number | null>(() => {
-    const d = new Date();
-    return d.getHours() * 60 + d.getMinutes();
-  });
-  React.useEffect(() => {
-    const timer = setInterval(() => {
-      const d = new Date();
-      setNowMin(d.getHours() * 60 + d.getMinutes());
-    }, 60_000);
-    return () => clearInterval(timer);
-  }, []);
+  // round 51 (طلب المالك: «حذف آخر الإعلانات والجدول» من الرئيسية):
+  // ودجتا «جدول اليوم» و«آخر الإعلانات» (إضافة r48) أُزيلتا — الرئيسية
+  // تعود مركزاً على الخدمات، والجدول والإعلانات يعيشان في شاشتيهما
+  // الكاملتين (تبويبا «الجدول» و«الإعلانات» دون أي فقدان وظيفة).
 
-  // ── جدول اليوم: أعلى سؤال قيمة في لوحة الطالب («ماذا عندي اليوم؟») ──
-  // بلا تخصص لا يوجد جلب إطلاقاً — تُشتق الحالة «فارغ» من user نفسه بدل
-  // setState متزامن داخل effect.
-  const hasSpecialty = user?.assignedSpecialtyId != null;
-  const [todayItems, setTodayItems] = React.useState<ScheduleRow[] | null>(null);
-  const [todayError, setTodayError] = React.useState(false);
-  const [todayTick, setTodayTick] = React.useState(0);
-  React.useEffect(() => {
-    if (!hasSpecialty) return;
-    let alive = true;
-    // بلا تصفير متزامن: الحالة القديمة تبقى معروضة حتى وصول الرد
-    // (إعادة المحاولة من بطاقة الخطأ تبقى في مكانها حتى ينجح الجلب)
-    fetch("/api/schedule", { cache: "no-store" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => {
-        if (!alive) return;
-        const rows: ScheduleRow[] = d.items ?? [];
-        const appDay = appDayFromJsDate(new Date());
-        const todays = rows
-          .filter((i) => i.dayOfWeek === appDay)
-          .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
-        setTodayItems(todays);
-        setTodayError(false);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setTodayError(true);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [user, hasSpecialty, todayTick]);
-
-  // fix (R12-01): latest announcements preview (round 26: the "القادم قريباً"
-  // exams widget was removed by owner request — exam schedules live in the
-  // الاختبارات service tile, one tap away, instead of a duplicated home widget).
-  const [latestAnnouncements, setLatestAnnouncements] = React.useState<LatestAnnouncement[]>([]);
-  const [annState, setAnnState] = React.useState<"loading" | "ok" | "error">("loading");
-  const [annTick, setAnnTick] = React.useState(0);
-  React.useEffect(() => {
-    if (!hasSpecialty) return; // بلا تخصص: تُعرض حالة الفراغ اشتقاقياً
-    let alive = true;
-    fetch("/api/announcements", { cache: "no-store" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => {
-        if (!alive) return;
-        setLatestAnnouncements((d.announcements ?? []).slice(0, 2));
-        setAnnState("ok");
-      })
-      .catch(() => {
-        if (!alive) return;
-        setAnnState("error");
-      });
-    return () => {
-      alive = false;
-    };
-  }, [user, hasSpecialty, annTick]);
-
-  // round 10 (review §4 + §17-G): the student must clearly know whether
-  // they have a PENDING join request (and discover the feature if they
-  // have no group at all) — not find out only inside a deep screen.
+  // fix (R12-01) — kept: join-request discovery stays on home.
   const [pendingRequest, setPendingRequest] = React.useState<{ cohortName: string } | null>(null);
   const [noGroupNoRequests, setNoGroupNoRequests] = React.useState(false);
   React.useEffect(() => {
@@ -204,29 +88,12 @@ export function TalibHomeScreen() {
     { title: t("nav.group"), icon: <Users className="w-5 h-5" />, route: "GROUP", delay: 0.28 },
   ];
 
-  // حالات جدول اليوم المشتقة: الجارية الآن / التالية / هل انتهى كل شيء
-  // (المشتقة هنا كي لا نحتاج setState متزامن داخل أي effect أعلاه)
-  const rows = hasSpecialty ? (todayItems ?? []) : [];
-  const todayLoading = hasSpecialty && todayItems === null && !todayError;
-  const annLoading = hasSpecialty && annState === "loading";
-  const annError = hasSpecialty && annState === "error";
-  const annEmpty = hasSpecialty && annState === "ok" && latestAnnouncements.length === 0;
-  const ongoingIdx = nowMin == null ? -1 : rows.findIndex((r) => nowMin >= toMinutes(r.startTime) && nowMin < toMinutes(r.endTime));
-  const nextIdx = ongoingIdx !== -1 ? -1 : nowMin == null ? -1 : rows.findIndex((r) => nowMin < toMinutes(r.startTime));
-  const allDone = rows.length > 0 && ongoingIdx === -1 && nextIdx === -1;
-
-  // نقطة لون حسب درجة إلحاح الإعلان (قيم الـ API: عاجل/هام/عام)
-  const urgencyDot = (u: string) =>
-    u === "عاجل" ? "bg-red-500" : u === "هام" ? "bg-amber-500" : null;
-
   return (
     <div className="space-y-5">
       {/* ═══ ترويسة ترحيب نصية — بلا بانر ═══
           round 49 (طلب المالك): إزالة البانر المتدرج نهائياً. ترويسة نصية
-          هادئة على خلفية الشاشة نفسها: تحية + اسم + تاريخ + رقم الطالب،
-          بلا بطاقة ولا تدرج ولا مؤشرات — المحتوى الفعلي يبدأ فوراً بـ«جدول
-          اليوم» (حصص اليوم) والمؤشرات الأخرى تعيش في شاشاتها (المعدل في
-          أدواتي، المقاييس في المقررات). */}
+          هادئة على خلفية الشاشة نفسها: تحية + اسم + تاريخ + رقم الطالب.
+          round 51: المحتوى يبدأ الآن مباشرة بالخدمات بعد حذف الودجتين. */}
       <header className="pt-1">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -295,182 +162,6 @@ export function TalibHomeScreen() {
           </div>
         </motion.button>
       )}
-
-      {/* ═══ جدول اليوم ═══
-          round 48: أعلى سؤال يومي للطالب («ليوم عندنا واش؟») كان يتطلب فتح
-          شاشة الجدول كاملة. الآن الإجابة تعيش في اللوحة: الحصة الجارية ثم
-          التالية مُبرازتان، skeleton يحجز المسار (بلا قفز تخطيط)، وحالة
-          فراغ حقيقية («لا حصص اليوم») وحالة خطأ مع إعادة محاولة. */}
-      <section aria-labelledby="today-schedule-title">
-        <div className="flex items-center justify-between mb-3">
-          <h2 id="today-schedule-title" className="text-lg font-black">
-            جدول اليوم
-          </h2>
-          <button
-            onClick={() => navigate("SCHEDULE")}
-            className="text-xs text-primary font-bold flex items-center gap-0.5 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            الجدول الكامل
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {todayLoading ? (
-          /* skeleton يحجز نفس ارتفاع صفّي الحصص — لا قفز محتوى */
-          <div className="space-y-2" aria-hidden="true">
-            <div className="h-[62px] rounded-2xl bg-muted/70 animate-pulse" />
-            <div className="h-[62px] rounded-2xl bg-muted/70 animate-pulse w-11/12" />
-          </div>
-        ) : todayError ? (
-          <div className="p-3.5 rounded-2xl bg-card border border-border flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">تعذّر تحميل جدول اليوم</span>
-            <Button variant="outline" size="sm" onClick={() => setTodayTick((n) => n + 1)}>
-              <RefreshCw className="w-3.5 h-3.5" />
-              إعادة المحاولة
-            </Button>
-          </div>
-        ) : rows.length === 0 ? (
-          <div className="p-5 rounded-2xl bg-card border border-dashed border-border text-center">
-            <CalendarX2 className="w-6 h-6 text-muted-foreground/50 mx-auto" aria-hidden="true" />
-            <p className="text-sm font-bold mt-2">لا توجد حصص اليوم</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              يوم مثالي للمراجعة أو إنجاز الواجبات
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {rows.slice(0, 3).map((item, idx) => {
-              const ongoing = idx === ongoingIdx;
-              const isNext = idx === nextIdx;
-              const highlight = ongoing || isNext;
-              return (
-                <div
-                  key={item.id}
-                  className={`flex items-center gap-3 p-3 rounded-2xl border transition-colors duration-200 ${
-                    highlight ? "bg-primary/5 border-primary/35" : "bg-card border-border"
-                  }`}
-                >
-                  {/* رقاقة الوقت — تتلون للجارية/التالية */}
-                  <div
-                    className={`shrink-0 w-14 rounded-xl py-1.5 text-center ${
-                      highlight ? "bg-primary text-primary-foreground" : "bg-muted"
-                    }`}
-                  >
-                    <p className="text-[11px] font-black leading-none tabular-nums">{item.startTime}</p>
-                    <p className={`text-[9px] mt-1 leading-none tabular-nums ${highlight ? "text-primary-foreground/75" : "text-muted-foreground"}`}>
-                      {item.endTime}
-                    </p>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold truncate">{item.moduleName}</p>
-                    <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                      {[item.type, item.room].filter(Boolean).join(" • ") || "—"}
-                    </p>
-                  </div>
-                  {highlight && (
-                    <Badge
-                      className={`shrink-0 text-[10px] px-2 py-0.5 border-0 ${
-                        ongoing
-                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                          : "bg-primary/10 text-primary"
-                      }`}
-                    >
-                      {ongoing ? "جارية الآن" : "التالية"}
-                    </Badge>
-                  )}
-                </div>
-              );
-            })}
-
-            {allDone && (
-              <p className="text-[11px] text-muted-foreground text-center pt-1">
-                انتهت حصص اليوم — بالتوفيق في مراجعتك
-              </p>
-            )}
-            {rows.length > 3 && (
-              <button
-                onClick={() => navigate("SCHEDULE")}
-                className="w-full text-center text-xs text-primary font-bold py-2 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                +{rows.length - 3} حصص أخرى — افتح الجدول
-              </button>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* fix (R12-01): latest announcements preview — the "تنبيهات الفوج"
-          tile used to be the ONLY hint that announcements existed. */}
-      <section aria-labelledby="latest-announcements-title">
-        <div className="flex items-center justify-between mb-3">
-          <h2 id="latest-announcements-title" className="text-lg font-black">
-            آخر الإعلانات
-          </h2>
-          <button
-            onClick={() => navigate("ANNOUNCEMENTS" as ScreenRoute)}
-            className="text-xs text-primary font-bold flex items-center gap-0.5 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            الكل
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-        </div>
-        {annLoading && (
-          /* skeleton بديل سطر «جارٍ التحميل…» — نفس الحجم التقريبي للصفين */
-          <div className="space-y-2" aria-hidden="true">
-            <div className="h-12 rounded-xl bg-muted/70 animate-pulse" />
-            <div className="h-12 rounded-xl bg-muted/70 animate-pulse w-11/12" />
-          </div>
-        )}
-        {annError && (
-          <div className="py-2.5 px-3.5 rounded-2xl bg-card border border-border flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">تعذّر تحميل الإعلانات</span>
-            <Button variant="outline" size="sm" onClick={() => setAnnTick((n) => n + 1)}>
-              <RefreshCw className="w-3.5 h-3.5" />
-              إعادة المحاولة
-            </Button>
-          </div>
-        )}
-        {annEmpty && (
-          <div className="p-5 rounded-2xl bg-card border border-dashed border-border text-center">
-            <Megaphone className="w-6 h-6 text-muted-foreground/50 mx-auto" aria-hidden="true" />
-            <p className="text-sm font-bold mt-2">لا توجد إعلانات جديدة</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              ستجد إعلانات تخصصك هنا فور نشرها
-            </p>
-          </div>
-        )}
-        {annState === "ok" && latestAnnouncements.length > 0 && (
-          <div className="rounded-2xl bg-card border border-border divide-y divide-border/70 overflow-hidden">
-            {latestAnnouncements.map((ann) => {
-              const dot = urgencyDot(ann.urgency);
-              return (
-                <motion.button
-                  key={ann.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.25 }}
-                  onClick={() => navigate("ANNOUNCEMENTS" as ScreenRoute)}
-                  className="w-full text-right flex items-center gap-3 px-3.5 py-3 cursor-pointer transition-colors duration-200 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                    <Megaphone className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold truncate flex items-center gap-1.5">
-                      {dot && <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />}
-                      {ann.title}
-                    </p>
-                    {ann.date && (
-                      <p className="text-xs text-muted-foreground truncate mt-0.5 tabular-nums">{humanizeDate(ann.date)}</p>
-                    )}
-                  </div>
-                  <ChevronLeft className="w-4 h-4 text-muted-foreground/40 shrink-0" />
-                </motion.button>
-              );
-            })}
-          </div>
-        )}
-      </section>
 
       {/* Quick actions grid — id used by the first-run tour (review §15) */}
       <section id="talib-tour-services" aria-labelledby="quick-actions-title">

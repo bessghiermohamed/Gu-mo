@@ -53,7 +53,7 @@ export function TalibCoursesScreen() {
   const s2Courses = courses.filter((c) => c.semester === 2);
 
   return (
-    <div className="space-y-4">
+    <div id="talib-tour-courses" className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">{t("courses.title")}</h1>
       </div>
