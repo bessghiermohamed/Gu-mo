@@ -28,11 +28,20 @@ const REAL_ADS = (process.env.ADS_TEST_REAL ?? "").trim().toLowerCase() === "tru
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "اختبار الإعلانات | طالب",
-  // Thin test content must never be indexed, whatever path it lives at.
-  robots: { index: false, follow: false },
-};
+// r50 (design review): the static `metadata` exported the ads-test title for
+// EVERY slug this catch-all matches — including 404s (the tab read «اختبار
+// الإعلانات» on /xyz-not-exist while the body rendered the Arabic 404).
+// generateMetadata now returns the right title per slug; the thin test page
+// keeps its noindex robots either way.
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const isAdsTest = decodeURIComponent(slug).trim().toLowerCase() === ADS_PATH;
+  return {
+    title: isAdsTest ? "اختبار الإعلانات | طالب" : "الصفحة غير موجودة | طالب",
+    // Thin test content must never be indexed, whatever path it lives at.
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function AdsTestPage({
   params,

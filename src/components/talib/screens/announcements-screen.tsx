@@ -29,6 +29,17 @@ interface Announcement {
   specialtyId: number | null;
 }
 
+// r50 (design review): the announcement date rendered raw ISO ("2026-09-07")
+// while exams/assignments format via ar-DZ — same helper, same locale.
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("ar-DZ", { day: "numeric", month: "long", year: "numeric" });
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
 // round 5: mirrors the server-side eligibility rule in /api/announcements —
 // OWNER: any / SPECIALTY_ADMIN: own specialty / REPRESENTATIVE: own authorship.
 function canManageAnnouncement(user: { role: string; assignedSpecialtyId: number; fullName: string } | null, ann: Announcement): boolean {
@@ -165,7 +176,7 @@ export function TalibAnnouncementsScreen() {
                     )}
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Calendar className="w-3 h-3" />
-                      {ann.date}
+                      {formatDate(ann.date)}
                     </span>
                   </div>
                 </div>

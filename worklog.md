@@ -433,3 +433,20 @@ Work Log:
 Stage Summary:
 - Deliverable: the ad element is now a designed product surface — labeled, space-reserved (CLS-safe), skeleton-loaded, theme-aware, consistent across all six placements, and self-collapsing when unfilled (the current live state), with recovery when ads start serving.
 - Key decisions: trust data-ad-status only (measurement-iframe trap); no new placements (density policy); no new env gating (scope); per-placement slot ids + EEA consent flagged to owner as follow-ups in the report.
+
+---
+Task ID: 25
+Agent: main (Super Z)
+Task: Round 50 — design feedback on every element not yet redesigned (second half of the r49 request: "redesign AdSense + feedback on the rest").
+
+Work Log:
+- Restored local runtime from scratch: .env (SQLite), prisma db push, seed-acceptance structure + r45-seed + new scripts/r50-seed.ts (OWNER account via real signup API + onboarding complete + assignments incl. one overdue, library refs, grades, personal schedule row, course material; fixed seed field mismatches against the real schema: Assignment/ LibraryReference/ StudentGrade/ PersonalScheduleItem/ CachedCourseMaterial/ AppUser scopeCohortGroupId FKs; moved seeded courses/schedule to year 2 so the OWNER's scoping shows them).
+- Fresh production build + real browser session (390×844 + 1280×800, light + dark): 51 screenshots across the 12 public pages, login, all 6 onboarding steps (fresh STUDENT account through the real UI), 14 app screens, notifications sheet, courses empty state, desktop views — download/r50/.
+- VLM design review in 12 structured batches against the r47/r48 design-language reference (skeletons, 52px targets, gradient headers, date blocks) — download/r50-vlm/; every critical claim re-verified in code (announcements raw ISO date confirmed at line 168; 32px icon buttons h-8 w-8 confirmed; assignments 20px toggle confirmed; native <select> in exam dialogs confirmed; schedule vertical day-list with full-height empty-day cards confirmed).
+- Found + FIXED two objective bugs: (1) announcements rendered raw ISO "2026-09-07" while exams/assignments format ar-DZ → added the same formatDate helper; (2) [slug]/page.tsx exported static ads-test metadata so every 404 URL showed «اختبار الإعلانات | طالب» in the tab → converted to generateMetadata with per-slug title (404 now shows the site default title; /ads-test keeps its own).
+- Wrote تقرير-الجولة-50.md: full per-element design feedback (public site 12 elements, login+onboarding, 12 app screens + notifications sheet, desktop experience, dark mode), systemic-pattern table (spinner vs skeleton, 32px vs 52px, muted text-xs dates vs visible date blocks, native select), and a P0-P3 priority matrix proposing r51 (8-screen calibration sweep), r52 (schedule day-tabs + pivot), r53 (public reading experience), r54 (admin panel), r55 (desktop sidebar/tables).
+- Verified: tsc 0 · eslint clean on both changed files · next build green (68/68) · live browser shows «7 سبتمبر 2026» and correct 404 title.
+
+Stage Summary:
+- Deliverable: the design-feedback half of the r49 request is complete — a prioritized, evidence-backed review of every un-redesigned element (51 screenshots + 12 VLM batches + code-verified findings), plus the two objective bugs fixed in passing.
+- Key decisions: review-only for design (redesign order is the owner's call — the report proposes r51-r55 sequence by users-affected × effort); fixes limited to bug-level changes (date formatting, metadata leak) that don't pre-decide any design direction.
