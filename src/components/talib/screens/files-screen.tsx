@@ -3,7 +3,8 @@
 import * as React from "react";
 import {
   BookMarked, Download, ExternalLink, HardDrive,
-  Loader2, Pencil, Plus, StickyNote, Trash2,
+  Loader2, Pencil, Plus, StickyNote, Trash2, Search, CheckSquare,
+  FlaskConical, BookOpen, FileText, Dumbbell, Folder,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -63,6 +64,23 @@ interface LibraryItem {
 // من الملفات الموجودة بحيث لا يظهر تصنيف فارغ أبداً، مع ترتيب ثابت معروف.
 const CATEGORY_ORDER = ["محاضرة", "ملخص", "سلسلة تمارين", "كتاب مرجعي", "واجب", "اختبار", "أخرى"];
 
+// round 55 (طلب المالك: «قسم الرفع في ملفاتي يحتاج تصنيفاً أفضل») —
+// أيقونة لكل تصنيف تظهر في الشرائح ورؤوس المجموعات، فتُقرأ القائمة
+// بصرياً قبل قراءة النص.
+const CATEGORY_ICON: Record<string, React.ReactNode> = {
+  "محاضرة": <BookOpen className="w-3.5 h-3.5" />,
+  "ملخص": <FileText className="w-3.5 h-3.5" />,
+  "سلسلة تمارين": <Dumbbell className="w-3.5 h-3.5" />,
+  "كتاب مرجعي": <BookMarked className="w-3.5 h-3.5" />,
+  "واجب": <CheckSquare className="w-3.5 h-3.5" />,
+  "اختبار": <FlaskConical className="w-3.5 h-3.5" />,
+  "أخرى": <Folder className="w-3.5 h-3.5" />,
+};
+
+function categoryIcon(c: string): React.ReactNode {
+  return CATEGORY_ICON[c] ?? <Folder className="w-3.5 h-3.5" />;
+}
+
 // round 31: أدواتي was extracted into its own standalone screen (tools-screen.tsx)
 // — it used to be a tab here AND a home tile, which duplicated navigation.
 // Its place in this screen is taken by سحابتي (Google Drive, drive-tab.tsx).
@@ -76,6 +94,8 @@ export function TalibFilesScreen() {
   const [libraryLoading, setLibraryLoading] = React.useState(true);
   // round 52: category filter — «الكل» افتراضياً، والفلاتر تُشتق من الملفات
   const [categoryFilter, setCategoryFilter] = React.useState<string>("الكل");
+  // round 55 — بحث فوري بالعنوان/الوصف/المقياس/المُعد فوق الفلاتر
+  const [search, setSearch] = React.useState("");
   // round 6: edit/delete state for library items
   const [editItem, setEditItem] = React.useState<LibraryItem | null>(null);
   const [deleteItem, setDeleteItem] = React.useState<LibraryItem | null>(null);
@@ -83,10 +103,34 @@ export function TalibFilesScreen() {
   const canManage = canManageRoles(user ?? null);
 
   // round 52: derive the visible list from the category filter
-  const filteredLibrary = React.useMemo(
-    () => (categoryFilter === "الكل" ? library : library.filter((i) => i.category === categoryFilter)),
-    [library, categoryFilter]
-  );
+  // round 55: + free-text search across title/description/module/author
+  const filteredLibrary = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return library.filter((i) => {
+      if (categoryFilter !== "الكل" && i.category !== categoryFilter) return false;
+      if (!q) return true;
+      return [
+        i.title, i.description, i.author, i.category, i.moduleName ?? "",
+      ].some((f) => f.toLowerCase().includes(q));
+    });
+  }, [library, categoryFilter, search]);
+
+  // round 55 — التجميع: عند «الكل» (وبلا بحث) تُعرض الملفات تحت رؤوس
+  // تصنيفاتها بالترتيب الثابت بدل قائمة مختلطة — التصنيف يُرى قبل الفتح.
+  const groupedLibrary = React.useMemo(() => {
+    if (categoryFilter !== "الكل" || search.trim()) return null;
+    const counts = new Map<string, LibraryItem[]>();
+    for (const item of library) {
+      const arr = counts.get(item.category) ?? [];
+      arr.push(item);
+      counts.set(item.category, arr);
+    }
+    const ordered = [
+      ...CATEGORY_ORDER.filter((c) => counts.has(c)),
+      ...Array.from(counts.keys()).filter((c) => !CATEGORY_ORDER.includes(c)),
+    ];
+    return ordered.map((c) => ({ category: c, items: counts.get(c) ?? [] }));
+  }, [library, categoryFilter, search]);
 
   const fetchLibrary = React.useCallback(async () => {
     setLibraryLoading(true);
@@ -163,6 +207,58 @@ export function TalibFilesScreen() {
     finally { setDeletingItem(false); }
   }
 
+  // round 55 — بطاقة الملف مستخرجة كدالة ليُعاد استخدامها في العرضين:
+  // المجمّع تحت رؤوس التصنيفات، والمسطّح عند فلتر/بحث محدد.
+  const renderItemCard = (item: LibraryItem) => (
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h3 className="font-bold text-sm">{item.title}</h3>
+            <Badge variant="outline" className="text-xs">{item.fileFormat}</Badge>
+            <Badge variant="secondary" className="text-xs">{item.category}</Badge>
+            {item.moduleName && (
+              <Badge variant="outline" className="text-xs text-primary border-primary/30">
+                📘 {item.moduleName}
+              </Badge>
+            )}
+            {item.fileSize != null && (
+              <Badge variant="outline" className="text-xs">{formatBytes(item.fileSize)}</Badge>
+            )}
+            {item.driveFileId && (
+              <Badge className="text-[10px] bg-primary/10 text-primary border border-primary/20">
+                <HardDrive className="w-3 h-3 ml-1" />على Drive
+              </Badge>
+            )}
+          </div>
+          {item.description && (
+            <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{item.description}</p>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">بواسطة: {item.author}</p>
+        </div>
+        {item.downloadUrl && (
+          <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+            {item.driveFileId ? (
+              <Button size="sm" variant="outline"><Download className="w-3.5 h-3.5 ml-1" />تنزيل</Button>
+            ) : (
+              <Button size="sm" variant="outline"><ExternalLink className="w-3.5 h-3.5 ml-1" />فتح</Button>
+            )}
+          </a>
+        )}
+        {canManage && (
+          <div className="flex flex-col gap-1 shrink-0">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditItem(item)} aria-label="تعديل الملف">
+              <Pencil className="w-3.5 h-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteItem(item)} aria-label="حذف الملف">
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+
   return (
     <div className="space-y-4">
       <div>
@@ -188,6 +284,21 @@ export function TalibFilesScreen() {
         <TabsContent value="library" className="mt-4 space-y-3">
           {canManage && <PublishToLibraryDialog onCreated={fetchLibrary} />}
 
+          {/* round 55 — بحث فوري فوق الفلاتر: بالعنوان أو الوصف أو اسم
+              المقياس أو المُعد — يُصفّي القائمة مع أي فلتر تصنيف. */}
+          {library.length > 3 && (
+            <div className="relative">
+              <Search className="w-4 h-4 absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="ابحث في ملفاتك… (عنوان، وصف، مقياس، مُعد)"
+                className="ps-9 h-9 text-sm"
+                aria-label="البحث في الملفات"
+              />
+            </div>
+          )}
+
           {/* round 52 — فلاتر التصنيف: شرائح أفقية قابلة للتمرير تُبنى من
               التصنيفات الموجودة فعلاً في ملفات التخصص، مع العدد لكل شريحة. */}
           {library.length > 0 && (() => {
@@ -207,13 +318,14 @@ export function TalibFilesScreen() {
                       type="button"
                       onClick={() => setCategoryFilter(c)}
                       className={cn(
-                        "shrink-0 h-8 px-3 rounded-full text-xs font-bold border transition-colors",
+                        "shrink-0 h-8 px-3 rounded-full text-xs font-bold border transition-colors inline-flex items-center",
                         active
                           ? "border-primary bg-primary text-primary-foreground"
                           : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
                       )}
                       aria-pressed={active}
                     >
+                      {c !== "الكل" && categoryIcon(c)}
                       {c}
                       <span className={cn("mr-1.5 tabular-nums", active ? "opacity-80" : "opacity-60")}>
                         {c === "الكل" ? library.length : counts.get(c) ?? 0}
@@ -259,58 +371,38 @@ export function TalibFilesScreen() {
             </Card>
           ) : filteredLibrary.length === 0 ? (
             <Card className="p-6 text-center bg-muted/30 border-dashed">
-              <p className="text-xs text-muted-foreground">لا توجد ملفات بتصنيف «{categoryFilter}» — اختر تصنيفاً آخر.</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {search.trim()
+                  ? `لا نتائج لـ«${search.trim()}»${categoryFilter !== "الكل" ? ` ضمن تصنيف «${categoryFilter}»` : ""} — جرّب كلمات أخرى أو أزل البحث.`
+                  : `لا توجد ملفات بتصنيف «${categoryFilter}» — اختر تصنيفاً آخر.`}
+              </p>
             </Card>
+          ) : groupedLibrary ? (
+            /* round 55 — عرض مجمّع: رأس لكل تصنيف بأيقونته وعدده والملفات
+                تحته — التصنيف يُقرأ من التخطيط نفسه لا من شارة داخل البطاقة */
+            <div className="space-y-5">
+              {groupedLibrary.map((g) => (
+                <section key={g.category} aria-label={`ملفات التصنيف: ${g.category}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                      {categoryIcon(g.category)}
+                    </span>
+                    <h3 className="font-black text-sm">{g.category}</h3>
+                    <Badge variant="secondary" className="text-[10px] tabular-nums">{g.items.length}</Badge>
+                    <div className="flex-1 h-px bg-border/60" aria-hidden="true" />
+                  </div>
+                  <div className="space-y-2">
+                    {g.items.map((item) => (
+                      <React.Fragment key={item.id}>{renderItemCard(item)}</React.Fragment>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
           ) : (
             <div className="space-y-2">
               {filteredLibrary.map((item) => (
-                <Card key={item.id} className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h3 className="font-bold text-sm">{item.title}</h3>
-                        <Badge variant="outline" className="text-xs">{item.fileFormat}</Badge>
-                        <Badge variant="secondary" className="text-xs">{item.category}</Badge>
-                        {item.moduleName && (
-                          <Badge variant="outline" className="text-xs text-primary border-primary/30">
-                            📘 {item.moduleName}
-                          </Badge>
-                        )}
-                        {item.fileSize != null && (
-                          <Badge variant="outline" className="text-xs">{formatBytes(item.fileSize)}</Badge>
-                        )}
-                        {item.driveFileId && (
-                          <Badge className="text-[10px] bg-primary/10 text-primary border border-primary/20">
-                            <HardDrive className="w-3 h-3 ml-1" />على Drive
-                          </Badge>
-                        )}
-                      </div>
-                      {item.description && (
-                        <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{item.description}</p>
-                      )}
-                      <p className="text-xs text-muted-foreground mt-2">بواسطة: {item.author}</p>
-                    </div>
-                    {item.downloadUrl && (
-                      <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                        {item.driveFileId ? (
-                          <Button size="sm" variant="outline"><Download className="w-3.5 h-3.5 ml-1" />تنزيل</Button>
-                        ) : (
-                          <Button size="sm" variant="outline"><ExternalLink className="w-3.5 h-3.5 ml-1" />فتح</Button>
-                        )}
-                      </a>
-                    )}
-                    {canManage && (
-                      <div className="flex flex-col gap-1 shrink-0">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditItem(item)} aria-label="تعديل الملف">
-                          <Pencil className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteItem(item)} aria-label="حذف الملف">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </Card>
+                <React.Fragment key={item.id}>{renderItemCard(item)}</React.Fragment>
               ))}
             </div>
           )}
@@ -452,11 +544,12 @@ function EditLibraryItemDialog({ item, onClose, onSaved }: { item: LibraryItem; 
           <div className="space-y-1.5">
             <Label htmlFor="editLibCategory">التصنيف</Label>
             <select id="editLibCategory" value={category} onChange={(e) => setCategory(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
-              <option value="كتاب مرجعي">كتاب مرجعي</option>
-              <option value="ملخص">ملخص</option>
-              <option value="سلسلة تمارين">سلسلة تمارين</option>
-              <option value="محاضرة مصورة">محاضرة مصورة</option>
-              <option value="أخرى">أخرى</option>
+              {/* round 55 — نفس الثوابت المعتمدة في الفلاتر ونافذة الرفع
+                  (كانت القائمة قديمة: «محاضرة مصورة» بلا محاضرة/واجب/اختبار) */}
+              {!CATEGORY_ORDER.includes(category) && <option value={category}>{category}</option>}
+              {CATEGORY_ORDER.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
             </select>
           </div>
           <div className="space-y-1.5">

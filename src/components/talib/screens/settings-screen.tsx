@@ -1,12 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { Bell, VolumeX, Info, Loader2, Palette, Moon, Sun, Sparkles, Compass } from "lucide-react";
+import {
+  Bell, VolumeX, Info, Loader2, Palette, Sparkles, Compass,
+  User, LogOut, LifeBuoy, Megaphone, Users,
+} from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/components/talib/auth-provider";
+import { useI18n } from "@/components/talib/i18n-provider";
 import { usePalette, PALETTES } from "@/components/talib/theme-provider";
 import { useShell } from "@/app/app/page";
 import { useTheme } from "next-themes";
@@ -16,7 +20,17 @@ import { toast } from "sonner";
 // icon (which previously only jumped to حسابي). Built as independent
 // sections so more settings can be appended without rethinking layout.
 //
-// Section 1: notification preferences — MOVED VERBATIM from the profile
+// round 55 (طلب المالك: «الإعدادات ومحتواها تحتاج تحسيناً وميزات إضافية»):
+//   • بطاقة «حسابي» أعلى الشاشة: هوية الطالب + موقعه الأكاديمي (المؤسسة/
+//     التخصص/السنة/المجموعة/الفوج) من نفس مصدر حسابي (/api/profile/details)
+//     مع اختصارات (فتح حسابي، الإعلانات، الفوج) — كانت الإعدادات بلا أي
+//     ذكر لحساب صاحبها.
+//   • بطاقة «المساعدة والدعم»: الإبلاغ عن مشكلة وتصفح الأفواج.
+//   • زر «تسجيل الخروج» — كان محصوراً في حسابي.
+//   • تحديث النصوص القديمة: وصف الجولة التعريفية قال «ثلاث خطوات» وهي
+//     سبع مراحل إلزامية منذ r51/r55.
+//
+// Section: notification preferences — MOVED VERBATIM from the profile
 // screen (owner request: prefs live under the gear, not inside حسابي).
 // State, endpoints, optimistic toggling and supervisor gating are exactly
 // as they were in round 24; only the location changed.
@@ -44,10 +58,35 @@ function isSupervisor(role: string | undefined): boolean {
 }
 
 export function TalibSettingsScreen() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const { t } = useI18n();
   const { navigate } = useShell();
   const { theme, setTheme } = useTheme();
   const { palette, setPalette } = usePalette();
+
+  // round 55 — academic identity (same source as حسابي): institution,
+  // specialty, year, المجموعة/الفوج. null = loading, false = unavailable.
+  const [details, setDetails] = React.useState<{
+    institution: string; specialtyName: string; trackName: string;
+    yearName: string; groupName: string; cohortName: string;
+  } | null | false>(null);
+  const [signingOut, setSigningOut] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    fetch("/api/profile/details", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => { if (alive) setDetails(data.profile ?? false); })
+      .catch(() => { if (alive) setDetails(false); });
+    return () => { alive = false; };
+  }, [user]);
+
+  async function handleSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try { await signOut(); } finally { setSigningOut(false); }
+  }
 
   // notification preferences state (moved unchanged from profile-screen)
   const [prefsAvailable, setPrefsAvailable] = React.useState<boolean | null>(null);
@@ -131,7 +170,71 @@ export function TalibSettingsScreen() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">الإعدادات</h1>
+        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+          شخصّ تجربتك: حسابك الأكاديمي، إشعاراتك، مظهر التطبيق، والمساعدة — كل ذلك من مكان واحد
+        </p>
       </div>
+
+      {/* round 55 — بطاقة الحساب: هوية صاحب الإعدادات وموقعه الأكاديمي.
+          نفس مصدر حسابي (api/profile/details) فلا مصدرين للحقيقة. */}
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-black text-lg shrink-0">
+            {user.fullName.trim().charAt(0)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-black text-sm truncate">{user.fullName}</h3>
+            <p className="text-xs text-muted-foreground truncate" dir="ltr" style={{ textAlign: "end" }}>
+              {user.email}
+            </p>
+          </div>
+          <Badge variant="secondary" className="text-[10px] shrink-0">
+            {t(`roles.${user.role}`)}
+          </Badge>
+        </div>
+
+        {details === null ? (
+          <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            جارٍ تحميل موقعك الأكاديمي…
+          </div>
+        ) : details !== false ? (
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {([
+              ["المؤسسة", details.institution],
+              ["التخصص", details.specialtyName],
+              ["الشعبة", details.trackName],
+              ["السنة", details.yearName],
+              ["المجموعة", details.groupName],
+              ["الفوج", details.cohortName],
+            ] as const).map(([label, value]) => (
+              <div key={label} className="rounded-lg border bg-muted/30 px-2.5 py-2">
+                <p className="text-[10px] text-muted-foreground mb-0.5">{label}</p>
+                <p className="font-bold truncate" title={value || undefined}>{value || "—"}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            تعذّر جلب الموقع الأكاديمي الآن — تجده دائماً في تبويب حسابي.
+          </p>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" className="h-8" onClick={() => navigate("PROFILE")}>
+            <User className="w-3.5 h-3.5 ml-1" />
+            فتح حسابي
+          </Button>
+          <Button variant="outline" size="sm" className="h-8" onClick={() => navigate("ANNOUNCEMENTS")}>
+            <Megaphone className="w-3.5 h-3.5 ml-1" />
+            الإعلانات
+          </Button>
+          <Button variant="outline" size="sm" className="h-8" onClick={() => navigate("GROUP")}>
+            <Users className="w-3.5 h-3.5 ml-1" />
+            فوجي
+          </Button>
+        </div>
+      </Card>
 
       {/* notification preferences: the anti-spam control
           center. Muted categories stop at the emitter, so unread
@@ -283,11 +386,10 @@ export function TalibSettingsScreen() {
         </div>
       </Card>
 
-      {/* round 49 — replay the first-run tour. The tour shows ONCE per
-          account by design (round 27); until now there was no way to bring
-          it back, which read as «الشرح العائم اختفى». Removing the flag and
-          jumping HOME re-arms the overlay (its effect re-runs on the
-          HOME transition and the flag is gone). */}
+      {/* round 49/55 — replay the first-run tour. The tour is MANDATORY
+          since round 55 (لا زر تخطّي — تُنهى بإكمال محطاتها) and spans
+          7 stops across the app since round 51; the old copy said
+          «ثلاث خطوات» which no longer described reality. */}
       <Card className="p-4 space-y-3">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -296,7 +398,7 @@ export function TalibSettingsScreen() {
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-sm">الجولة التعريفية</h3>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              شرح عائم على ثلاث خطوات لأهم شاشات التطبيق — يظهر مرة واحدة عند أول دخول، ويمكنك إعادته متى شئت
+              جولة إلزامية عبر سبعة مواضع تفتح تلقائياً عند أول دخول وتُنهى بإكمال محطاتها — ويمكنك إعادتها من هنا متى شئت
             </p>
           </div>
         </div>
@@ -319,6 +421,59 @@ export function TalibSettingsScreen() {
           <Compass className="w-3.5 h-3.5 ml-1" />
           إعادة الجولة التعريفية
         </Button>
+      </Card>
+
+      {/* round 55 — المساعدة والدعم: قنوات الوصول للإدارة كانت مكرّرة بين
+          حسابي والإعدادات بشكل غير واضح؛ هنا زرّان مباشران: التبليغ عن
+          مشكلة (نموذج حسابي) وتصفّح المجموعات والأفواج (طلب انضمام). */}
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <LifeBuoy className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-sm">المساعدة والدعم</h3>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              واجهت خللاً؟ أو لم تجد فوجك؟ تواصل مع الإدارة من هنا
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="outline" size="sm" className="h-9" onClick={() => navigate("PROFILE")}>
+            <Info className="w-3.5 h-3.5 ml-1" />
+            الإبلاغ عن مشكلة
+          </Button>
+          <Button variant="outline" size="sm" className="h-9" onClick={() => navigate("BROWSE_GROUPS")}>
+            <Users className="w-3.5 h-3.5 ml-1" />
+            تصفّح الأفواج
+          </Button>
+        </div>
+      </Card>
+
+      {/* round 55 — تسجيل الخروج من الإعدادات: كان محصوراً في قائمة حسابي؛
+          وجوده هنا يختصر الطريق على من يفتح الترس مباشرة. */}
+      <Card className="p-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-destructive/10 text-destructive flex items-center justify-center shrink-0">
+            <LogOut className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-sm">تسجيل الخروج</h3>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              ستبقى بياناتك محفوظة، ويمكنك العودة في أي وقت بنفس بريدك
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 border-destructive/30 text-destructive hover:bg-destructive/10"
+            onClick={handleSignOut}
+            disabled={signingOut}
+          >
+            {signingOut && <Loader2 className="w-3.5 h-3.5 ml-1 animate-spin" />}
+            خروج
+          </Button>
+        </div>
       </Card>
 
       {/* round 26 — about: a quiet identity card. Deliberately version-free

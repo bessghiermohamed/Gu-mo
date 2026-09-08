@@ -76,6 +76,12 @@ export function TalibGroupScreen() {
   const { navigate } = useShell();
   const [members, setMembers] = React.useState<GroupMember[]>([]);
   const [loading, setLoading] = React.useState(true);
+  // round 55 — بيانات الفوج (اسمه/مجموعته الأم/فورعه الفرعي) لعرضها في
+  // بطاقة «فوجك الدراسي» — كانت الشاشة تعرض العدد فقط بلا أي اسم،
+  // فلم يعرف الطالب أهو «الفوج ٧» من «المجموعة ٢» أم غيرهما.
+  const [cohortMeta, setCohortMeta] = React.useState<{
+    groupName: string; subGroup: string; parentGroupName: string;
+  } | null>(null);
 
   const userGroup = user?.scopeCohortGroupId;
   const hasGroup = userGroup != null;
@@ -90,6 +96,7 @@ export function TalibGroupScreen() {
       .then((r) => r.json())
       .then((data) => {
         setMembers(data.members ?? []);
+        setCohortMeta(data.cohort ?? null);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -136,13 +143,31 @@ export function TalibGroupScreen() {
               <div className="w-12 h-12 rounded-2xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
                 <Users className="w-6 h-6" />
               </div>
-              <div className="flex-1">
-                <h2 className="font-black text-base">فوجك الدراسي</h2>
+              <div className="flex-1 min-w-0">
+                {/* round 55 — اسم الفوج الحقيقي بدل العنوان العام، مع
+                    المجموعة الأم والفوج الفرعي إن وُجدا */}
+                <h2 className="font-black text-base truncate">
+                  {cohortMeta?.groupName || "فوجك الدراسي"}
+                </h2>
                 <p className="text-xs text-muted-foreground">
                   {members.length} {t("group.members")}
                 </p>
               </div>
             </div>
+            {(cohortMeta?.parentGroupName || cohortMeta?.subGroup) && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-border/60">
+                {cohortMeta?.parentGroupName && (
+                  <Badge variant="outline" className="text-xs bg-background">
+                    المجموعة: {cohortMeta.parentGroupName}
+                  </Badge>
+                )}
+                {cohortMeta?.subGroup && (
+                  <Badge variant="outline" className="text-xs bg-background">
+                    الفوج الفرعي: {cohortMeta.subGroup}
+                  </Badge>
+                )}
+              </div>
+            )}
           </Card>
 
           {representative && (

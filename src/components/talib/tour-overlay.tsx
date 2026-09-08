@@ -22,11 +22,18 @@ import { useShell, type ScreenRoute } from "@/app/app/page";
  *   6. الرئيسية  — the header gear (settings)
  *   7. حسابي     — the profile tab in the bottom nav
  *
- * Rules (kept from the review + round 49):
+ * round 55 (طلب المالك: «الجولة التعريفية الأولى إلزامية»): the tour is
+ * MANDATORY for first-time visitors — the «تخطّي» button is gone and the
+ * only way out is completing the journey (السابق/التالي … يلا نبدأ).
+ * The transparent click-shield already blocks the app underneath, so the
+ * tour cannot be bypassed by tapping elsewhere. The dead-step auto-skip
+ * is KEPT: it protects against a broken anchor trapping the user, and
+ * skipping a broken STEP is not skipping the TOUR.
+ *
+ * Rules:
  *  - shown ONCE per user (localStorage flag, per device — a tour is a
  *    UI concern, not academic data, so no DB table is warranted);
- *  - dismissible at every step («تخطّي»), never traps the user: if an
- *    anchor never mounts the step is skipped automatically;
+ *  - completed only via the final step (mandatory since round 55);
  *  - replayable from الإعدادات (round 49) — removing the flag re-arms it;
  *  - only starts on the home screen AFTER onboarding is done.
  *
@@ -238,9 +245,9 @@ export function TalibTourOverlay({ currentScreen }: { currentScreen: ScreenRoute
       className="fixed inset-0 z-[70]"
       role="dialog"
       aria-modal="true"
-      aria-label="جولة تعريفية بالتطبيق"
+      aria-label="جولة تعريفية إلزامية بالتطبيق — تُنهى بالتنقل بين محطاتها"
     >
-      {/* click blocker — the tour is dismissed only via its own buttons */}
+      {/* click blocker — mandatory tour: dismissed ONLY by completing it */}
       <div className="absolute inset-0" onClick={(e) => e.preventDefault()} />
 
       {rect && (
@@ -290,14 +297,6 @@ export function TalibTourOverlay({ currentScreen }: { currentScreen: ScreenRoute
                 ))}
               </div>
               <div className="flex items-center gap-1.5">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-9 text-muted-foreground"
-                  onClick={finish}
-                >
-                  تخطّي
-                </Button>
                 {!isFirst && (
                   <Button
                     variant="outline"

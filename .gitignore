@@ -70,3 +70,6 @@ backups/
 # verification screenshots stay local-only since round 33
 download/verify-*/
 tsconfig.tsbuildinfo
+
+# npm lockfile — the repo is bun-locked (bun.lock)
+package-lock.json

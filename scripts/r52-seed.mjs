@@ -150,6 +150,21 @@ async function main() {
   }
   console.log("library files seeded");
 
+  // round 55 fix — the onboarding API can create duplicate specialty rows,
+  // so `specialty.id` above may NOT be the specialty the student is
+  // assigned to (assignedSpecialtyId=1). Re-stamp every file with the
+  // specialty of its course (module) — or specialty 1 for general files —
+  // so students actually see the seeded library in «ملفاتي».
+  const allCourses = await db.moduleCourse.findMany({ select: { id: true, specialtyId: true } });
+  const specByCourse = new Map(allCourses.map((c) => [c.id, c.specialtyId]));
+  for (const f of await db.libraryReference.findMany()) {
+    const rightSpec = f.moduleId != null ? (specByCourse.get(f.moduleId) ?? 1) : 1;
+    if (f.specialtyId !== rightSpec) {
+      await db.libraryReference.update({ where: { id: f.id }, data: { specialtyId: rightSpec } });
+    }
+  }
+  console.log("library files re-stamped to real specialties");
+
   // 6. assignments + exams metadata
   if ((await db.assignment.count()) === 0) {
     await db.assignment.create({ data: { moduleId: courses[0].id, title: "تحليل الجملة الفعلية", description: "حل التمارين ١٢–١٨", dueDate: iso(2), maxScore: 20 } });
