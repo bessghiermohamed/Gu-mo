@@ -554,3 +554,21 @@ Work Log:
 Stage Summary:
 - Deliverable: scientific answers in المساعد الذكي now render as real typeset math (KaTeX, RTL-safe, stream-safe) instead of raw LaTeX code, and answers no longer end with the same repetitive reminder. No schema changes, no new env vars, no owner actions needed.
 - Key decisions: render LaTeX properly rather than forcing plain-text math (fractions/units/subscripts benefit); keep singleDollar math since that's what the providers emit; errorColor orange (#c2410c) so a rare malformed fragment stays visible but non-destructive; deployment retrigger via empty commit when Vercel skips a push (status API with zero statuses = build never started).
+
+---
+Task ID: 30
+Agent: main (Super Z)
+Task: Round 60 — owner report: «Something I consider important is offline» — full production health audit.
+
+Work Log:
+- Site: every public page (/ , /about, /features, /faq, /guide, /privacy, /terms, /contact, /blog, /app) returns 200; no 5xx anywhere; 401s only on auth-gated APIs (expected).
+- Auth pipeline on prod: signup → session → delete all verified via throwaway accounts (200s).
+- المساعد الذكي backend: r59 probe re-run (3 scientific questions) + 1 non-stream probe — ALL answered by gemini-3.5-flash with the r59 prompt (LaTeX present, repetitive footer gone).
+- r59 client assets on prod: ai-markdown present in served JS chunk; katex in 2 served CSS chunks; KaTeX woff2/woff fonts resolve 200.
+- End-to-end UI reproduction (the decisive test): served the PRODUCTION build locally, logged in on the seeded local DB, and proxied /api/ai to the REAL production backend with a REAL prod session (scripts/r60-ai-proxy.js, CORS-safe local relay). Real streamed answer about سرعة الضوء rendered in the production-build chat with typeset KaTeX (E=mc²), zero console/page errors, no error bubble. (An initial «تعذّر الاتصال» bubble during this test was proven to be a CORS artifact of the cross-origin test rig — the proxy eliminated it and the same question then answered fine.)
+- Login screen on the real prod origin: renders correctly with NO false offline banner (r58 hook verified sound: init true + syncs with navigator.onLine on mount).
+- Telegram/announcements/notifications/schedule/courses endpoints healthy; reminders are client-poll by design (no cron needed); sw.js does no asset caching (no stale-build risk); probe account deleted (200) and all session artifacts removed.
+
+Stage Summary:
+- Result: NOTHING is detectably offline — site, auth, AI backend, r59 math UI (real end-to-end), fonts, Telegram/notifications endpoints all verified live from this environment. The report must refer to something specific to the owner's device/network/account/session or an intermittent provider failure (e.g., Gemini free-tier 429 at his usage hours — the chain currently has only Gemini effectively serving, so a project-wide quota error exhausts it).
+- Owner reply needed: exact symptom (which screen, which message/screenshot) before any further fix; candidate hardening if it turns out to be assistant flakiness: one automatic in-chain retry with backoff on rate/server errors + a single silent UI retry on network-kind failures.
