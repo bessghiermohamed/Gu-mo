@@ -508,3 +508,19 @@ Work Log:
 - Root-caused the misleading polls: HTML-referenced chunk names are shell-only and identical across builds; SPA screens live in runtime-loaded chunks (ff1a16fafef87110, b7785251e8fc532c, c4aee7da87df8ccc). Also the first marker string «محادثة دراسية بالعربية» was ambiguous (matches the surviving tools card, not just the removed banner).
 - Decisive live check (gu-mo.vercel.app runtime chunks): banner-only string «قبل الامتحان» ABSENT, bridge key talib-ai-prefill ABSENT, tools card strings («ابدأ محادثة», «ويجيب أسئلتك») PRESENT → r57 is serving in production. Pre-push build was confirmed r56 via the r56-only «لا تفوّت نتيجة تبليغك» string.
 - Production end-to-end probe: signed up r57probe-verify@test.dz through the real prod signup (fresh browser, «حساب جديد» default = r56 behavior intact), onboarding blocked at specialty step («لا توجد بيانات» — prod data state, not a code issue), probe account DELETED via /api/auth/delete (200). Report updated with the confirmed-deployment section.
+
+---
+Task ID: 28
+Agent: main (Super Z)
+Task: Round 58 — owner request: «Provides offline status when logging in without internet».
+
+Work Log:
+- Login screen (login-screen.tsx): new useOnlineStatus hook (navigator.onLine + online/offline events, SSR-safe init) drives an animated amber banner (pulsing dot + WifiOff + «أنت غير متصل بالإنترنت» + actionable hint) with role=status / aria-live=polite; submit guard returns the offline-specific toast instead of firing a doomed request; offline→online transition fires a «عاد الاتصال» toast (ref-guarded so it never fires on mount).
+- Auth provider (auth-provider.tsx): signIn/signUp catches now classify — browser-known offline → t("auth.errorOffline"), otherwise the existing errorNetwork wording; signOut wrapped in try/catch so offline signout still lands the user on the login screen (previously threw an unhandled rejection and did nothing).
+- i18n: 4 new keys (offlineTitle/offlineHint/errorOffline/backOnline) in BOTH ar.json and en.json.
+- Quality gates: tsc 0 · eslint 0 on changed files · next build ✓ 69/69.
+- Browser verification with REAL offline emulation (agent-browser set offline on): banner appears instantly with full text; offline submit → precise toast, button returns without spinner; back online → banner animates out + recovery toast; online login regression → #/home; offline signout from settings → login screen WITH banner. 5 screenshots in download/r58/ (light/dark/desktop/toast/offline-signout). Two disturbances during testing (dev-server crash under offline hot-reload; mandatory tour re-appearing after storage reset) were re-run cleanly and are not product issues.
+
+Stage Summary:
+- Deliverable: the login flow now communicates connection state — a persistent live offline banner on the login screen, a precise offline message on submit attempts (no dead spinner), error classification in the auth provider, a hardened offline signout path, and ar/en strings. No new env vars, no schema changes, no owner actions needed.
+- Key decisions: banner uses warning-amber (data is safe, just waiting) not destructive-red; requests are NOT fired when the browser knows it's offline; onLine-but-dead-portal still goes through the fetch and keeps the generic network error; scope kept to the login flow (offline shell/PWA caching is a separate feature decision).

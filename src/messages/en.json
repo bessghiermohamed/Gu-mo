@@ -63,7 +63,11 @@
     "errorInvalidEmail": "Invalid email format",
     "errorMissingFields": "Please fill all required fields",
     "welcomeBack": "Welcome back",
-    "errorNetwork": "Connection error. Check your internet and try again."
+    "errorNetwork": "Connection error. Check your internet and try again.",
+    "offlineTitle": "You are offline",
+    "offlineHint": "Your details can't be verified without a connection — check your network and try again.",
+    "errorOffline": "Can't sign in right now: no internet connection.",
+    "backOnline": "Back online — you can continue."
   },
   "onboarding": {
     "step": "Step",

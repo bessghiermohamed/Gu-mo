@@ -76,7 +76,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await refresh();
         return {};
       } catch {
-        return { error: t("auth.errorNetwork") };
+        // round 58 — say "offline" when the browser knows it is offline;
+        // keep the server-side wording for dead captive portals etc.
+        return {
+          error:
+            typeof navigator !== "undefined" && !navigator.onLine
+              ? t("auth.errorOffline")
+              : t("auth.errorNetwork"),
+        };
       }
     },
     [refresh, t]
@@ -96,14 +103,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await refresh();
         return {};
       } catch {
-        return { error: t("auth.errorNetwork") };
+        // round 58 — same offline-first classification as signIn.
+        return {
+          error:
+            typeof navigator !== "undefined" && !navigator.onLine
+              ? t("auth.errorOffline")
+              : t("auth.errorNetwork"),
+        };
       }
     },
     [refresh, t]
   );
 
   const signOut = React.useCallback(async () => {
-    await fetch("/api/auth/signout", { method: "POST" });
+    // round 58 — offline signout: the POST can't reach the server, but the
+    // user must still land on the login screen (which will show the offline
+    // banner). The server cookie expires on its own / clears on next online
+    // request, so a local-only signout is safe.
+    try {
+      await fetch("/api/auth/signout", { method: "POST" });
+    } catch {
+      // offline (or server unreachable) — proceed locally
+    }
     setUser(null);
   }, []);
 

@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { motion } from "framer-motion";
-import { LogIn, UserPlus, Loader2, GraduationCap, Mail, User, Sparkles } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { LogIn, UserPlus, Loader2, GraduationCap, Mail, User, Sparkles, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +39,29 @@ function firstVisitOnDevice(): boolean {
   }
 }
 
+/**
+ * round 58 — live connection status for the login flow. Starts `true` so SSR
+ * markup and the first client render agree (no hydration mismatch), then syncs
+ * with `navigator.onLine` and the browser's online/offline events. `false`
+ * renders the offline banner and blocks the doomed submit.
+ */
+function useOnlineStatus(): boolean {
+  const [online, setOnline] = React.useState(true);
+
+  React.useEffect(() => {
+    const sync = () => setOnline(navigator.onLine);
+    sync(); // first mount: adopt the REAL status after hydration
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
+
+  return online;
+}
+
 export function TalibLoginScreen() {
   const { t } = useI18n();
   const { signIn, signUp } = useAuth();
@@ -54,6 +77,21 @@ export function TalibLoginScreen() {
   // one-tap cross-switch hint, set from the API's own error wording
   const [switchHint, setSwitchHint] = React.useState<"toSignup" | "toSignin" | null>(null);
 
+  // round 58 — owner: «حالة عدم الاتصال عند الدخول بلا إنترنت». The banner is
+  // driven by this live status; the submit guard below reads the same value.
+  const online = useOnlineStatus();
+
+  // "Back online" toast — fires ONLY on a real offline→online transition,
+  // never on mount (prev ref starts at the current value).
+  const wasOnlineRef = React.useRef(true);
+  React.useEffect(() => {
+    if (wasOnlineRef.current && !online) wasOnlineRef.current = false;
+    else if (!wasOnlineRef.current && online) {
+      wasOnlineRef.current = true;
+      toast.success(t("auth.backOnline"));
+    }
+  }, [online, t]);
+
   function switchMode(next: "signin" | "signup") {
     setMode(next);
     setSwitchHint(null);
@@ -63,6 +101,15 @@ export function TalibLoginScreen() {
     e.preventDefault();
     if (!fullName.trim() || !email.trim()) {
       toast.error(t("auth.errorMissingFields"));
+      return;
+    }
+
+    // round 58 — offline guard: the request can't reach the server, so skip
+    // the pointless spinner and say exactly WHY instead of a generic error.
+    // (onLine can also be true behind a dead captive portal — that case still
+    // reaches the provider's catch and gets the network-error wording.)
+    if (!online) {
+      toast.error(t("auth.errorOffline"));
       return;
     }
 
@@ -156,6 +203,42 @@ export function TalibLoginScreen() {
             {t("auth.login")}
           </button>
         </Card>
+
+        {/* round 58 — offline status banner (owner: «حالة عدم الاتصال عند
+            الدخول بلا إنترنت"): visible the moment the connection drops,
+            before any submit attempt. Amber = warning (not destructive — the
+            typed data is safe and waiting); pulsing dot says "live status",
+            WifiOff says what it IS, the second line says what to do. */}
+        <AnimatePresence initial={false}>
+          {!online && (
+            <motion.div
+              key="offline-banner"
+              initial={{ opacity: 0, y: 8, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: "auto" }}
+              exit={{ opacity: 0, y: -8, height: 0 }}
+              transition={{ duration: 0.25 }}
+              role="status"
+              aria-live="polite"
+              className="overflow-hidden"
+            >
+              <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-4 py-3 flex items-center gap-3">
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+                </span>
+                <WifiOff className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-amber-700 dark:text-amber-300">
+                    {t("auth.offlineTitle")}
+                  </p>
+                  <p className="text-[11px] text-amber-700/80 dark:text-amber-300/80 mt-0.5 leading-relaxed">
+                    {t("auth.offlineHint")}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <motion.form
           onSubmit={handleSubmit}
