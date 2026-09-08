@@ -378,3 +378,22 @@
   background-size: 1000px 100%;
   animation: shimmer 2s infinite linear;
 }
+
+/* r59 — المساعد الذكي: KaTeX math inside RTL chat bubbles.
+ * Math is always LTR; display math gets horizontal scroll on narrow phones
+ * instead of overflowing the bubble. Slightly larger than body text so
+ * fractions/exponents stay legible at chat sizes. */
+.ai-markdown .katex {
+  direction: ltr;
+  font-size: 1.08em;
+}
+.ai-markdown .katex-display {
+  direction: ltr;
+  margin: 0.5rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+}
+.ai-markdown .katex-display > .katex {
+  white-space: nowrap;
+}

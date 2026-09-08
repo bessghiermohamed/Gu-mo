@@ -41,6 +41,10 @@ import {
 } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
+import type { PluggableList } from "unified";
 import { formatDistanceToNow } from "date-fns";
 import { ar as arLocale, enUS } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -176,10 +180,26 @@ const markdownComponents: Components = {
   td: (props) => <td className="border border-border px-2 py-1" {...props} />,
 };
 
+// r59 — math rendering for scientific answers: the provider emits LaTeX
+// ($F = m \times a$, $H^+$, $m/s^2$ …) and KaTeX turns it into real math.
+// throwOnError:false + strict:"ignore" so a partial stream frame or an odd
+// fragment degrades to colored text instead of crashing the bubble.
+const markdownPlugins: PluggableList = [
+  remarkGfm,
+  [remarkMath, { singleDollar: true }],
+];
+const katexPlugins: PluggableList = [
+  [rehypeKatex, { throwOnError: false, strict: "ignore", errorColor: "#c2410c" }],
+];
+
 const MarkdownContent = React.memo(function MarkdownContent({ content }: { content: string }) {
   return (
-    <div dir="auto">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+    <div dir="auto" className="ai-markdown">
+      <ReactMarkdown
+        remarkPlugins={markdownPlugins}
+        rehypePlugins={katexPlugins}
+        components={markdownComponents}
+      >
         {content}
       </ReactMarkdown>
     </div>
