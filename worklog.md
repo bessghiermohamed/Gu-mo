@@ -477,3 +477,23 @@ Stage Summary:
 GitHub credentials in this session; same class of blocker as r45). NOT deployed
 yet. Needs a fresh fine-grained/classic token with repo scope to push to
 bessghiermohamed/Gu-mo main — Vercel deploys automatically on push.
+
+---
+Task ID: 27
+Agent: main (Super Z)
+Task: Round 57 — owner's 3 feedback items after reviewing r56 + «Check that changes have been uploaded» verification request.
+
+Work Log:
+- UPLOAD CHECK (the direct ask): git fetch + ls-remote proved origin/main = 5961052 — both r56 commits (b091120 + worklog 5961052) ARE on GitHub; the previous session's "push failed" blocker was resolved since (remote URL carries a working token; fetch/push verified this session). Prod chunk grep confirmed the LIVE build is r56 («محادثة دراسية بالعربية» banner string present in served JS; «الرقم التسلسلي» match is a false positive — it legitimately lives in profile/admin screens).
+- r57 implementation found COMPLETE but UNCOMMITTED in the working tree (context ran out before commit last session): (1) course-detail description card renders only when description?.trim() (owner: «المقاييس التي لا وصف لها لا تحتاج بطاقة الوصف») + whitespace-pre-wrap; (2) home-screen violet AI banner removed entirely (owner: «أزل بانر المساعد الذكي من الواجهة»); (3) dead r56 bridge code removed from tools-tab (talib-open-ai listener) + ai-assistant-tool (talib-ai-prefill effect) — assistant remains reachable via its featured card in أدواتي; composer always opens empty.
+- Restored env: shell DATABASE_URL=file:/home/z/my-project/db/custom.db persisted with the db file (in-sync, schema pushed); .env rewritten to match; prisma client regenerated (was stale from r56 schema).
+- Quality gates: tsc 0 · eslint 0 on the 4 files · next build ✓ 69/69.
+- Browser verification (agent-browser, 390×844): seeded via r52-seed.mjs + r55-seed-cohort.mjs (OWNER-COOKIE captured); completed the r55 mandatory 7-station tour; logged in as r52-student@test.dz — home shows NO المساعد الذكي text/section (light+dark); course البلاغة (description blanked for the test): no وصف المقياس card at all; course النحو والتطبيق: card renders with real description; tools → ابدأ محادثة opens AI chat with empty composer; sessionStorage clean of bridge keys. 7 screenshots in download/r57/.
+- Committed r57 as 3ce8c22 (4 files, +21/−126) and PUSHED to GitHub: 5961052..3ce8c22 main -> main (exit 0).
+- Deploy poll: prod still served r56 build during the first ~12 min of polling (banner string count=1 in served chunks); background poller left running (/tmp/r57-deploy-poll.log). r57 adds NO new env vars — Vercel needs nothing from the owner except possibly a Redeploy click if the auto-build stays queued.
+- Wrote تقرير-الجولة-57.md (full Arabic report: the 3 fixes, quality table, upload/deploy status).
+
+Stage Summary:
+- Deliverable: upload status CONFIRMED — r56 fully on GitHub AND live in production; r57 (the 3 owner feedback fixes) implemented, verified, committed (3ce8c22) and pushed this session; Vercel auto-deploy pending at report time (no owner env actions needed for r57).
+- Key decisions: banner removal kept the assistant reachable ONLY via the أدواتي featured card (single entry point, no duplication); description card hidden entirely for empty descriptions instead of showing a muted placeholder; dead bridge code deleted rather than left dormant.
+- Artifacts: تقرير-الجولة-57.md, download/r57/ (7 screenshots), commit 3ce8c22 on origin/main.
