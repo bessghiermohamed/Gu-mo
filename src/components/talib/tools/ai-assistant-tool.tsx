@@ -537,21 +537,9 @@ export function AiAssistantTool({ onBack }: { onBack: () => void }) {
   const active = sessions.find((s) => s.id === activeId) ?? null;
   const messages = active?.messages ?? [];
 
-  // round 56 — prefill deep link: the home-screen AI card's quick chips
-  // (لخّص/اشرح/اختبرني) land here with the composer ready-filled.
-  React.useEffect(() => {
-    try {
-      const prefill = sessionStorage.getItem("talib-ai-prefill");
-      if (prefill) {
-        sessionStorage.removeItem("talib-ai-prefill");
-        setInput(prefill);
-        // focus after the layout settles (mobile keyboards need the UI up)
-        setTimeout(() => inputRef.current?.focus(), 250);
-      }
-    } catch {
-      // storage disabled — open normally without prefill
-    }
-  }, []);
+  // round 57: the r56 composer-prefill bridge (talib-ai-prefill) was removed
+  // with the home banner — its only dispatcher. The composer now always
+  // opens empty.
 
   // Load device history for this user on mount / login change.
   React.useEffect(() => {

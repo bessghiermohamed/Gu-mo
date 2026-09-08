@@ -527,14 +527,16 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
         )}
       </Card>
 
-      {/* Description */}
-      <Card className="p-4">
-        <p className="text-xs font-bold text-muted-foreground mb-1.5">وصف المقياس</p>
-        <p className="text-sm leading-relaxed">
-          {course.description?.trim()
-            || "لا يوجد وصف متاح لهذا المقياس بعد — يمكن للمشرفين إضافته لاحقاً."}
-        </p>
-      </Card>
+      {/* Description — r57 (owner: «المقاييس التي لا وصف لها لا تحتاج بطاقة
+          الوصف»): the card renders ONLY when the course actually has a
+          description. Courses without one no longer show a placeholder
+          «لا يوجد وصف متاح…» card. */}
+      {course.description?.trim() ? (
+        <Card className="p-4">
+          <p className="text-xs font-bold text-muted-foreground mb-1.5">وصف المقياس</p>
+          <p className="text-sm leading-relaxed whitespace-pre-wrap">{course.description.trim()}</p>
+        </Card>
+      ) : null}
 
       {/* Round 40 — the upload entry lives at the COURSE level, not buried
           in one tab: a supervisor opening ANY course sees the upload

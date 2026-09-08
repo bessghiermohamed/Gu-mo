@@ -16,8 +16,6 @@ import {
   Clock,
   TrendingUp,
   GraduationCap,
-  Sparkles,
-  MessageCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,23 +55,6 @@ export function TalibHomeScreen() {
   const { navigate } = useShell();
 
   const greeting = user?.fullName || t("home.greetingGuest");
-
-  // round 56 — deep link into the AI assistant (المساعد الذكي). The card
-  // on THIS screen is how the assistant's existence becomes obvious
-  // (owner: «تصميم قسم المساعد الذكي لا يوحي بوجوده») — one tap from the
-  // home screen straight into the chat, with optional composer prefill.
-  const openAiAssistant = React.useCallback(
-    (prefill?: string) => {
-      try {
-        sessionStorage.setItem("talib-open-ai", "1");
-        if (prefill) sessionStorage.setItem("talib-ai-prefill", prefill);
-      } catch {
-        // storage disabled — plain navigation still opens the tools screen
-      }
-      navigate("TOOLS");
-    },
-    [navigate]
-  );
 
   // ── تحية حسب الوقت + تاريخ اليوم ──
   // محسوبة كسطر أوّلي (client-only: الشاشة تُعرض بعد جلسة مسجلة) — بلا
@@ -255,73 +236,10 @@ export function TalibHomeScreen() {
         </div>
       </motion.section>
 
-      {/* round 56 — المساعد الذكي hero card: the assistant's existence is
-          now obvious the moment you log in (owner: «تصميم قسم المساعد
-          الذكي لا يوحي بوجوده»). Violet gradient keeps its identity from
-          أدواتي, the mini chat-bubbles say "this is a conversation", and
-          the quick chips prefill the composer (deep link into the tool). */}
-      <motion.section
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, delay: 0.08 }}
-        aria-label="المساعد الذكي"
-        className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-violet-600 via-violet-500 to-fuchsia-500 text-white shadow-md"
-      >
-        {/* decoration: echo bubbles */}
-        <MessageCircle
-          aria-hidden="true"
-          className="absolute -bottom-6 -left-5 w-28 h-28 text-white/10 -rotate-12 pointer-events-none"
-        />
-        <div aria-hidden="true" className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-white/10 to-transparent pointer-events-none" />
-
-        <div className="relative p-4">
-          <button
-            type="button"
-            onClick={() => openAiAssistant()}
-            className="w-full text-right cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 rounded-xl group"
-            aria-label="افتح محادثة المساعد الذكي"
-          >
-            <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center shrink-0 transition-colors duration-200 group-hover:bg-white/25">
-                <Sparkles className="w-6 h-6" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-black text-[15px]">المساعد الذكي</h3>
-                <p className="text-xs text-white/85 mt-0.5 leading-relaxed">
-                  محادثة دراسية بالعربية — يلخّص، يشرح، ويختبرك قبل الامتحان
-                </p>
-              </div>
-              <span className="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-white/20 text-white text-xs font-bold backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/30">
-                اسأل الآن
-                <Send className="w-3.5 h-3.5 -scale-x-100" />
-              </span>
-            </div>
-          </button>
-
-          {/* quick chips — each opens the chat with the composer prefilled */}
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {(
-              [
-                { label: "لخّص لي درساً", prefill: "لخّص النص التالي في نقاط قصيرة واضحة:\n\n" },
-                { label: "اشرح ببساطة", prefill: "اشرح بالبساطة وبمثال ما يلي:\n\n" },
-                { label: "اختبرني", prefill: "أنشئ ٥ أسئلة مراجعة من الدرس التالي، مع قسم «الإجابات» في النهاية:\n\n" },
-              ] as const
-            ).map((chip) => (
-              <button
-                key={chip.label}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openAiAssistant(chip.prefill);
-                }}
-                className="h-7 px-3 rounded-full bg-white/15 border border-white/25 text-white text-[11px] font-bold backdrop-blur-sm hover:bg-white/25 transition-colors duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </motion.section>
+      {/* round 57 (owner: «أزل بانر المساعد الذكي من الواجهة») — بطاقة
+          المساعد الذكي البنفسجية أُزيلت من الرئيسية. المساعد يبقى متاحاً
+          من بطاقته داخل «أدواتي» (أول أداة، بمعاينة المحادثة وزر «ابدأ
+          محادثة») — والرئيسية تعود متمركزة على الخدمات. */}
 
       {/* round 10 (review §4): join-request status banner — visible answer
           to "do I have a pending request?" / "where do I join a group?" */}

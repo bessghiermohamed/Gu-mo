@@ -187,23 +187,10 @@ export function ToolsTab() {
   const [query, setQuery] = React.useState("");
   const [category, setCategory] = React.useState<ToolCategory | "all">("all");
 
-  // round 56 — deep link: the home-screen المساعد الذكي card opens the
-  // assistant directly. sessionStorage covers the cross-screen case (home
-  // → TOOLS remounts this tab); the window event covers taps while already
-  // on this screen (nothing remounts then).
-  React.useEffect(() => {
-    const openAi = () => setActiveTool("ai");
-    try {
-      if (sessionStorage.getItem("talib-open-ai") === "1") {
-        sessionStorage.removeItem("talib-open-ai");
-        openAi();
-      }
-    } catch {
-      // storage disabled — the event path still works
-    }
-    window.addEventListener("talib-open-ai", openAi);
-    return () => window.removeEventListener("talib-open-ai", openAi);
-  }, []);
+  // round 57: the r56 home-screen deep link (talib-open-ai sessionStorage +
+  // window event) was removed together with the home banner — its only
+  // dispatcher. The featured card below opens the assistant directly via
+  // setActiveTool("ai"), so no bridge is needed.
 
   if (activeTool === "gpa") {
     return <GpaTool onBack={() => setActiveTool(null)} />;
