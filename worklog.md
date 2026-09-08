@@ -572,3 +572,27 @@ Work Log:
 Stage Summary:
 - Result: NOTHING is detectably offline — site, auth, AI backend, r59 math UI (real end-to-end), fonts, Telegram/notifications endpoints all verified live from this environment. The report must refer to something specific to the owner's device/network/account/session or an intermittent provider failure (e.g., Gemini free-tier 429 at his usage hours — the chain currently has only Gemini effectively serving, so a project-wide quota error exhausts it).
 - Owner reply needed: exact symptom (which screen, which message/screenshot) before any further fix; candidate hardening if it turns out to be assistant flakiness: one automatic in-chain retry with backoff on rate/server errors + a single silent UI retry on network-kind failures.
+
+---
+Task ID: 31
+Agent: main (Super Z)
+Task: Round 61 — owner report: «I disconnected from the internet and tried logging in. A "You're offline" message appeared, and I couldn't log in after that.» — build a REAL offline experience.
+
+Work Log:
+- Diagnosis: r58's offline banner correctly detected offline but the login submit was hard-blocked, AND an offline /api/auth/me failure set user=null → a logged-in student reloading offline was visually logged out. Two dead ends.
+- New src/lib/offline.ts: device-local stores — talib-cached-user (last server-confirmed SessionUser), talib-last-login (name+email of the last successful signin; login is passwordless so exact-match is the same verification bar), talib-ocache:<url> (last successful GET payload of the main read screens, 14-day TTL), plus signed-out / pending-signout markers.
+- auth-provider: offline session RESTORE on network-level failure (fetch throw — navigator.onLine deliberately NOT the gate: it stays true behind captive portals); OFFLINE LOGIN (exact name+email match → cached session + «تم الدخول في وضع عدم الاتصال»); back-online listener re-syncs and, if the cookie is dead, silently re-signs-in via the bridge; offline signout leaves a pending marker so the first online sync kills the zombie cookie; sign-out keeps the device bridge (flag blocks session resurrection, not offline login).
+- login-screen: signin allowed offline (bridge match), signup blocked with the exact reason; returning-device prefill (name+email); banner gains a «يمكنك الدخول الآن بآخر بيانات…» line when the bridge exists.
+- App shell: amber in-app offline banner (sessionOffline || !online — captive-portal safe), back-online toast + refresh + talib-back-online broadcast; ONE hoisted SonnerToaster (the login-success toast used to vanish on auth-branch switch — each branch mounted its own Toaster).
+- Read screens (courses/schedule/exams/announcements): offlineCachedGet serves the cached payload on network failure + «بيانات محفوظة على جهازك — آخر تحديث …» chip (StaleDataChip), refetch on talib-back-online.
+- Service worker (public/sw.js): network-first with cache-fallback for same-origin GETs (API excluded) — online users always get the fresh build (no stale-build risk), offline users get the last shell they saw so /app actually BOOTS offline; registered on every /app visit now (not only post-onboarding).
+- AI assistant: instant offline error bubble instead of a hanging fetch.
+- i18n: 12 new ar/en keys (offline namespace + auth offline wording).
+- Tests: scripts/r61-offline-test.js — Playwright setOffline against the production build locally, 15/15 PASS (incl. SW-shell offline reload, cached chips, owner's exact scenario, wrong-name rejection, silent re-auth, zombie-cookie kill). Test-harness discoveries: CDP setOffline does not flip navigator.onLine on reloaded documents (overrode the property to real-browser semantics) and the first-run tour's journey driver hijacks navigation on fresh profiles (marked done, as any returning device would).
+- Deploy: c5a8896 pushed → Vercel success in ~45 s. Production verified: sw.js serves the new handler (talib-shell-v1), all 8 unique r61 strings live in served chunks, and scripts/r61-prod-smoke.js ran the whole offline chain against gu-mo.vercel.app with a self-deleting throwaway account — 9/9 PASS (screenshots download/r61/prod-*.png).
+- tsc 0 errors, eslint 0 new problems (4 pre-existing warnings in untouched files), build 69/69.
+
+Stage Summary:
+- Deliverable: offline is now a first-class mode — a student who logged in once on a device can reload offline (SW shell + cached session), sign in offline with their remembered name+email (the owner's exact report), read cached courses/schedule/exams/announcements badged as saved data, and everything re-syncs automatically when the connection returns. Sign-out semantics are airtight (no session resurrection, zombie cookie killed on reconnect, silent re-auth only for never-signed-out bridges).
+- Key decisions: network-level failure (not navigator.onLine) is the offline signal (captive-portal proof); keep the sign-in bridge after sign-out because name+email is already the app's only verification bar online; SW network-first so online freshness is never sacrificed; data caching at the app layer (localStorage) not in the SW so auth'd API semantics stay server-owned.
+- Owner actions: none. First offline use requires one prior ONLINE visit on the device (the SW and caches warm on it) — that matches the natural usage pattern of a returning student.
