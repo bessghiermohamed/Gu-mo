@@ -584,6 +584,21 @@ model TelegramItem {
 }
 
 // =====================================================
+// 14b. إعدادات بوت تيليجرام (BotConfig) - الجولة 62
+// صف واحد (id=1) يخزّن توكن البوت الفعّال وسـرّ الويبهوك
+// عندما يغيّر المالك البوت من لوحة الإدارة (بدون Vercel).
+// التوكن هنا سـرّ — جدول Supabase المقابل (bot_config) مُقفل
+// بـ RLS بدون أي سياسة anon، ولا يُقرأ إلا عبر service role.
+// =====================================================
+model BotConfig {
+  id            Int      @id @default(1)
+  botToken      String   @default("")
+  webhookSecret String   @default("")
+  botUsername   String   @default("")
+  updatedAt     DateTime @updatedAt
+}
+
+// =====================================================
 // 15. مستخدمو النظام (AppUser) - مع RBAC كامل
 // fix A.1: introduce supervisoryScopeEnforced flag
 // =====================================================

@@ -66,7 +66,7 @@ export async function GET() {
   if (!user || !canUploadContent(user)) {
     return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
   }
-  const botConfigured = isBotConfigured();
+  const botConfigured = await isBotConfigured();
   const bot = botConfigured ? await getBotInfo() : null;
   const webhook = botConfigured ? await getWebhookInfo() : null;
   return NextResponse.json({
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
   if (action === "probe-models") return probeModels();
 
   // ---------- الوضع الافتراضي: تفعيل الويبهوك ----------
-  if (!isBotConfigured()) {
+  if (!(await isBotConfigured())) {
     return NextResponse.json(
       { error: "اضبط TELEGRAM_BOT_TOKEN في متغيرات البيئة على Vercel أولاً" },
       { status: 400 }

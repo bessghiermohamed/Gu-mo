@@ -235,7 +235,7 @@ export async function POST(req: NextRequest) {
     let tgUsername = parsedHandle.username ?? "";
     let autoTitle = "";
     let kind = body.kind === "private" ? "private" : body.kind === "public" ? "public" : "";
-    if (isBotConfigured()) {
+    if (await isBotConfigured()) {
       const lookup = await resolveChat(parsedHandle.username ? `@${parsedHandle.username}` : tgChannelId);
       if (lookup.error) return NextResponse.json({ error: lookup.error }, { status: 400 });
       if (lookup.chat) {

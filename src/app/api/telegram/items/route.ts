@@ -325,7 +325,7 @@ export async function GET(req: NextRequest) {
         )
       ),
       myCohortId,
-      setup: { bot: isBotConfigured(), activeSources },
+      setup: { bot: await isBotConfigured(), activeSources },
     });
   } catch {
     return NextResponse.json({ items: [], myCohortId: null, tablesReady: false });
@@ -444,7 +444,7 @@ export async function PATCH(req: NextRequest) {
       // صور: نُنزّلها مؤقتاً للتحليل البصري (لا تُخزَّن)
       let imageBase64: string | undefined;
       let imageMime: string | undefined;
-      if (item.kind === "image" && item.fileId && isBotConfigured()) {
+      if (item.kind === "image" && item.fileId && (await isBotConfigured())) {
         const dl = await downloadFileBase64(item.fileId);
         if (dl) { imageBase64 = dl.base64; imageMime = dl.mime; }
       }

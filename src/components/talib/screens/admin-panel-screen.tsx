@@ -2361,6 +2361,7 @@ function TelegramManager() {
   return (
     <div className="space-y-4">
       <TgStatusCard />
+      <TgBotSwapCard />
       <Card className="p-4">
         <Tabs defaultValue="sources">
           <TabsList className="grid w-full grid-cols-2">
@@ -2403,12 +2404,12 @@ interface GeminiTestResult {
 /** يحسب «الخطوة التالية» المطلوبة بالضبط من حالة الربط الحالية */
 function tgNextStep(s: TgStatus | null): string {
   if (!s) return "جارٍ قراءة الحالة…";
-  if (!s.botConfigured) return "١) أضف TELEGRAM_BOT_TOKEN في Vercel (Settings ← Environment Variables) ثم Redeploy";
-  if (!s.botTokenValid) return "التوكن موجود لكن تيليجرام يرفضه — انسخه كاملاً من @BotFather، حدّثه في Vercel ثم Redeploy";
-  if (!s.webhookSecretConfigured) return "٢) أضف TELEGRAM_WEBHOOK_SECRET (أي نص عشوائي طويل) في Vercel ثم Redeploy";
+  if (!s.botConfigured) return "١) الأسهل: أنشئ بوتاً عبر @BotFather والصق توكنه في بطاقة «تغيير البوت» بالأسفل — أو أضف TELEGRAM_BOT_TOKEN في Vercel ثم Redeploy";
+  if (!s.botTokenValid) return "التوكن موجود لكن تيليجرام يرفضه — الصق توكناً صحيحاً في «تغيير البوت» بالأسفل، أو حدّثه في Vercel ثم Redeploy";
+  if (!s.webhookSecretConfigured) return "٢) أضف TELEGRAM_WEBHOOK_SECRET (أي نص عشوائي طويل) في Vercel ثم Redeploy — أو استعمل بطاقة «تغيير البوت» بالأسفل (تولّد سرّها تلقائياً)";
   if (!s.tablesReady) return "٣) نفّذ ملف download/supabase_telegram.sql في محرر SQL داخل Supabase";
   if (!s.webhook?.url) return "٤) اضغط «تفعيل الربط» بالأسفل";
-  return "كل شيء مضبوط — انشر منشوراً جديداً في قناة مربوطة، أو جرّب «اختبار الاستيراد» من قائمة القنوات";
+  return "كل شيء مضبوط — انشر منشوراً جديداً في قناة مربوطة، أو جرّب «اختبار الاستيراد» من قائمة القنوات. البوت يجيب الآن أيضاً في المحادثات الخاصة";
 }
 
 const GEMINI_SAMPLE_UI = "امتحان محلول في التحليل الرياضي — السنة الأولى جامعي";
@@ -2570,13 +2571,14 @@ function TgStatusCard() {
       <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-lg leading-relaxed space-y-1">
         <p className="font-bold text-foreground/80">خطوات الربط الكاملة (مرة واحدة):</p>
         <p>١. في تيليجرام: كلم <span dir="ltr" className="font-mono">@BotFather</span> ← <span dir="ltr" className="font-mono">/newbot</span> ← انسخ التوكن (شكله <span dir="ltr" className="font-mono">123456:ABC-xyz…</span>).</p>
-        <p>٢. في <a href="https://vercel.com/bessghiermohamed/Gu-mo/settings/environment-variables" target="_blank" rel="noreferrer" className="text-primary underline inline-flex items-center gap-0.5">Vercel ← Environment Variables <ExternalLink className="w-3 h-3" /></a> أضف المتغيرات الثلاثة:
+        <p>٢. <strong>الأسرع (بدون Vercel):</strong> الصق التوكن في بطاقة «تغيير البوت» بالأسفل ← يُفعّل الربط فوراً ويتولى السـرّ تلقائياً — ثم أضف البوت مشرفاً في قنواتك. (تتطلب هذه الطريقة جدول <span dir="ltr" className="font-mono">bot_config</span> ومفتاح الخدمة — البطاقة تخبرك إن نقص شيء.)</p>
+        <p>أو الطريق الكلاسيكي: في <a href="https://vercel.com/bessghiermohamed/Gu-mo/settings/environment-variables" target="_blank" rel="noreferrer" className="text-primary underline inline-flex items-center gap-0.5">Vercel ← Environment Variables <ExternalLink className="w-3 h-3" /></a> أضف المتغيرات الثلاثة:
           <span dir="ltr" className="font-mono">TELEGRAM_BOT_TOKEN</span> و <span dir="ltr" className="font-mono">TELEGRAM_WEBHOOK_SECRET</span> (أي نص عشوائي طويل) و <span dir="ltr" className="font-mono">GEMINI_API_KEY</span> (اختياري — للتصنيف الذكي وقراءة نص الصور).
         </p>
-        <p>٣. مهم: بعد إضافة أي متغير ← Vercel ← Deployments ← آخر نشر ← <strong>Redeploy</strong> حتى يُحمَّل.</p>
-        <p>٤. في <strong>Supabase</strong> ← SQL Editor ← نفّذ محتوى ملف <span dir="ltr" className="font-mono">download/supabase_telegram.sql</span> (من مستودع GitHub).</p>
+        <p>٣. مهم (الطريق الكلاسيكي فقط): بعد إضافة أي متغير ← Vercel ← Deployments ← آخر نشر ← <strong>Redeploy</strong> حتى يُحمّل.</p>
+        <p>٤. في <strong>Supabase</strong> ← SQL Editor ← نفّذ محتوى ملفي <span dir="ltr" className="font-mono">download/supabase_telegram.sql</span> و <span dir="ltr" className="font-mono">download/supabase_bot_config.sql</span> (من مستودع GitHub).</p>
         <p>٥. أضف البوت «مشرفاً» في كل قناة تريد استيرادها (تكفي صلاحية قراءة المنشورات).</p>
-        <p>٦. هنا: «ربط قناة» ← أدخل <span dir="ltr" className="font-mono">@اسم_القناة</span> ← «تفعيل الربط» ← «اختبار الاستيراد».</p>
+        <p>٦. هنا: «ربط قناة» ← أدخل <span dir="ltr" className="font-mono">@اسم_القناة</span> ← «تفعيل الربط» ← «اختبار الاستيراد». ويمكن لأي طالب مراسلة البوت خاصاً: يجيب عن أسئلته ويصنّف الملفات التي يرسلها.</p>
         <p className="text-xs pt-1 border-t border-border/60">تُستورد المنشورات <strong>الجديدة فقط</strong> بعد الربط (اتفاقنا) — والمنشورات القديمة تبقى في تيليجرام كمرجع. الروابط المحفوظة تفتح الأصل مباشرة.</p>
       </div>
     </Card>
@@ -2592,6 +2594,154 @@ function StatusLine({ ok, label, okText, badText }: { ok: boolean; label: string
         <p className={cn("text-xs mt-0.5 leading-relaxed break-all", ok ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground")}>{ok ? okText : badText}</p>
       </div>
     </div>
+  );
+}
+
+// -----------------------------------------------------
+// تغيير البوت (r62) — لصق توكن جديد هنا بدل Vercel
+// -----------------------------------------------------
+interface TgBotStatus {
+  activeTokenSource: "db" | "env" | "none";
+  botUsername: string;
+  botFirstName: string;
+  botTokenValid: boolean;
+  webhook: { url: string; pendingUpdateCount: number; lastErrorMessage: string } | null;
+  config: {
+    envTokenConfigured: boolean;
+    envSecretConfigured: boolean;
+    dbTokenActive: boolean;
+    dbBotUsername: string;
+    dbUpdatedAt: string;
+    dbTableReady: boolean;
+    serviceKeyConfigured: boolean;
+    isVercel: boolean;
+  };
+}
+
+function TgBotSwapCard() {
+  const [status, setStatus] = React.useState<TgBotStatus | null>(null);
+  const [token, setToken] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [clearing, setClearing] = React.useState(false);
+  const [resultMsg, setResultMsg] = React.useState<string | null>(null);
+  const [resultOk, setResultOk] = React.useState(true);
+
+  const fetchStatus = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/telegram/bot", { cache: "no-store" });
+      if (res.ok) setStatus(await res.json());
+    } catch { /* silent */ }
+  }, []);
+  React.useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+  async function handleSave() {
+    const trimmed = token.trim();
+    if (!trimmed) { toast.error("الصق توكن البوت أولاً — من @BotFather"); return; }
+    setSaving(true);
+    setResultMsg(null);
+    try {
+      const res = await fetch("/api/telegram/bot", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setResultMsg(data.error ?? "تعذّر الحفظ"); setResultOk(false); toast.error(data.error ?? "تعذّر الحفظ"); return; }
+      setResultMsg(data.message); setResultOk(true);
+      toast.success(`البوت الآن: @${data.botUsername}`);
+      setToken("");
+      fetchStatus();
+    } catch {
+      toast.error("فشل الاتصال");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleClear() {
+    setClearing(true);
+    try {
+      const res = await fetch("/api/telegram/bot", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear" }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "تعذّر التنفيذ"); return; }
+      toast.success("عاد التطبيق إلى بوت متغير البيئة");
+      fetchStatus();
+    } catch {
+      toast.error("فشل الاتصال");
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  const cfg = status?.config;
+  const sourceLabel =
+    status?.activeTokenSource === "db" ? "محفوظ داخل التطبيق (قاعدة البيانات)"
+    : status?.activeTokenSource === "env" ? "من متغير Vercel (TELEGRAM_BOT_TOKEN)"
+    : "لا يوجد بوت فعّال";
+  const showSqlHint = !!cfg?.isVercel && !cfg.dbTableReady;
+  const showServiceKeyHint = !!cfg?.isVercel && !cfg.serviceKeyConfigured;
+
+  return (
+    <Card className="p-4 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="font-bold text-sm flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />تغيير البوت — بدون Vercel</h3>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+            البوت الفعّال الآن: <strong dir="ltr" className="font-mono">{status?.botUsername ? `@${status.botUsername}` : "—"}</strong> ({sourceLabel}).
+            الصق توكن بوت جديد (من <span dir="ltr" className="font-mono">@BotFather</span>) فيصبح فوراً بوت الترتيب والذكاء الخاص بالمنصة — يرتّب منشورات القنوات المرتبطة ويجيب عن أسئلة الطلبة في المحادثة الخاصة.
+          </p>
+        </div>
+      </div>
+
+      {showServiceKeyHint ? (
+        <div className="rounded-lg bg-amber-500/10 border border-amber-600/30 text-amber-700 dark:text-amber-300 text-xs p-3 leading-relaxed">
+          حفظ التوكن داخل التطبيق يحتاج المتغير <span dir="ltr" className="font-mono">SUPABASE_SERVICE_ROLE_KEY</span> في Vercel (Settings ← Environment Variables ثم Redeploy) — حتى الآن غير مضبوط. البديل المؤقت: ضع التوكن في <span dir="ltr" className="font-mono">TELEGRAM_BOT_TOKEN</span> ثم اضغط «تفعيل الربط» بالأعلى.
+        </div>
+      ) : null}
+
+      {showSqlHint && !showServiceKeyHint ? (
+        <div className="rounded-lg bg-amber-500/10 border border-amber-600/30 text-amber-700 dark:text-amber-300 text-xs p-3 leading-relaxed">
+          جدول <span dir="ltr" className="font-mono">bot_config</span> غير منشأ — نفّذ ملف <span dir="ltr" className="font-mono">download/supabase_bot_config.sql</span> مرة واحدة في محرر SQL داخل Supabase (جدول واحد صغير)، ثم أعد المحاولة.
+        </div>
+      ) : null}
+
+      <div className="grid gap-2">
+        <Label htmlFor="tg-new-token" className="text-xs">توكن البوت الجديد</Label>
+        <Input
+          id="tg-new-token"
+          dir="ltr"
+          className="font-mono text-xs"
+          type="password"
+          autoComplete="off"
+          placeholder="123456789:AA…"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <Button onClick={handleSave} disabled={saving} className="w-full">
+          {saving ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Zap className="w-4 h-4 ml-1" />}
+          حفظ وتفعيل البوت الجديد
+        </Button>
+        <Button variant="outline" onClick={handleClear} disabled={clearing || status?.activeTokenSource !== "db"} className="w-full">
+          {clearing ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Power className="w-4 h-4 ml-1" />}
+          العودة إلى بوت Vercel
+        </Button>
+      </div>
+
+      {resultMsg ? (
+        <div className={`rounded-lg p-3 text-xs leading-relaxed border ${resultOk ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700 dark:text-emerald-300" : "bg-destructive/10 border-destructive/30 text-destructive"}`}>
+          {resultMsg}
+        </div>
+      ) : null}
+
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        يُتحقق من التوكن لدى تيليجرام قبل الحفظ، ويُخزَّن في جدول خاص لا يمكن قراءته من المتصفح (مفتاح الخدمة فقط) — لذلك لن يظهر التوكن مرة أخرى بعد الحفظ. بعد التبديل أضف البوت «مشرفاً» في كل قناة مربوطة، واخبر الطلبة بمراسلته خاصاً: يجيب عن أسئلتهم ويصنّف الملفات التي يرسلونها.
+      </p>
+    </Card>
   );
 }
 

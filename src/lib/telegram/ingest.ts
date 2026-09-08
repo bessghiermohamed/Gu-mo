@@ -1,10 +1,14 @@
 /**
- * Telegram ingest engine (round 7)
+ * Telegram ingest engine (round 7, r62 bot-swap aware)
  *
  * Turns Telegram bot updates (channel posts + group messages) into
  * telegram_items rows. Works in BOTH deployment modes of this app
  * (Supabase on Vercel / Prisma SQLite locally) — same pattern as all
  * other API routes in this codebase.
+ *
+ * r62: the ACTIVE bot token comes from bot-config (DB row set from the
+ * admin UI «تغيير البوت», else the Vercel env var) — and PRIVATE chats
+ * are routed to the bot brain (bot-chat.ts) instead of ingest.
  *
  * Invariants:
  *  1. LINKS NOT FILES — only metadata + a t.me deep link is stored.
@@ -21,32 +25,31 @@ import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { classifyItem, isGeminiConfigured } from "./classify";
 import { buildSearchText, firstLineTitle, fileNameToTitle } from "./normalize";
+import { resolveBotCredentials } from "./bot-config";
+import { telegramApi, getMeWith, activateWebhookWith, downloadFileBase64With } from "./bot-api";
+import { handlePrivateMessage, type PrivateChatOutcome } from "./bot-chat";
 import type { TgItemKind, TgMessage, TgUpdate, TgChatInfo } from "./types";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
-const BOT_TOKEN = () => process.env.TELEGRAM_BOT_TOKEN?.trim() ?? "";
-export const isBotConfigured = () => BOT_TOKEN().length > 20;
 const MAX_VISION_BYTES = 8 * 1024 * 1024;
 
+/** التوكن النشط: قاعدة البيانات (عُيّن من الواجهة) أو متغير البيئة */
+async function activeToken(): Promise<string> {
+  return (await resolveBotCredentials()).token;
+}
+
+/** توفر البوت — أصبح غير متزامن لأن التوكن قد يُقرأ من قاعدة البيانات */
+export async function isBotConfigured(): Promise<boolean> {
+  return (await activeToken()).length > 20;
+}
+
 // =============================================================
-// Telegram Bot API helpers (REST, no SDK)
+// Telegram Bot API helpers (REST, no SDK) — token resolved per call
 // =============================================================
 
 async function botApi<T>(method: string, body: Record<string, unknown>): Promise<{ ok: true; result: T } | { ok: false; description: string }> {
-  const token = BOT_TOKEN();
-  if (!token) return { ok: false, description: "TELEGRAM_BOT_TOKEN غير مضبوط" };
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json()) as { ok: boolean; result?: T; description?: string };
-    if (!data.ok) return { ok: false, description: data.description ?? "خطأ غير معروف من تيليجرام" };
-    return { ok: true, result: data.result as T };
-  } catch (e) {
-    return { ok: false, description: (e as Error).message };
-  }
+  const r = await telegramApi<T>(await activeToken(), method, body);
+  return r.ok ? { ok: true, result: r.result as T } : { ok: false, description: r.description ?? "خطأ غير معروف من تيليجرام" };
 }
 
 /** يقرأ معلومات قناة/مجموعة بالمعرّف أو اسم المستخدم — يتطلب البوت مشرفاً */
@@ -67,9 +70,7 @@ export async function resolveChat(chatIdOrUsername: string): Promise<{ chat?: Tg
 
 /** معلومات البوت نفسه (getMe) — يتحقق أن التوكن مقبول ويظهر @اسم البوت */
 export async function getBotInfo(): Promise<{ username: string; firstName: string } | null> {
-  const r = await botApi<{ username?: string; first_name?: string }>("getMe", {});
-  if (!r.ok) return null;
-  return { username: r.result.username ?? "", firstName: r.result.first_name ?? "" };
+  return getMeWith(await activeToken());
 }
 
 /** معلومات الويبهوك الحالية (للعرض في لوحة الإدارة) */
@@ -83,36 +84,17 @@ export async function getWebhookInfo(): Promise<{ url: string; pendingUpdateCoun
   };
 }
 
-/** يربط الويبهوك بالنطاق الحالي مع سرّ التحقق */
+/** يربط الويبهوك بالنطاق الحالي مع سرّ التحقق — بالتوكن النشط (قاعدة بيانات أو بيئة) */
 export async function setWebhook(origin: string): Promise<{ ok: boolean; message: string }> {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
-  if (!secret) return { ok: false, message: "اضبط TELEGRAM_WEBHOOK_SECRET في متغيرات البيئة أولاً" };
-  const r = await botApi<unknown>("setWebhook", {
-    url: `${origin}/api/telegram/webhook`,
-    secret_token: secret,
-    allowed_updates: ["channel_post", "edited_channel_post", "message", "edited_message"],
-    drop_pending_updates: true, // نتعامل مع الجديد فقط (اتفاق المستخدم)
-  });
-  if (!r.ok) return { ok: false, message: `فشل تفعيل الربط: ${r.description}` };
-  return { ok: true, message: "تم تفعيل الربط — سيتم استيراد المنشورات الجديدة تلقائياً" };
+  const { token, secret } = await resolveBotCredentials();
+  const r = await activateWebhookWith(token, secret, origin);
+  return { ok: r.ok, message: r.message };
 }
 
 /** تنزيل مؤقت لملف (لتحليل الصور فقط — لا يُخزَّن). عام: يستعمله
  *  الاستيراد وكذلك «إعادة التصنيف» الإدارية لاحقاً. */
 export async function downloadFileBase64(fileId: string): Promise<{ base64: string; mime: string } | null> {
-  const token = BOT_TOKEN();
-  if (!token) return null;
-  const info = await botApi<{ file_path?: string }>("getFile", { file_id: fileId });
-  if (!info.ok || !info.result.file_path) return null;
-  try {
-    const res = await fetch(`https://api.telegram.org/file/bot${token}/${info.result.file_path}`);
-    if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length === 0 || buf.length > MAX_VISION_BYTES) return null;
-    return { base64: buf.toString("base64"), mime: res.headers.get("content-type")?.split(";")[0] || "image/jpeg" };
-  } catch {
-    return null;
-  }
+  return downloadFileBase64With(await activeToken(), fileId);
 }
 
 // =============================================================
@@ -346,16 +328,26 @@ async function getModuleName(moduleId: number | null): Promise<string> {
   }
 }
 
+/** حالة معالجة تحديث تيليجرام — تشمل الآن مخرجات عقل البوت للمحادثات الخاصة */
+export type UpdateStatus = "inserted" | "updated" | "ignored" | PrivateChatOutcome;
+
 /**
  * يعالج تحديثاً واحداً من تيليجرام. يعيد الحالة دائماً ولا يرمي استثناءً.
  */
-export async function processTelegramUpdate(update: TgUpdate): Promise<"inserted" | "updated" | "ignored"> {
+export async function processTelegramUpdate(update: TgUpdate): Promise<UpdateStatus> {
   try {
     const msg = update.channel_post ?? update.message ?? update.edited_channel_post ?? update.edited_message;
     if (!msg?.chat?.id) return "ignored";
     const isEdit = !!(update.edited_channel_post ?? update.edited_message);
     // تجاهل رسائل البوتات (حماية من حلقات)
     if (msg.from?.is_bot) return "ignored";
+
+    // r62: محادثة خاصة مع البوت ← العقل (أوامر/أجوبة ذكية/ترتيب الملفات) —
+    // ليست مصدر استيراد، ولا يُخزَّن منها شيء في telegram_items أبداً.
+    if (msg.chat.type === "private") {
+      const { token } = await resolveBotCredentials();
+      return await handlePrivateMessage(msg, token);
+    }
 
     const source = await loadSourceByChatId(String(msg.chat.id));
     if (!source || !source.isActive) return "ignored";
@@ -369,7 +361,7 @@ export async function processTelegramUpdate(update: TgUpdate): Promise<"inserted
 
     // --- التصنيف (Gemini ثم fallback محلي) ---
     const wantsVision =
-      content.kind === "image" && !!content.fileId && isGeminiConfigured() && isBotConfigured() && content.sizeBytes <= MAX_VISION_BYTES;
+      content.kind === "image" && !!content.fileId && isGeminiConfigured() && (await isBotConfigured()) && content.sizeBytes <= MAX_VISION_BYTES;
     let imageBase64: string | undefined;
     let imageMime: string | undefined;
     if (wantsVision) {
