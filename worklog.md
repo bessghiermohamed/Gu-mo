@@ -536,3 +536,21 @@ Work Log:
 
 Stage Summary:
 - r58 is LIVE: offline status banner, submit guard, error classification, and hardened offline signout are all in production. No owner actions required.
+
+---
+Task ID: 29
+Agent: main (Super Z)
+Task: Round 59 — owner feedback: «المساعد الذكي يحتاج تحسينًا — جرّب التحدث معه وطرح سؤال علمي».
+
+Work Log:
+- Live quality probe (scripts/r59-ai-probe.mjs, self-cleaning signup→chat→delete on gu-mo.vercel.app) asking 3 real scientific questions (physics w/ calculation, chemistry, biology). Diagnosis: the ANSWER CONTENT was good (Gemini gemini-3.5-flash via the r44 chain) but (a) answers systematically carry LaTeX — $F = m \times a$, $H^+$, $m/s^2$ — and the chat UI (ReactMarkdown+GFM only) has NO math renderer, so students saw raw dollar-sign code; (b) every answer ended with the same repeated «تذكر دائماً مراجعة مطبوعاتك…» footer (system-prompt phrasing side effect).
+- Fix 1 — math rendering: added katex + remark-math + rehype-katex; MarkdownContent now runs [remarkGfm, remarkMath(singleDollar)] + [rehypeKatex(throwOnError:false, strict:"ignore", errorColor #c2410c)] and imports katex.min.css; new .ai-markdown CSS (globals.css) forces LTR direction + overflow-x scroll for display math, 1.08em sizing inside RTL bubbles. Safe against partial-stream frames.
+- Fix 2 — system prompt (api/ai/route.ts): explicit instruction that the UI renders LaTeX (write $…$ inline / $$…$$ display, never in code fences) and a ban on repetitive closing paragraphs (the "review your course" habit).
+- Gates: tsc 0 · eslint 0 · next build ✓ 69/69.
+- Visual verification without local AI keys: agent-browser fetch monkey-patch (scripts/r59-fetch-patch.js) streams the REAL captured production physics answer as genuine SSE → math typeset correctly in light AND dark (VLM-verified screenshots download/r59/ai-chat-math-light.png / ai-chat-math-dark.png); no console errors.
+- Deployment hiccup: push of 98a0e71 produced NO Vercel status at all for 20 min (integration never started a build; r58 commit shows success for comparison). An empty retrigger commit 16b7749 was pushed → «Deployment has completed» in ~75 s.
+- Production verification: probe re-run — answers now use LaTeX systematically ($$F = m \times a$$ display, $H^+$, $2n$) with NO repeated footer; served JS chunk contains ai-markdown and two served CSS chunks contain katex; probe account deleted (200).
+
+Stage Summary:
+- Deliverable: scientific answers in المساعد الذكي now render as real typeset math (KaTeX, RTL-safe, stream-safe) instead of raw LaTeX code, and answers no longer end with the same repetitive reminder. No schema changes, no new env vars, no owner actions needed.
+- Key decisions: render LaTeX properly rather than forcing plain-text math (fractions/units/subscripts benefit); keep singleDollar math since that's what the providers emit; errorColor orange (#c2410c) so a rare malformed fragment stays visible but non-destructive; deployment retrigger via empty commit when Vercel skips a push (status API with zero statuses = build never started).
