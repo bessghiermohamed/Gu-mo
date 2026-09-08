@@ -44,7 +44,9 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
+  // round 56: public/** added — vendored minified assets (pdf.worker.min.mjs)
+  // are not lintable source and were polluting the error count since r31.
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "public/**", "next-env.d.ts", "examples/**", "skills"]
 }];
 
 export default eslintConfig;

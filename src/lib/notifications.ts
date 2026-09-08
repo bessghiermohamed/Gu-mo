@@ -33,6 +33,7 @@ export type NotificationType =
   | "join_approved"
   | "join_rejected"
   | "report_new"
+  | "report_resolved"
   | "content_announcement"
   | "content_exam"
   | "content_assignment"
@@ -72,6 +73,7 @@ const TYPE_TO_CATEGORY: Record<string, MuteableCategory | null> = {
   join_approved: null, // own request outcome — always delivered
   join_rejected: null, // own request outcome — always delivered
   report_new: "reports",
+  report_resolved: null, // round 56 — outcome of the user's OWN report: always delivered
   content_announcement: "announcements",
   content_exam: "exams",
   content_assignment: "assignments",
@@ -166,6 +168,10 @@ export async function createNotifications(items: NewNotification[]): Promise<voi
         }))
       );
       if (error) console.error("[notifications] insert failed:", error.message);
+      // round 56 — outside-the-browser delivery: each recipient's own
+      // newest item goes out as a Web Push (no-op without the VAPID
+      // private key; best-effort, never throws).
+      await fanOutPush(deliverable);
       return;
     }
     await db.appNotification.createMany({
@@ -177,9 +183,35 @@ export async function createNotifications(items: NewNotification[]): Promise<voi
         meta: JSON.stringify(n.meta ?? {}),
       })) as never,
     });
+    // round 56 — local branch gets the same Web Push fan-out
+    await fanOutPush(deliverable);
   } catch (e) {
     console.error("[notifications] insert failed:", (e as Error).message);
   }
+}
+
+/** round 56 — per-user Web Push of their own newest item. Batches are
+ *  usually one logical event fanned out to many recipients, but each
+ *  recipient still deserves THEIR notification's wording — so the push
+ *  goes out per user (sendPushToUsers fans to all of that user's
+ *  browser subscriptions). */
+async function fanOutPush(items: NewNotification[]): Promise<void> {
+  if (items.length === 0) return;
+  const { sendPushToUsers } = await import("@/lib/push");
+  // newest item per user (first occurrence wins — callers pass newest-first)
+  const perUser = new Map<number, NewNotification>();
+  for (const n of items) {
+    if (!perUser.has(n.userId)) perUser.set(n.userId, n);
+  }
+  await Promise.allSettled(
+    Array.from(perUser.entries()).map(([userId, n]) =>
+      sendPushToUsers([userId], {
+        title: n.title,
+        body: n.body ?? "",
+        tag: `talib-notif-${n.type}`,
+      })
+    )
+  );
 }
 
 /** Load every supervisory user (excluding one id) as ScopedUserLike. */
@@ -313,6 +345,56 @@ export async function notifyReportSubmitted(opts: {
     );
   } catch (e) {
     console.error("[notifications] report_new fan-out failed:", (e as Error).message);
+  }
+}
+
+/** round 56 — the REPORTER is told the outcome of their own report
+ *  (owner request: «أبلّغ عن مرسل وأكتب تبليغاً ولا يصلني إشعار عند الحل»).
+ *  Delivered for BOTH outcomes: resolved (تم الحل) and reopened
+ *  (أُعيد للمراجعة) — always muteable-proof (own-action outcome). */
+export async function notifyReportResolved(opts: {
+  reporterId: number | null;
+  reporterName: string;
+  itemTitle: string;
+  resolved: boolean; // true = تم الحل, false = reopened قيد المراجعة
+}): Promise<void> {
+  try {
+    // resolve the reporter: prefer the stored reporter_id; legacy rows
+    // (created before round 56) fall back to a full_name match.
+    let userId = opts.reporterId;
+    if (userId == null) {
+      if (isVercel) {
+        const supabase = await createSupabaseServerClient();
+        const { data } = await supabase
+          .from("app_users")
+          .select("id")
+          .eq("full_name", opts.reporterName)
+          .limit(1)
+          .maybeSingle();
+        userId = data ? Number(data.id) : null;
+      } else {
+        const u = await db.appUser.findFirst({
+          where: { fullName: opts.reporterName },
+          select: { id: true },
+        });
+        userId = u?.id ?? null;
+      }
+    }
+    if (userId == null) return; // reporter no longer exists — nothing to send
+
+    await createNotifications([
+      {
+        userId,
+        type: "report_resolved" as const,
+        title: opts.resolved ? "تم حل تبليغك" : "أُعيد تبليغك للمراجعة",
+        body: opts.resolved
+          ? `انتهت مراجعة تبليغك «${opts.itemTitle}» — تمت معالجة المشكلة. شكراً لمساهمتك في تحسين التطبيق.`
+          : `تبليغك «${opts.itemTitle}» أُعيد إلى قيد المراجعة لمزيد من الفحص.`,
+        meta: { reportTitle: opts.itemTitle },
+      },
+    ]);
+  } catch (e) {
+    console.error("[notifications] report_resolved failed:", (e as Error).message);
   }
 }
 

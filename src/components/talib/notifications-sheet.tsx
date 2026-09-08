@@ -36,6 +36,8 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   join_approved: CheckCircle2,
   join_rejected: XCircle,
   report_new: Flag,
+  // round 56 — outcome of the user's own report (resolve/reopen)
+  report_resolved: CheckCheck,
   // round 24 — published content + temporal reminders
   content_announcement: Megaphone,
   content_exam: FlaskConical,
@@ -51,6 +53,7 @@ const TYPE_COLORS: Record<string, string> = {
   join_approved: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10",
   join_rejected: "text-red-600 dark:text-red-400 bg-red-500/10",
   report_new: "text-amber-600 dark:text-amber-400 bg-amber-500/10",
+  report_resolved: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10",
   content_announcement: "text-sky-600 dark:text-sky-400 bg-sky-500/10",
   content_exam: "text-rose-600 dark:text-rose-400 bg-rose-500/10",
   content_assignment: "text-violet-600 dark:text-violet-400 bg-violet-500/10",

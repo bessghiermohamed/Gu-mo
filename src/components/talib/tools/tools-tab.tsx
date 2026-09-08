@@ -38,6 +38,7 @@ import {
   Combine,
   ImageDown,
   Images,
+  MessageCircle,
   ScanText,
   Scissors,
   Search,
@@ -50,7 +51,6 @@ import {
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { useI18n } from "@/components/talib/i18n-provider";
 import { cn } from "@/lib/utils";
 import { ImageToPdfTool } from "./image-to-pdf-tool";
 import { CompressPdfTool } from "./compress-pdf-tool";
@@ -183,10 +183,27 @@ const TOOLS: Array<{
 const GRID_TOOLS = TOOLS.filter((t) => !t.ai);
 
 export function ToolsTab() {
-  const { dir } = useI18n();
   const [activeTool, setActiveTool] = React.useState<ToolId | null>(null);
   const [query, setQuery] = React.useState("");
   const [category, setCategory] = React.useState<ToolCategory | "all">("all");
+
+  // round 56 — deep link: the home-screen المساعد الذكي card opens the
+  // assistant directly. sessionStorage covers the cross-screen case (home
+  // → TOOLS remounts this tab); the window event covers taps while already
+  // on this screen (nothing remounts then).
+  React.useEffect(() => {
+    const openAi = () => setActiveTool("ai");
+    try {
+      if (sessionStorage.getItem("talib-open-ai") === "1") {
+        sessionStorage.removeItem("talib-open-ai");
+        openAi();
+      }
+    } catch {
+      // storage disabled — the event path still works
+    }
+    window.addEventListener("talib-open-ai", openAi);
+    return () => window.removeEventListener("talib-open-ai", openAi);
+  }, []);
 
   if (activeTool === "gpa") {
     return <GpaTool onBack={() => setActiveTool(null)} />;
@@ -333,7 +350,11 @@ export function ToolsTab() {
         </div>
       ) : (
         <>
-          {/* Featured AI card — promoted above the grid, keeps violet identity */}
+          {/* Featured AI card — round 56 redesign: the owner said the old
+              card «لا يوحي بوجوده». It now SHOWS the product: a mini
+              chat-bubble preview (assistant explaining + user question)
+              inside the violet identity, plus a clear «ابدأ محادثة» CTA —
+              no one can mistake it for a plain utility row anymore. */}
           {matchesAI && (
             <motion.button
               key="ai"
@@ -342,31 +363,46 @@ export function ToolsTab() {
               transition={{ duration: 0.25 }}
               onClick={() => setActiveTool("ai")}
               className="group w-full text-right cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-label="المساعد الذكي — ابدأ محادثة"
             >
               <Card className="relative overflow-hidden p-0 border-0 bg-gradient-to-l from-violet-600 via-violet-500 to-fuchsia-500 text-white shadow-md transition-shadow duration-200 hover:shadow-lg">
-                <div className="p-4 flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/25">
-                    <Sparkles className="w-6 h-6" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-black text-[15px]">المساعد الذكي</h3>
-                      <Badge className="text-[10px] px-1.5 py-0 bg-white/20 text-white border-0">
-                        {ai.badge}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-white/85 mt-0.5 leading-relaxed">
-                      {ai.desc}
-                    </p>
-                  </div>
-                  <ChevronLeft
-                    className={cn(
-                      "w-5 h-5 text-white/70 group-hover:text-white transition-colors duration-200 shrink-0",
-                      dir === "rtl" && "rotate-180"
-                    )}
-                  />
-                </div>
+                <MessageCircle
+                  aria-hidden="true"
+                  className="absolute -bottom-7 -left-6 w-32 h-32 text-white/10 -rotate-12 pointer-events-none"
+                />
                 <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-white/10 to-transparent pointer-events-none" />
+                <div className="relative p-4 space-y-3">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/25">
+                      <Sparkles className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-black text-[15px]">المساعد الذكي</h3>
+                        <Badge className="text-[10px] px-1.5 py-0 bg-white/20 text-white border-0">
+                          {ai.badge}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-white/85 mt-0.5 leading-relaxed">
+                        {ai.desc}
+                      </p>
+                    </div>
+                    <span className="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-white/20 text-white text-xs font-bold backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/30">
+                      ابدأ محادثة
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                  {/* mini conversation preview — says "this is a chat"
+                      without a single extra word of copy */}
+                  <div className="space-y-1.5 max-w-[85%] mx-1">
+                    <div className="w-fit max-w-full rounded-2xl rounded-tr-md bg-white/15 backdrop-blur-sm px-3 py-1.5 text-[11px] text-white/90 leading-relaxed">
+                      اشرح لي الفرق بين السباتة والعطلة الصيفية بإيجاز
+                    </div>
+                    <div className="w-fit max-w-full ms-auto rounded-2xl rounded-tl-md bg-white/90 text-violet-900 px-3 py-1.5 text-[11px] leading-relaxed">
+                      بالتأكيد — السباتة أسبوع واحد من كل سنة، أما العطلة الصيفية فتمتد شهرين…
+                    </div>
+                  </div>
+                </div>
               </Card>
             </motion.button>
           )}

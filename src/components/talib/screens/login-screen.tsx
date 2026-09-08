@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import { LogIn, UserPlus, Loader2, GraduationCap, Mail, User, BookOpen } from "lucide-react";
+import { LogIn, UserPlus, Loader2, GraduationCap, Mail, User, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,14 +11,53 @@ import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { toast } from "sonner";
 
+/**
+ * Login screen — round 56 (owner request):
+ * «شاشة الدخول يجب أن تعرض خيار إنشاء حساب في المرة الأولى، بدل خيار
+ * واحد فقط: الدخول ثم إنشاء حساب… وجدت الخيار المُفعّل تلقائياً هو
+ * الدخول بدل إنشاء حساب، ونص الرقم التسلسلي في الأسفل يُحذف».
+ *
+ *  • First visit (no remembered email on this device) → the CREATE-ACCOUNT
+ *    option is selected by default — a first-time student lands on
+ *    «إنشاء الحساب», not on «دخول». Returning devices default to login.
+ *  • The two options are now two big labelled buttons with icons; the
+ *    selected one is visibly primary (the owner's «زرّان واضحان»).
+ *  • Smart switching: a failed LOGIN with unknown data offers a one-tap
+ *    «إنشاء حساب بهذه البيانات» (and vice-versa for an already-registered
+ *    email) — the two flows stay one tap apart in both directions.
+ *  • The serial-number note at the bottom of the form is DELETED (it
+ *    confused first-timers into looking for a number they never had).
+ */
+
+const REMEMBERED_EMAIL_KEY = "talib-remembered-email";
+
+function firstVisitOnDevice(): boolean {
+  try {
+    return !localStorage.getItem(REMEMBERED_EMAIL_KEY);
+  } catch {
+    return true; // storage disabled → treat as first visit (create account first)
+  }
+}
+
 export function TalibLoginScreen() {
   const { t } = useI18n();
   const { signIn, signUp } = useAuth();
 
-  const [mode, setMode] = React.useState<"signin" | "signup">("signin");
+  // round 56 — first-time visitors start on CREATE ACCOUNT; returning
+  // devices (remembered email) start on LOGIN. Read once at mount.
+  const [mode, setMode] = React.useState<"signin" | "signup">(() =>
+    firstVisitOnDevice() ? "signup" : "signin"
+  );
   const [fullName, setFullName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  // one-tap cross-switch hint, set from the API's own error wording
+  const [switchHint, setSwitchHint] = React.useState<"toSignup" | "toSignin" | null>(null);
+
+  function switchMode(next: "signin" | "signup") {
+    setMode(next);
+    setSwitchHint(null);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -28,6 +67,7 @@ export function TalibLoginScreen() {
     }
 
     setLoading(true);
+    setSwitchHint(null);
     try {
       const result =
         mode === "signin"
@@ -36,7 +76,21 @@ export function TalibLoginScreen() {
 
       if (result.error) {
         toast.error(result.error);
+        // round 56 — the server's wording tells us which OTHER flow fits
+        // these exact credentials; surface a one-tap switch instead of
+        // leaving the user to hunt for the toggle.
+        if (mode === "signin" && /لا يوجد حساب/.test(result.error)) {
+          setSwitchHint("toSignup");
+        } else if (mode === "signup" && /مسجّل مسبقاً/.test(result.error)) {
+          setSwitchHint("toSignin");
+        }
       } else {
+        // remember this device so the NEXT visit opens on «دخول» directly
+        try {
+          localStorage.setItem(REMEMBERED_EMAIL_KEY, email.trim().toLowerCase());
+        } catch {
+          // private mode — next visit will offer create-account again; harmless
+        }
         toast.success(
           mode === "signin" ? t("auth.loginSuccess") : t("auth.signupSuccess")
         );
@@ -45,6 +99,8 @@ export function TalibLoginScreen() {
       setLoading(false);
     }
   }
+
+  const isSignup = mode === "signup";
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-8 bg-gradient-to-br from-background via-background to-muted/30">
@@ -62,32 +118,42 @@ export function TalibLoginScreen() {
             {t("common.appName")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {t("auth.loginSubtitle")}
+            {isSignup ? t("auth.signupSubtitle") : t("auth.loginSubtitle")}
           </p>
         </motion.div>
 
-        <Card className="p-1.5 flex gap-1">
+        {/* round 56 — the two options as two BIG buttons: create-account is
+            listed FIRST (RTL right-most) and is the default on a first
+            visit; the active one is primary, the other stays fully clickable
+            at half a glance. */}
+        <Card className="p-2 grid grid-cols-2 gap-2" role="tablist" aria-label={t("auth.login")}>
           <button
             type="button"
-            onClick={() => setMode("signin")}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-              mode === "signin"
+            role="tab"
+            aria-selected={isSignup}
+            onClick={() => switchMode("signup")}
+            className={`flex items-center justify-center gap-2 py-3 px-2 rounded-xl text-sm font-bold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              isSignup
                 ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-accent/50"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             }`}
           >
-            {t("auth.login")}
+            <UserPlus className="w-4 h-4 shrink-0" />
+            {t("auth.signup")}
           </button>
           <button
             type="button"
-            onClick={() => setMode("signup")}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-              mode === "signup"
+            role="tab"
+            aria-selected={!isSignup}
+            onClick={() => switchMode("signin")}
+            className={`flex items-center justify-center gap-2 py-3 px-2 rounded-xl text-sm font-bold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              !isSignup
                 ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-accent/50"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             }`}
           >
-            {t("auth.signup")}
+            <LogIn className="w-4 h-4 shrink-0" />
+            {t("auth.login")}
           </button>
         </Card>
 
@@ -137,14 +203,32 @@ export function TalibLoginScreen() {
               </div>
             </div>
 
-            <div className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground flex items-start gap-2">
-              <BookOpen className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-              <p>
-                {mode === "signin"
-                  ? "لن يُطلب منك كلمة مرور. يكفي اسمك وبريدك للدخول، وسيتم تذكّر جهازك تلقائياً."
-                  : "لن يُطلب منك رقم تسلسلي ولا كلمة مرور. سيُمنح لك رقمك التسلسلي تلقائياً بعد إنشاء الحساب."}
-              </p>
-            </div>
+            {/* round 56 — the serial-number note that used to sit here is
+                DELETED per the owner's request. The one-tap switch hint
+                replaces it with something actionable. */}
+            {switchHint && (
+              <motion.div
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-lg bg-primary/5 border border-primary/25 px-3 py-2.5 text-xs flex items-center gap-2"
+              >
+                <Sparkles className="w-3.5 h-3.5 shrink-0 text-primary" />
+                <span className="flex-1 text-muted-foreground leading-relaxed">
+                  {switchHint === "toSignup"
+                    ? "يبدو أنك جديد هنا — أنشئ حسابك بنفس الاسم والبريد مباشرة:"
+                    : "لديك حساب بهذا البريد بالفعل — سجّل الدخول به:"}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 shrink-0 text-xs"
+                  onClick={() => switchMode(switchHint === "toSignup" ? "signup" : "signin")}
+                >
+                  {switchHint === "toSignup" ? t("auth.signupBtn") : t("auth.loginBtn")}
+                </Button>
+              </motion.div>
+            )}
 
             <Button
               type="submit"
@@ -158,12 +242,12 @@ export function TalibLoginScreen() {
                 </>
               ) : (
                 <>
-                  {mode === "signin" ? (
-                    <LogIn className="w-4 h-4 ml-2" />
-                  ) : (
+                  {isSignup ? (
                     <UserPlus className="w-4 h-4 ml-2" />
+                  ) : (
+                    <LogIn className="w-4 h-4 ml-2" />
                   )}
-                  {mode === "signin" ? t("auth.loginBtn") : t("auth.signupBtn")}
+                  {isSignup ? t("auth.signupBtn") : t("auth.loginBtn")}
                 </>
               )}
             </Button>

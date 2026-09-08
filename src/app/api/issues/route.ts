@@ -16,7 +16,7 @@ import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canManageRoles } from "@/lib/auth/permissions";
-import { notifyReportSubmitted } from "@/lib/notifications";
+import { notifyReportSubmitted, notifyReportResolved } from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -39,6 +39,10 @@ export async function POST(req: NextRequest) {
         student_group: user.scopeCohortGroupId ? String(user.scopeCohortGroupId) : "بلا فوج",
         item_type: itemType.trim(), item_title: itemTitle.trim(),
         description: description?.trim() ?? "", date: now, status: "قيد المراجعة",
+        // round 56 — remember WHO filed it so the resolution notification
+        // can reach the reporter (column added by
+        // download/supabase_report_reporter.sql; legacy rows are null).
+        reporter_id: user.id,
       }).select().single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       // round 10 (review §14/§4): the report announces itself to supervisors
@@ -56,6 +60,8 @@ export async function POST(req: NextRequest) {
         studentGroup: user.scopeCohortGroupId ? String(user.scopeCohortGroupId) : "بلا فوج",
         itemType: itemType.trim(), itemTitle: itemTitle.trim(),
         description: description?.trim() ?? "", date: now,
+        // round 56 — reporter identity for the resolution notification
+        reporterId: user.id,
       },
     });
     await notifyReportSubmitted({
@@ -125,16 +131,43 @@ export async function PATCH(req: NextRequest) {
     }
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
+      // round 56 — read identity + previous status so we can notify the
+      // reporter of the OUTCOME (owner: «لا يصلني إشعار عند الحل»)
       const { data: report } = await supabase
-        .from("student_issue_reports").select("id").eq("id", Number(id)).maybeSingle();
+        .from("student_issue_reports")
+        .select("id, status, student_name, item_title, reporter_id")
+        .eq("id", Number(id)).maybeSingle();
       if (!report) return NextResponse.json({ error: "التبليغ غير موجود" }, { status: 404 });
+      const prevStatus = String(report.status ?? "");
       const { error } = await supabase
         .from("student_issue_reports").update({ status: nextStatus }).eq("id", Number(id));
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      // notify the reporter ONLY when the status actually CHANGES to
+      // resolved (or back to review) — a repeated PATCH of the same
+      // status is not news.
+      if (prevStatus !== nextStatus) {
+        await notifyReportResolved({
+          reporterId: report.reporter_id != null ? Number(report.reporter_id) : null,
+          reporterName: String(report.student_name ?? ""),
+          itemTitle: String(report.item_title ?? ""),
+          resolved: nextStatus === "تم الحل",
+        });
+      }
     } else {
-      const report = await db.studentIssueReport.findUnique({ where: { id: Number(id) }, select: { id: true } });
+      const report = await db.studentIssueReport.findUnique({
+        where: { id: Number(id) },
+        select: { id: true, status: true, studentName: true, itemTitle: true, reporterId: true },
+      });
       if (!report) return NextResponse.json({ error: "التبليغ غير موجود" }, { status: 404 });
       await db.studentIssueReport.update({ where: { id: Number(id) }, data: { status: nextStatus } });
+      if (report.status !== nextStatus) {
+        await notifyReportResolved({
+          reporterId: report.reporterId,
+          reporterName: report.studentName,
+          itemTitle: report.itemTitle,
+          resolved: nextStatus === "تم الحل",
+        });
+      }
     }
     return NextResponse.json({ ok: true, message: nextStatus === "تم الحل" ? "تم حل التبليغ" : "أُعيد التبليغ للمراجعة" });
   } catch (e) {

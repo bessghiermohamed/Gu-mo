@@ -35,6 +35,9 @@ import {
   TalibNotificationsSheet,
   type AppNotificationItem,
 } from "@/components/talib/notifications-sheet";
+import { TalibPushPermissionPrompt } from "@/components/talib/push-permission-prompt";
+import { pushBoot, activatePushWithPrompt, markPushDismissed } from "@/lib/push-client";
+import { applyFontScale, loadFontScale } from "@/lib/font-scale";
 import { cn } from "@/lib/utils";
 
 export type ScreenRoute =
@@ -147,11 +150,16 @@ function ShellInner() {
   const [notifications, setNotifications] = React.useState<AppNotificationItem[]>([]);
   const [notifUnread, setNotifUnread] = React.useState(0);
   const [notifLoading, setNotifLoading] = React.useState(false);
+  // round 56 — the 4th-session Web Push pre-prompt («إشعارات خارج المتصفح»)
+  const [pushPromptOpen, setPushPromptOpen] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
   const [onboardingDone, setOnboardingDone] = React.useState(true);
 
   React.useEffect(() => {
     setMounted(true);
+    // round 56 — re-apply the saved text/interface size on every boot so
+    // the setting survives reloads (set from الإعدادات).
+    applyFontScale(loadFontScale());
   }, []);
 
   // Check if user needs onboarding
@@ -311,6 +319,25 @@ function ShellInner() {
     return () => clearInterval(interval);
   }, [user, onboardingDone, generateReminders]);
 
+  // round 56 — Web Push boot («إشعارات خارج المتصفح»): runs once per
+  // authenticated visit, AFTER onboarding (never ambushes a new account
+  // mid-setup). (a) permission already granted → registers the service
+  // worker + subscription silently (the owner's «تلقائياً»); (b) counts
+  // the session and surfaces the designed pre-prompt from the 4th visit
+  // (the owner's «بإذن في الجلسة الرابعة»).
+  const pushBootedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!user || !onboardingDone || pushBootedRef.current) return;
+    pushBootedRef.current = true;
+    let alive = true;
+    pushBoot().then((r) => {
+      if (alive && r.prompt) setPushPromptOpen(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [user, onboardingDone]);
+
   // fix (R12): the announcements screen marks its items read — the badge
   // refreshes IMMEDIATELY instead of waiting for the next 30s poll.
   React.useEffect(() => {
@@ -457,6 +484,10 @@ function ShellInner() {
         navigate("BROWSE_GROUPS");
       } else if (item.type === "join_new" || item.type === "report_new") {
         navigate("ADMIN");
+      } else if (item.type === "report_resolved") {
+        // round 56 — the reporter's own report outcome: HOME is the calm
+        // destination (there is no student-facing reports tab).
+        navigate("HOME");
       } else if (item.type === "content_announcement") {
         navigate("ANNOUNCEMENTS");
       } else if (item.type === "content_exam" || item.type === "exam_reminder") {
@@ -798,6 +829,23 @@ function ShellInner() {
             navigate("ANNOUNCEMENTS");
           }}
           onItemTap={handleNotificationTap}
+        />
+
+        {/* round 56 — 4th-session Web Push pre-prompt («إشعارات خارج
+            المتصفح»): activates from a real user gesture, dismissals are
+            remembered, and the settings toggle remains the way back. */}
+        <TalibPushPermissionPrompt
+          open={pushPromptOpen}
+          onActivate={async () => {
+            setPushPromptOpen(false);
+            await activatePushWithPrompt();
+            // reflect the new state immediately in the notification feed
+            refreshNotifications();
+          }}
+          onDismiss={() => {
+            markPushDismissed();
+            setPushPromptOpen(false);
+          }}
         />
       </div>
     </ShellContext.Provider>

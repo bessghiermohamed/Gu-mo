@@ -487,6 +487,11 @@ model StudentIssueReport {
   date             String
   status           String   @default("قيد المراجعة")
   representativeNote String @default("")
+  // round 56 — who filed the report, so the RESOLUTION notification can
+  // reach the reporter («أبلّغت ولا يصلني شيء عند الحل»). Nullable: legacy
+  // rows + reports created before this column existed fall back to a
+  // full_name lookup in app_users.
+  reporterId       Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -612,6 +617,7 @@ model AppUser {
   notificationReads    NotificationReadState[]
   appNotifications     AppNotification[]
   notificationPref      NotificationPref?
+  pushSubscriptions     PushSubscription[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -626,7 +632,7 @@ model AppUser {
 model AppNotification {
   id        Int       @id @default(autoincrement())
   userId    Int
-  type      String    // "join_new" | "join_approved" | "join_rejected" | "report_new" | "generic" | "content_*" | "exam_reminder" | "assignment_reminder"
+  type      String    // "join_new" | "join_approved" | "join_rejected" | "report_new" | "report_resolved" | "generic" | "content_*" | "exam_reminder" | "assignment_reminder"
   title     String
   body      String    @default("")
   meta      String    @default("{}") // JSON string: { requestId, cohortId, examId, urgency, ... }
@@ -636,6 +642,26 @@ model AppNotification {
 
   @@index([userId, readAt])
   @@index([userId, type, createdAt])
+}
+
+// =====================================================
+// round 56 — Web Push subscriptions («إشعارات خارج المتصفح»):
+// one row per browser subscription. The service worker (public/sw.js)
+// receives pushes even when the app tab is closed; VAPID keys live in
+// env (see download/supabase_push_subscriptions.sql for Supabase).
+// =====================================================
+model PushSubscription {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  endpoint     String   @unique
+  p256dh       String
+  auth         String
+  userAgent    String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // =====================================================

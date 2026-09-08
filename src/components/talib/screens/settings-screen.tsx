@@ -3,32 +3,40 @@
 import * as React from "react";
 import {
   Bell, VolumeX, Info, Loader2, Palette, Sparkles, Compass,
-  User, LogOut, LifeBuoy, Megaphone, Users,
+  LogOut, BellRing, Type, Monitor, Trash2, CheckCheck,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { usePalette, PALETTES } from "@/components/talib/theme-provider";
 import { useShell } from "@/app/app/page";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
+import {
+  FONT_SCALE_OPTIONS, loadFontScale, saveFontScale, type FontScale,
+} from "@/lib/font-scale";
+import { pushSupported, notificationPermission, activatePushWithPrompt } from "@/lib/push-client";
 
-// round 26 — the app-level settings screen. Opened from the header gear
-// icon (which previously only jumped to حسابي). Built as independent
-// sections so more settings can be appended without rethinking layout.
+// round 26 — the app-level settings screen. Opened from the header gear.
 //
-// round 55 (طلب المالك: «الإعدادات ومحتواها تحتاج تحسيناً وميزات إضافية»):
-//   • بطاقة «حسابي» أعلى الشاشة: هوية الطالب + موقعه الأكاديمي (المؤسسة/
-//     التخصص/السنة/المجموعة/الفوج) من نفس مصدر حسابي (/api/profile/details)
-//     مع اختصارات (فتح حسابي، الإعلانات، الفوج) — كانت الإعدادات بلا أي
-//     ذكر لحساب صاحبها.
-//   • بطاقة «المساعدة والدعم»: الإبلاغ عن مشكلة وتصفح الأفواج.
-//   • زر «تسجيل الخروج» — كان محصوراً في حسابي.
-//   • تحديث النصوص القديمة: وصف الجولة التعريفية قال «ثلاث خطوات» وهي
-//     سبع مراحل إلزامية منذ r51/r55.
+// round 56 (owner: «الإعدادات فقط تكرارات لحسابي ولا جديد فيها»):
+//   • REMOVED the pure-duplicate bits: the account card's three shortcut
+//     buttons (فتح حسابي/الإعلانات/فوجي — all exist in their own screens)
+//     and the «المساعدة والدعم» card (its buttons only navigated to
+//     PROFILE/BROWSE_GROUPS — duplicates of حسابي's own rows).
+//   • ADDED genuinely NEW settings that exist nowhere else:
+//       - حجم الواجهة والخط (normal/large/larger — root font scale)
+//       - مظهر الجهاز: فاتح/داكن/تلقائي (follows the OS)
+//       - الإشعارات خارج المتصفح (Web Push state + activation)
+//       - مسح البيانات المحلية (AI chats + completion cache on THIS device)
+//   • The account card keeps ONLY the identity row (whose settings these
+//     are) — academic details stay in حسابي where they belong.
 //
 // Section: notification preferences — MOVED VERBATIM from the profile
 // screen (owner request: prefs live under the gear, not inside حسابي).
@@ -64,23 +72,22 @@ export function TalibSettingsScreen() {
   const { theme, setTheme } = useTheme();
   const { palette, setPalette } = usePalette();
 
-  // round 55 — academic identity (same source as حسابي): institution,
-  // specialty, year, المجموعة/الفوج. null = loading, false = unavailable.
-  const [details, setDetails] = React.useState<{
-    institution: string; specialtyName: string; trackName: string;
-    yearName: string; groupName: string; cohortName: string;
-  } | null | false>(null);
   const [signingOut, setSigningOut] = React.useState(false);
+  const [wipeOpen, setWipeOpen] = React.useState(false);
+  const [wiping, setWiping] = React.useState(false);
 
+  // round 56 — font scale (new setting). Initialize AFTER mount to stay
+  // SSR-safe; apply immediately so the change is felt while still on screen.
+  const [fontScale, setFontScale] = React.useState<FontScale>("normal");
   React.useEffect(() => {
-    if (!user) return;
-    let alive = true;
-    fetch("/api/profile/details", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((data) => { if (alive) setDetails(data.profile ?? false); })
-      .catch(() => { if (alive) setDetails(false); });
-    return () => { alive = false; };
-  }, [user]);
+    const s = loadFontScale();
+    setFontScale(s);
+  }, []);
+  function chooseFontScale(next: FontScale) {
+    setFontScale(next);
+    saveFontScale(next);
+    toast.success(next === "normal" ? "عاد الواجهة لحجمها الافتراضي" : "تم تكبير الواجهة والخط");
+  }
 
   async function handleSignOut() {
     if (signingOut) return;
@@ -92,26 +99,26 @@ export function TalibSettingsScreen() {
   const [prefsAvailable, setPrefsAvailable] = React.useState<boolean | null>(null);
   const [muted, setMuted] = React.useState<string[]>([]);
   const [savingPref, setSavingPref] = React.useState(false);
-  // round 52 — browser notification permission ("default" | "granted" | "denied" | "unsupported")
+  // round 52/56 — browser/push notification permission state
   const [notifPerm, setNotifPerm] = React.useState<string>("default");
 
   React.useEffect(() => {
     // async settle — avoids the sync setState-in-effect lint error
     const t = setTimeout(() => {
-      setNotifPerm(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+      setNotifPerm(
+        !pushSupported() ? "unsupported" : notificationPermission()
+      );
     }, 0);
     return () => clearTimeout(t);
   }, []);
 
-  async function askNotifPermission() {
-    if (typeof Notification === "undefined") return;
-    try {
-      const p = await Notification.requestPermission();
-      setNotifPerm(p);
-      if (p === "granted") toast.success("تم تفعيل إشعارات المتصفح — يصلك التنبيه حتى في الخلفية");
-      else if (p === "denied") toast.error("حُظرت الإشعارات — يمكنك تفعيلها من إعدادات الموقع في المتصفح");
-    } catch {
-      toast.error("تعذّر طلب الإذن من المتصفح");
+  async function enablePush() {
+    const result = await activatePushWithPrompt();
+    if (result === "granted" || result === "failed") {
+      // re-read the live state either way (denied keeps the old value)
+      setNotifPerm(notificationPermission());
+    } else {
+      setNotifPerm(notificationPermission());
     }
   }
 
@@ -160,24 +167,49 @@ export function TalibSettingsScreen() {
     [muted, savingPref]
   );
 
+  // round 56 — wipe THIS device's local data: AI chat history + the
+  // assignment-completion cache the reminder generator reads. Nothing
+  // server-side is touched.
+  async function handleWipeLocalData() {
+    setWiping(true);
+    try {
+      let cleared = 0;
+      const kill = new Set<string>(["talib-assignments-completed"]);
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith("talib-ai-chat-v1-") || kill.has(key))) {
+          localStorage.removeItem(key);
+          cleared++;
+          i--; // removing shifts indices
+        }
+      }
+      toast.success(`تم مسح ${cleared > 0 ? `${cleared} عنصراً` : "كل شيء"} من هذا الجهاز`);
+      setWipeOpen(false);
+    } catch {
+      toast.error("تعذّر المسح — التخزين المحلي معطّل");
+    } finally {
+      setWiping(false);
+    }
+  }
+
   if (!user) return null;
 
   const visibleCategories = CATEGORY_META.filter(
     (c) => !c.supervisorOnly || isSupervisor(user.role)
   );
 
+  const themeMode = theme === "dark" ? "dark" : theme === "system" ? "system" : "light";
+
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-black">الإعدادات</h1>
-        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-          شخصّ تجربتك: حسابك الأكاديمي، إشعاراتك، مظهر التطبيق، والمساعدة — كل ذلك من مكان واحد
-        </p>
       </div>
 
-      {/* round 55 — بطاقة الحساب: هوية صاحب الإعدادات وموقعه الأكاديمي.
-          نفس مصدر حسابي (api/profile/details) فلا مصدرين للحقيقة. */}
-      <Card className="p-4 space-y-3">
+      {/* round 56 — account identity ONLY (whose settings these are). The
+          academic-position grid and the three shortcut buttons moved OUT:
+          they were حسابي duplicates — the owner's exact complaint. */}
+      <Card className="p-4">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-black text-lg shrink-0">
             {user.fullName.trim().charAt(0)}
@@ -192,54 +224,13 @@ export function TalibSettingsScreen() {
             {t(`roles.${user.role}`)}
           </Badge>
         </div>
-
-        {details === null ? (
-          <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            جارٍ تحميل موقعك الأكاديمي…
-          </div>
-        ) : details !== false ? (
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            {([
-              ["المؤسسة", details.institution],
-              ["التخصص", details.specialtyName],
-              ["الشعبة", details.trackName],
-              ["السنة", details.yearName],
-              ["المجموعة", details.groupName],
-              ["الفوج", details.cohortName],
-            ] as const).map(([label, value]) => (
-              <div key={label} className="rounded-lg border bg-muted/30 px-2.5 py-2">
-                <p className="text-[10px] text-muted-foreground mb-0.5">{label}</p>
-                <p className="font-bold truncate" title={value || undefined}>{value || "—"}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-[11px] text-muted-foreground">
-            تعذّر جلب الموقع الأكاديمي الآن — تجده دائماً في تبويب حسابي.
-          </p>
-        )}
-
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" className="h-8" onClick={() => navigate("PROFILE")}>
-            <User className="w-3.5 h-3.5 ml-1" />
-            فتح حسابي
-          </Button>
-          <Button variant="outline" size="sm" className="h-8" onClick={() => navigate("ANNOUNCEMENTS")}>
-            <Megaphone className="w-3.5 h-3.5 ml-1" />
-            الإعلانات
-          </Button>
-          <Button variant="outline" size="sm" className="h-8" onClick={() => navigate("GROUP")}>
-            <Users className="w-3.5 h-3.5 ml-1" />
-            فوجي
-          </Button>
-        </div>
       </Card>
 
       {/* notification preferences: the anti-spam control
           center. Muted categories stop at the emitter, so unread
           counts and the 30s poll payload shrink too. Transactional
-          outcomes (join request results) are always delivered. */}
+          outcomes (join request results, YOUR report resolutions) are
+          always delivered. */}
       <Card className="p-4 space-y-3">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -248,7 +239,7 @@ export function TalibSettingsScreen() {
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-sm">تفضيلات الإشعارات</h3>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              أطفئ ما لا يهمّك — يصل تنبيه «طلبات الانضمام» ونتائجها دائماً
+              أطفئ ما لا يهمّك — نتائج طلباتك وتبليغاتك تصلك دائماً
             </p>
           </div>
           {muted.length > 0 && (
@@ -295,32 +286,40 @@ export function TalibSettingsScreen() {
           </div>
         )}
 
-        {/* round 52 — إشعارات المتصفح: «مثل باقي التطبيقات» — التنبيه يصل
-            حتى والتبويب في الخلفية، بشرط منح الإذن من هنا */}
+        {/* round 56 — الإشعارات خارج المتصفح (Web Push): يصلك التنبيه حتى
+            والتطبيق غير مفتوح. يُفعَّل تلقائياً إن كان الإذن ممنوحاً مسبقاً،
+            ويسألك التطبيق في الجلسة الرابعة إن لم تكن قد أجبت بعد. */}
         {notifPerm !== "unsupported" && (
-          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30">
+          <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${
+            notifPerm === "granted" ? "bg-emerald-500/5 border-emerald-500/30" : "bg-muted/30"
+          }`}>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">إشعارات المتصفح</p>
+              <p className="text-sm font-medium flex items-center gap-1.5">
+                <BellRing className="w-3.5 h-3.5 text-primary shrink-0" />
+                الإشعارات خارج المتصفح
+              </p>
               <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
                 {notifPerm === "granted"
-                  ? "مُفعّلة — يظهر تنبيه النظام فور وصول إشعار جديد"
+                  ? "مُفعّلة — يصلك التنبيه حتى والتطبيق غير مفتوح"
                   : notifPerm === "denied"
                     ? "محظورة من المتصفح — فعّلها من إعدادات الموقع"
-                    : "فعّلها ليصلك تنبيه فور وصول إشعار جديد حتى في الخلفية"}
+                    : "تفعيلها يجعل نتيجة تبليغك والإعلانات تصلك في أي وقت"}
               </p>
             </div>
             {notifPerm === "default" && (
-              <Button size="sm" variant="outline" className="shrink-0" onClick={askNotifPermission}>
+              <Button size="sm" variant="outline" className="shrink-0" onClick={enablePush}>
                 تفعيل
               </Button>
+            )}
+            {notifPerm === "granted" && (
+              <CheckCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             )}
           </div>
         )}
       </Card>
 
-      {/* round 26 — appearance: the dark-mode and palette toggles existed
-          only as unlabeled header icons. They keep their one-tap header
-          shortcuts, and gain a labeled home here. */}
+      {/* round 56 — المظهر: نمط الجهاز (فاتح/داكن/تلقائي) + حجم الواجهة
+          والخط + الألوان. كله إعدادات جديدة لم تكن موجودة إلا جزئياً. */}
       <Card className="p-4 space-y-3">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -329,67 +328,162 @@ export function TalibSettingsScreen() {
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-sm">المظهر</h3>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              طابع التطبيق الليلي وهوية ألوانه
+              نمط الجهاز، حجم الواجهة، وهوية الألوان
             </p>
           </div>
         </div>
 
-        <div className="divide-y divide-border rounded-lg border">
-          <div className="flex items-center gap-3 px-3 py-2.5">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">الوضع الليلي</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
-                {theme === "dark" ? "مُفعّل حالياً — مريح للعين ليلاً" : "غير مُفعّل — الوضع الفاتح مستخدم"}
-              </p>
-            </div>
-            <Switch
-              checked={theme === "dark"}
-              onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-              aria-label="الوضع الليلي"
-            />
-          </div>
-          <div className="flex items-center gap-3 px-3 py-2.5">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">نمط الألوان</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
-                {palette === "academic" ? "أكاديمي — الهوية الرسمية للتطبيق" : palette === "modern" ? "عصري — ألوان حيوية وأنيقة" : "أزرق — هوية هادئة قابلة للاستبدال"}
-              </p>
-            </div>
-            <Palette className="w-4 h-4 text-muted-foreground shrink-0" />
+        {/* نمط العرض: فاتح / داكن / تلقائي (round 56 — «تلقائي» جديد:
+            يتبع إعداد نظام جهازك) */}
+        <div>
+          <p className="text-[11px] font-bold text-muted-foreground mb-1.5 flex items-center gap-1">
+            <Monitor className="w-3 h-3" />
+            نمط العرض
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { id: "light", label: "فاتح", desc: "نهاري" },
+              { id: "dark", label: "داكن", desc: "ليلي" },
+              { id: "system", label: "تلقائي", desc: "حسب جهازك" },
+            ] as const).map((m) => {
+              const active = themeMode === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setTheme(m.id)}
+                  className={`flex flex-col items-center gap-0.5 rounded-xl border-2 px-2 py-2.5 text-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <span className={`text-xs font-bold ${active ? "text-primary" : "text-foreground"}`}>
+                    {m.label}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">{m.desc}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
-        {/* round 52 — منتقي الأنماط الثلاثة بدل مبدّل ثنائي: الأخضر
-            الأكاديمي، البنفسجي العصري، والأزرق الجديد القابل للاستبدال */}
-        <div className="grid grid-cols-3 gap-2">
-          {PALETTES.map((p) => {
-            const active = palette === p.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setPalette(p.id)}
-                aria-pressed={active}
-                className={`flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 text-center transition-colors ${
-                  active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
-                }`}
+
+        {/* حجم الواجهة والخط (round 56 — إعداد جديد تماماً) */}
+        <div>
+          <p className="text-[11px] font-bold text-muted-foreground mb-1.5 flex items-center gap-1">
+            <Type className="w-3 h-3" />
+            حجم الواجهة والخط
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {FONT_SCALE_OPTIONS.map((o) => {
+              const active = fontScale === o.id;
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => chooseFontScale(o.id)}
+                  className={`flex flex-col items-center gap-0.5 rounded-xl border-2 px-2 py-2.5 text-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <span className={`font-bold ${active ? "text-primary" : "text-foreground"} ${
+                    o.id === "large" ? "text-base" : o.id === "larger" ? "text-lg" : "text-sm"
+                  }`}>
+                    {o.label}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">{o.desc}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* منتقي الأنماط الثلاثة (round 52) */}
+        <div>
+          <p className="text-[11px] font-bold text-muted-foreground mb-1.5">نمط الألوان</p>
+          <div className="grid grid-cols-3 gap-2">
+            {PALETTES.map((p) => {
+              const active = palette === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPalette(p.id)}
+                  aria-pressed={active}
+                  className={`flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 text-center transition-colors ${
+                    active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <span
+                    className="w-6 h-6 rounded-full border border-black/10"
+                    style={{ background: p.swatch }}
+                    aria-hidden
+                  />
+                  <span className={`text-xs font-bold ${active ? "text-primary" : "text-foreground"}`}>{p.label}</span>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{p.desc}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </Card>
+
+      {/* round 56 — البيانات المحلية على هذا الجهاز: محادثات المساعد
+          الذكي وذاكرة الواجبات المنجزة. إعداد جديد كلياً. */}
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <Trash2 className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-sm">بيانات جهازك</h3>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              محادثاتك مع المساعد الذكي وذاكرة الواجبات المنجزة محفوظة على هذا
+              الجهاز فقط — امسحها متى شئت
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+          onClick={() => setWipeOpen(true)}
+        >
+          <Trash2 className="w-3.5 h-3.5 ml-1" />
+          مسح بيانات هذا الجهاز
+        </Button>
+
+        <Dialog open={wipeOpen} onOpenChange={setWipeOpen}>
+          <DialogContent className="max-w-sm text-right" dir="rtl">
+            <DialogHeader>
+              <DialogTitle>مسح بيانات هذا الجهاز؟</DialogTitle>
+              <DialogDescription className="leading-relaxed">
+                سيُمسح من جهازك: سجل محادثاتك مع المساعد الذكي، وذاكرة الواجبات
+                التي علّمتها كمنجزة. بياناتك الأكاديمية على الخادم لا تُمسح،
+                ولا يمكن التراجع عن هذا الإجراء.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-2 justify-start flex-row-reverse">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleWipeLocalData}
+                disabled={wiping}
               >
-                <span
-                  className="w-6 h-6 rounded-full border border-black/10"
-                  style={{ background: p.swatch }}
-                  aria-hidden
-                />
-                <span className={`text-xs font-bold ${active ? "text-primary" : "text-foreground"}`}>{p.label}</span>
-                <span className="text-[10px] text-muted-foreground leading-tight">{p.desc}</span>
-              </button>
-            );
-          })}
-        </div>
+                {wiping && <Loader2 className="w-3.5 h-3.5 ml-1 animate-spin" />}
+                مسح الآن
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setWipeOpen(false)}>
+                إلغاء
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </Card>
 
       {/* round 49/55 — replay the first-run tour. The tour is MANDATORY
           since round 55 (لا زر تخطّي — تُنهى بإكمال محطاتها) and spans
-          7 stops across the app since round 51; the old copy said
-          «ثلاث خطوات» which no longer described reality. */}
+          7 stops across the app since round 51. */}
       <Card className="p-4 space-y-3">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -398,7 +492,7 @@ export function TalibSettingsScreen() {
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-sm">الجولة التعريفية</h3>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              جولة إلزامية عبر سبعة مواضع تفتح تلقائياً عند أول دخول وتُنهى بإكمال محطاتها — ويمكنك إعادتها من هنا متى شئت
+              جولة عبر سبعة مواضع تُنهى بإكمال محطاتها — أعدها من هنا متى شئت
             </p>
           </div>
         </div>
@@ -423,35 +517,7 @@ export function TalibSettingsScreen() {
         </Button>
       </Card>
 
-      {/* round 55 — المساعدة والدعم: قنوات الوصول للإدارة كانت مكرّرة بين
-          حسابي والإعدادات بشكل غير واضح؛ هنا زرّان مباشران: التبليغ عن
-          مشكلة (نموذج حسابي) وتصفّح المجموعات والأفواج (طلب انضمام). */}
-      <Card className="p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-            <LifeBuoy className="w-4 h-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-sm">المساعدة والدعم</h3>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              واجهت خللاً؟ أو لم تجد فوجك؟ تواصل مع الإدارة من هنا
-            </p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" size="sm" className="h-9" onClick={() => navigate("PROFILE")}>
-            <Info className="w-3.5 h-3.5 ml-1" />
-            الإبلاغ عن مشكلة
-          </Button>
-          <Button variant="outline" size="sm" className="h-9" onClick={() => navigate("BROWSE_GROUPS")}>
-            <Users className="w-3.5 h-3.5 ml-1" />
-            تصفّح الأفواج
-          </Button>
-        </div>
-      </Card>
-
-      {/* round 55 — تسجيل الخروج من الإعدادات: كان محصوراً في قائمة حسابي؛
-          وجوده هنا يختصر الطريق على من يفتح الترس مباشرة. */}
+      {/* تسجيل الخروج */}
       <Card className="p-4">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-destructive/10 text-destructive flex items-center justify-center shrink-0">
@@ -476,9 +542,7 @@ export function TalibSettingsScreen() {
         </div>
       </Card>
 
-      {/* round 26 — about: a quiet identity card. Deliberately version-free
-          (same rule as the M-6 fix that removed the internal tag from
-          حسابي) and free of external links. */}
+      {/* about: a quiet identity card */}
       <Card className="p-5">
         <div className="flex flex-col items-center text-center gap-2">
           <img src="/talib/icon.svg" alt="طالب" className="w-12 h-12" />
