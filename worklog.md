@@ -497,3 +497,14 @@ Stage Summary:
 - Deliverable: upload status CONFIRMED — r56 fully on GitHub AND live in production; r57 (the 3 owner feedback fixes) implemented, verified, committed (3ce8c22) and pushed this session; Vercel auto-deploy pending at report time (no owner env actions needed for r57).
 - Key decisions: banner removal kept the assistant reachable ONLY via the أدواتي featured card (single entry point, no duplication); description card hidden entirely for empty descriptions instead of showing a muted placeholder; dead bridge code deleted rather than left dormant.
 - Artifacts: تقرير-الجولة-57.md, download/r57/ (7 screenshots), commit 3ce8c22 on origin/main.
+
+---
+Task ID: 27 (addendum)
+Agent: main (Super Z)
+Task: Deployment confirmation for r57.
+
+Work Log:
+- GitHub commit-status API (token from remote URL) on 3ce8c22: Vercel context, state success, "Deployment has completed", created 2026-09-08T18:20:46Z (~2 min after the 18:18:57Z push).
+- Root-caused the misleading polls: HTML-referenced chunk names are shell-only and identical across builds; SPA screens live in runtime-loaded chunks (ff1a16fafef87110, b7785251e8fc532c, c4aee7da87df8ccc). Also the first marker string «محادثة دراسية بالعربية» was ambiguous (matches the surviving tools card, not just the removed banner).
+- Decisive live check (gu-mo.vercel.app runtime chunks): banner-only string «قبل الامتحان» ABSENT, bridge key talib-ai-prefill ABSENT, tools card strings («ابدأ محادثة», «ويجيب أسئلتك») PRESENT → r57 is serving in production. Pre-push build was confirmed r56 via the r56-only «لا تفوّت نتيجة تبليغك» string.
+- Production end-to-end probe: signed up r57probe-verify@test.dz through the real prod signup (fresh browser, «حساب جديد» default = r56 behavior intact), onboarding blocked at specialty step («لا توجد بيانات» — prod data state, not a code issue), probe account DELETED via /api/auth/delete (200). Report updated with the confirmed-deployment section.
