@@ -66,8 +66,18 @@
     "errorNetwork": "Connection error. Check your internet and try again.",
     "offlineTitle": "You are offline",
     "offlineHint": "Your details can't be verified without a connection — check your network and try again.",
+    "offlineHintReturning": "You can still sign in with the last details you used on this device — the app will run on saved data and sync automatically once you're back online.",
     "errorOffline": "Can't sign in right now: no internet connection.",
+    "errorOfflineSignup": "Creating a new account needs an internet connection — check your network and try again.",
+    "errorOfflineMismatch": "While offline you can only sign in with the last details used on this device — make sure the name and email match your last sign-in.",
+    "offlineLoginSuccess": "Signed in offline — your saved data is available and everything syncs automatically once you're back online.",
     "backOnline": "Back online — you can continue."
+  },
+  "offline": {
+    "banner": "You're working offline — some data may be older than usual; it refreshes automatically when the network returns.",
+    "bannerCached": "You're offline — this session and the data shown are saved on your device; everything syncs automatically when the network returns.",
+    "savedDataChip": "Data saved on your device — last updated: {when}",
+    "savedDataChipPlain": "Data saved on your device"
   },
   "onboarding": {
     "step": "Step",

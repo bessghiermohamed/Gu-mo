@@ -36,6 +36,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { canManageSchedule } from "@/lib/auth/permissions";
+import { offlineCachedGet } from "@/lib/offline";
+import { StaleDataChip } from "@/components/talib/stale-data-chip";
 import { toast } from "sonner";
 
 const DAYS = [
@@ -91,31 +93,49 @@ export function TalibScheduleScreen() {
   const [itemToDelete, setItemToDelete] = React.useState<ScheduleItem | null>(null);
   const [deletingItem, setDeletingItem] = React.useState(false);
   const [itemToEdit, setItemToEdit] = React.useState<ScheduleItem | null>(null);
+  // round 61 — >0 while the merged list is the device-cached copy (offline).
+  const [savedAt, setSavedAt] = React.useState<number | null>(null);
 
   // round 27: official + personal are fetched together so the day cards
   // render once, fully merged. The personal endpoint degrades to an empty
   // list (e.g. before the production table exists) without breaking the
   // official schedule.
+  // round 61: both endpoints go through the offline cache — offline, the
+  // last successful payloads are served and badged with «بيانات محفوظة».
   const fetchAll = React.useCallback(async () => {
     setLoading(true);
-    try {
-      const [offRes, perRes] = await Promise.all([
-        fetch("/api/schedule", { cache: "no-store" }),
-        fetch("/api/schedule/personal", { cache: "no-store" }),
-      ]);
-      const off = await offRes.json().catch(() => ({ items: [] }));
-      const per = await perRes.json().catch(() => ({ items: [] }));
-      setItems(off.items ?? []);
-      setPersonalItems(per.items ?? []);
-    } catch {
-      // silent
-    } finally {
-      setLoading(false);
-    }
+    setSavedAt(null);
+    const [off, per] = await Promise.all([
+      offlineCachedGet<{ items: ScheduleItem[] }>("/api/schedule", (raw) => {
+        const d = raw as { items?: ScheduleItem[] };
+        return { items: d.items ?? [] };
+      }),
+      offlineCachedGet<{ items: PersonalItem[] }>("/api/schedule/personal", (raw) => {
+        const d = raw as { items?: PersonalItem[] };
+        return { items: d.items ?? [] };
+      }),
+    ]);
+    const offItems = off?.data.items ?? [];
+    setItems(offItems);
+    setPersonalItems(per?.data.items ?? []);
+    // round 61 — badge with the OLDER of the served cache entries.
+    const cacheTimes: number[] = [];
+    if (off?.source === "cache" && off.savedAt != null) cacheTimes.push(off.savedAt);
+    if (per?.source === "cache" && per.savedAt != null) cacheTimes.push(per.savedAt);
+    if (cacheTimes.length > 0) setSavedAt(Math.min(...cacheTimes));
+    setLoading(false);
   }, []);
 
   React.useEffect(() => {
     fetchAll();
+  }, [fetchAll]);
+
+  // round 61 — when the connection returns, drop the «بيانات محفوظة»
+  // badge immediately and pull fresh data (the shell broadcasts this).
+  React.useEffect(() => {
+    const refetch = () => fetchAll();
+    window.addEventListener("talib-back-online", refetch);
+    return () => window.removeEventListener("talib-back-online", refetch);
   }, [fetchAll]);
 
   async function handleDelete() {
@@ -158,6 +178,9 @@ export function TalibScheduleScreen() {
       <div>
         <h1 className="text-2xl font-black">{t("schedule.title")}</h1>
       </div>
+
+      {/* round 61 — served from the device cache while offline */}
+      {savedAt != null && <StaleDataChip savedAt={savedAt} />}
 
       <Tabs value={mode} onValueChange={(v) => setMode(v as "manual" | "image" | "attendance")}>
         <TabsList className="grid w-full grid-cols-3">

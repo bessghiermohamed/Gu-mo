@@ -14,6 +14,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { canManageRoles } from "@/lib/auth/permissions";
+import { offlineCachedGet } from "@/lib/offline";
+import { StaleDataChip } from "@/components/talib/stale-data-chip";
 import { toast } from "sonner";
 
 // fix ج: the Exams screen was a static placeholder with no data, no API,
@@ -59,17 +61,34 @@ export function TalibExamsScreen() {
   const [deletingExam, setDeletingExam] = React.useState(false);
   const [examToEdit, setExamToEdit] = React.useState<Exam | null>(null);
 
+  // round 61 — >0 while the list is the device-cached copy (offline).
+  const [savedAt, setSavedAt] = React.useState<number | null>(null);
+
   const fetchExams = React.useCallback(async () => {
     setLoading(true);
-    try {
-      const res = await fetch("/api/exams", { cache: "no-store" });
-      const data = await res.json();
-      setExams(data.exams ?? []);
-    } catch { /* silent */ }
-    finally { setLoading(false); }
+    setSavedAt(null);
+    // round 61 — offline bridge: serve the last successful payload (badged)
+    // instead of an empty list when the network is down.
+    const result = await offlineCachedGet<{ exams: Exam[] }>("/api/exams", (raw) => {
+      const d = raw as { exams?: Exam[] };
+      return { exams: d.exams ?? [] };
+    });
+    if (result) {
+      setExams(result.data.exams);
+      if (result.source === "cache" && result.savedAt) setSavedAt(result.savedAt);
+    }
+    setLoading(false);
   }, []);
 
   React.useEffect(() => { fetchExams(); }, [fetchExams]);
+
+  // round 61 — when the connection returns, drop the «بيانات محفوظة»
+  // badge immediately and pull fresh data (the shell broadcasts this).
+  React.useEffect(() => {
+    const refetch = () => fetchExams();
+    window.addEventListener("talib-back-online", refetch);
+    return () => window.removeEventListener("talib-back-online", refetch);
+  }, [fetchExams]);
 
   const today = new Date().toISOString().split("T")[0];
   const upcoming = exams.filter((e) => !e.isFinished && e.examDate >= today);
@@ -95,6 +114,9 @@ export function TalibExamsScreen() {
         <div>
           <h1 className="text-2xl font-black">{t("exams.title")}</h1>
         </div>
+
+        {/* round 61 — served from the device cache while offline */}
+        {savedAt != null && <StaleDataChip savedAt={savedAt} />}
         {canManage && <AddExamDialog onCreated={fetchExams} />}
       </div>
 

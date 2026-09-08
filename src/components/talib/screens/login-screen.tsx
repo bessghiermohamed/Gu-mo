@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
+import { readCachedUser, readLastLogin } from "@/lib/offline";
 import { toast } from "sonner";
 
 /**
@@ -30,6 +31,37 @@ import { toast } from "sonner";
  */
 
 const REMEMBERED_EMAIL_KEY = "talib-remembered-email";
+
+/**
+ * round 61 — returning-device prefill: when the remembered email exists,
+ * both fields start filled (email from the remembered key, name from the
+ * cached session user). An offline student then only presses دخول. Runs in
+ * a lazy initializer — this screen renders only after the client mount
+ * gate in the shell, so localStorage is safe to touch.
+ */
+function rememberedPrefill(): { email: string; fullName: string } {
+  if (typeof window === "undefined") return { email: "", fullName: "" };
+  try {
+    const email = localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? "";
+    if (!email) return { email: "", fullName: "" };
+    const cached = readCachedUser();
+    const fullName = cached && cached.email === email ? cached.fullName : "";
+    return { email, fullName };
+  } catch {
+    return { email: "", fullName: "" };
+  }
+}
+
+/** round 61 — does THIS device hold the offline-login bridge (a remembered
+ *  email + matching cached credentials)? Drives the banner wording. */
+function hasOfflineLoginBridge(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return readLastLogin() != null && readCachedUser() != null;
+  } catch {
+    return false;
+  }
+}
 
 function firstVisitOnDevice(): boolean {
   try {
@@ -71,8 +103,10 @@ export function TalibLoginScreen() {
   const [mode, setMode] = React.useState<"signin" | "signup">(() =>
     firstVisitOnDevice() ? "signup" : "signin"
   );
-  const [fullName, setFullName] = React.useState("");
-  const [email, setEmail] = React.useState("");
+  // round 61 — prefill on a returning device (see rememberedPrefill above)
+  const [prefill] = React.useState(rememberedPrefill);
+  const [fullName, setFullName] = React.useState(prefill.fullName);
+  const [email, setEmail] = React.useState(prefill.email);
   const [loading, setLoading] = React.useState(false);
   // one-tap cross-switch hint, set from the API's own error wording
   const [switchHint, setSwitchHint] = React.useState<"toSignup" | "toSignin" | null>(null);
@@ -80,6 +114,10 @@ export function TalibLoginScreen() {
   // round 58 — owner: «حالة عدم الاتصال عند الدخول بلا إنترنت». The banner is
   // driven by this live status; the submit guard below reads the same value.
   const online = useOnlineStatus();
+  // round 61 — the banner changes its promise when this device CAN log in
+  // offline (remembered credentials): «check your network» becomes «you can
+  // still sign in with your saved details».
+  const canOfflineLogin = React.useMemo(hasOfflineLoginBridge, []);
 
   // "Back online" toast — fires ONLY on a real offline→online transition,
   // never on mount (prev ref starts at the current value).
@@ -104,12 +142,14 @@ export function TalibLoginScreen() {
       return;
     }
 
-    // round 58 — offline guard: the request can't reach the server, so skip
-    // the pointless spinner and say exactly WHY instead of a generic error.
+    // round 58→61 — offline guard: SIGN-UP still needs the server (account
+    // creation writes the DB) and gets the exact reason. SIGN-IN no longer
+    // blocks: signIn() verifies against this device's saved credentials and
+    // grants an offline session when they match.
     // (onLine can also be true behind a dead captive portal — that case still
     // reaches the provider's catch and gets the network-error wording.)
-    if (!online) {
-      toast.error(t("auth.errorOffline"));
+    if (!online && mode === "signup") {
+      toast.error(t("auth.errorOfflineSignup"));
       return;
     }
 
@@ -139,7 +179,11 @@ export function TalibLoginScreen() {
           // private mode — next visit will offer create-account again; harmless
         }
         toast.success(
-          mode === "signin" ? t("auth.loginSuccess") : t("auth.signupSuccess")
+          "offlineLogin" in result && result.offlineLogin
+            ? t("auth.offlineLoginSuccess")
+            : mode === "signin"
+              ? t("auth.loginSuccess")
+              : t("auth.signupSuccess")
         );
       }
     } finally {
@@ -234,6 +278,11 @@ export function TalibLoginScreen() {
                   <p className="text-[11px] text-amber-700/80 dark:text-amber-300/80 mt-0.5 leading-relaxed">
                     {t("auth.offlineHint")}
                   </p>
+                  {canOfflineLogin && (
+                    <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 mt-1 leading-relaxed">
+                      {t("auth.offlineHintReturning")}
+                    </p>
+                  )}
                 </div>
               </div>
             </motion.div>

@@ -597,6 +597,17 @@ export function AiAssistantTool({ onBack }: { onBack: () => void }) {
   // ------------------------------------------------------------------
 
   async function generate(sessionId: string, history: ChatMsg[]) {
+    // round 61 — offline guard: the assistant is one of the few features
+    // that fundamentally needs the server (live model streaming). Instead
+    // of letting the fetch hang until the browser gives up, tell the
+    // student immediately and precisely why.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setErrorBubble({
+        message: "أنت غير متصل بالإنترنت — المساعد الذكي يحتاج اتصالاً ليعمل. تصفّح بياناتك المحفوظة حتى تعود الشبكة.",
+      });
+      return;
+    }
+
     setStreaming(true);
     setStreamText("");
     setMeta(null);

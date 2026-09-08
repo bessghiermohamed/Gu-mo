@@ -13,6 +13,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
 import { useI18n } from "@/components/talib/i18n-provider";
+import { offlineCachedGet } from "@/lib/offline";
+import { StaleDataChip } from "@/components/talib/stale-data-chip";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type CourseSummary } from "@/app/app/page";
 import { canCreateModules } from "@/lib/auth/permissions";
@@ -30,23 +32,38 @@ export function TalibCoursesScreen() {
   // fix (R12 data-layer audit): a failed request used to be swallowed and
   // rendered as "لا توجد مقاييس" — indistinguishable from truly empty data.
   const [loadError, setLoadError] = React.useState(false);
+  // round 61 — >0 while the list is the device-cached copy (offline).
+  const [savedAt, setSavedAt] = React.useState<number | null>(null);
 
   const fetchCourses = React.useCallback(async () => {
     setLoading(true);
     setLoadError(false);
-    try {
-      const res = await fetch("/api/courses", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setCourses(data.courses ?? []);
-    } catch {
+    setSavedAt(null);
+    // round 61 — offline bridge: a live request wins; when the network is
+    // down the last successful payload is served and badged instead of the
+    // connection-error state.
+    const result = await offlineCachedGet<{ courses: Course[] }>("/api/courses", (raw) => {
+      const d = raw as { courses?: Course[] };
+      return { courses: d.courses ?? [] };
+    });
+    if (result) {
+      setCourses(result.data.courses);
+      if (result.source === "cache" && result.savedAt) setSavedAt(result.savedAt);
+    } else {
       setLoadError(true);
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   }, []);
 
   React.useEffect(() => { fetchCourses(); }, [fetchCourses]);
+
+  // round 61 — when the connection returns, drop the «بيانات محفوظة»
+  // badge immediately and pull fresh data (the shell broadcasts this).
+  React.useEffect(() => {
+    const refetch = () => fetchCourses();
+    window.addEventListener("talib-back-online", refetch);
+    return () => window.removeEventListener("talib-back-online", refetch);
+  }, [fetchCourses]);
 
   // fix أ.3: real semester filter (was guessing from course code strings!)
   const s1Courses = courses.filter((c) => c.semester === 1);
@@ -57,6 +74,9 @@ export function TalibCoursesScreen() {
       <div>
         <h1 className="text-2xl font-black">{t("courses.title")}</h1>
       </div>
+
+      {/* round 61 — served from the device cache while offline */}
+      {savedAt != null && <StaleDataChip savedAt={savedAt} />}
 
       {/* round 7: بوابة دروس تيليجرام — المحتوى المرتبط بالمقاييس من القنوات */}
       <Card

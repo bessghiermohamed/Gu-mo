@@ -14,6 +14,8 @@ import { canManageRoles } from "@/lib/auth/permissions";
 import {
   AddAnnouncementDialog, EditAnnouncementDialog, type AnnouncementRowData,
 } from "@/components/talib/announcements-compose";
+import { offlineCachedGet } from "@/lib/offline";
+import { StaleDataChip } from "@/components/talib/stale-data-chip";
 import { toast } from "sonner";
 
 // fix ج: announcements screen had NO way to create announcements.
@@ -61,30 +63,55 @@ export function TalibAnnouncementsScreen() {
   const [annToDelete, setAnnToDelete] = React.useState<Announcement | null>(null);
   const [deletingAnn, setDeletingAnn] = React.useState(false);
 
+  // round 61 — >0 while the list is the device-cached copy (offline).
+  const [savedAt, setSavedAt] = React.useState<number | null>(null);
+
   const fetchAnnouncements = React.useCallback(async () => {
     setLoading(true);
-    try {
-      const res = await fetch("/api/announcements", { cache: "no-store" });
-      const data = await res.json();
-      const list: Announcement[] = data.announcements ?? [];
-      setAnnouncements(list);
-      // fix (R12): opening the screen now MARKS the visible announcements as
-      // read — the bell badge used to count the same announcements forever
-      // because notification_read_states was never written.
-      if (list.length > 0) {
-        fetch("/api/announcements/mark-read", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: list.map((a) => a.id) }),
-        })
-          .then(() => window.dispatchEvent(new Event("talib-ann-read")))
-          .catch(() => {});
-      }
-    } catch { /* silent */ }
-    finally { setLoading(false); }
+    setSavedAt(null);
+    // round 61 — offline bridge: serve the last successful payload (badged)
+    // instead of an empty list when the network is down.
+    const result = await offlineCachedGet<{ announcements: Announcement[] }>("/api/announcements", (raw) => {
+      const d = raw as { announcements?: Announcement[] };
+      return { announcements: d.announcements ?? [] };
+    });
+    if (!result) {
+      setLoading(false);
+      return;
+    }
+    const list: Announcement[] = result.data.announcements;
+    setAnnouncements(list);
+    if (result.source === "cache" && result.savedAt) {
+      setSavedAt(result.savedAt);
+      // offline: the mark-read POST would fail anyway — skip it, the badge
+      // re-syncs on the next online poll (the shell fires one on «online»).
+      setLoading(false);
+      return;
+    }
+    // fix (R12): opening the screen now MARKS the visible announcements as
+    // read — the bell badge used to count the same announcements forever
+    // because notification_read_states was never written.
+    if (list.length > 0) {
+      fetch("/api/announcements/mark-read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: list.map((a) => a.id) }),
+      })
+        .then(() => window.dispatchEvent(new Event("talib-ann-read")))
+        .catch(() => {});
+    }
+    setLoading(false);
   }, []);
 
   React.useEffect(() => { fetchAnnouncements(); }, [fetchAnnouncements]);
+
+  // round 61 — when the connection returns, drop the «بيانات محفوظة»
+  // badge immediately and pull fresh data (the shell broadcasts this).
+  React.useEffect(() => {
+    const refetch = () => fetchAnnouncements();
+    window.addEventListener("talib-back-online", refetch);
+    return () => window.removeEventListener("talib-back-online", refetch);
+  }, [fetchAnnouncements]);
 
   const urgencyConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
     "عاجل": { label: t("announcements.urgencyUrgent"), color: "bg-red-500", icon: <AlertCircle className="w-3 h-3" /> },
@@ -112,6 +139,9 @@ export function TalibAnnouncementsScreen() {
         <div>
           <h1 className="text-2xl font-black">{t("announcements.title")}</h1>
         </div>
+
+        {/* round 61 — served from the device cache while offline */}
+        {savedAt != null && <StaleDataChip savedAt={savedAt} />}
         {canPublish && <AddAnnouncementDialog onCreated={fetchAnnouncements} />}
       </div>
 

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, ChevronLeft, Loader2, Moon, Sun, Palette, LogOut, Settings, RefreshCw } from "lucide-react";
+import { Bell, ChevronLeft, Loader2, Moon, Sun, Palette, LogOut, Settings, RefreshCw, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Toaster as SonnerToaster } from "sonner";
@@ -132,11 +132,37 @@ export function useShell() {
   return ctx;
 }
 
+/**
+ * round 61 — in-app connection status. Same hydration-safe pattern as the
+ * login screen's hook: starts `true`, adopts `navigator.onLine` after
+ * mount, then follows the browser's online/offline events. Drives the amber
+ * in-app banner and the back-online re-sync.
+ */
+function useOnlineStatus(): boolean {
+  const [online, setOnline] = React.useState(true);
+
+  React.useEffect(() => {
+    const sync = () => setOnline(navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
+
+  return online;
+}
+
 function ShellInner() {
   const { t, dir } = useI18n();
   const { theme, setTheme } = useTheme();
   const { palette, togglePalette } = usePalette();
-  const { user, loading: authLoading, signOut, refresh } = useAuth();
+  const { user, loading: authLoading, signOut, refresh, offline: sessionOffline } = useAuth();
+
+  // round 61 — live connection status for the IN-APP offline banner.
+  const online = useOnlineStatus();
 
   const [currentScreen, setCurrentScreen] = React.useState<ScreenRoute>("HOME");
   // In-app back stack (the header chevron). Browser history is mirrored via
@@ -160,6 +186,13 @@ function ShellInner() {
     // round 56 — re-apply the saved text/interface size on every boot so
     // the setting survives reloads (set from الإعدادات).
     applyFontScale(loadFontScale());
+    // round 61 — register the service worker on ANY /app visit (anonymous,
+    // pre-onboarding, signed-in): push-client registers it too, but only
+    // after onboarding — the offline shell must exist as early as possible
+    // for the owner's «الأوفلاين مهم». Fire-and-forget.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
   }, []);
 
   // Check if user needs onboarding
@@ -345,6 +378,42 @@ function ShellInner() {
     window.addEventListener("talib-ann-read", onAnnRead);
     return () => window.removeEventListener("talib-ann-read", onAnnRead);
   }, [refreshUnreadCount]);
+
+  // round 61 — back-online re-sync: when the connection returns after a
+  // real offline stretch, re-establish the true session (the offline bridge
+  // never touched the httpOnly cookie) and pull fresh feeds, with one toast
+  // so the student knows everything is live again. Never fires on mount.
+  const wasOnlineRef = React.useRef(true);
+  React.useEffect(() => {
+    if (wasOnlineRef.current && !online) wasOnlineRef.current = false;
+    else if (!wasOnlineRef.current && online) {
+      wasOnlineRef.current = true;
+      toast.success(t("auth.backOnline"));
+      refresh();
+      refreshUnreadCount();
+      refreshNotifications();
+      // round 61 — let the mounted read screens drop their «بيانات محفوظة»
+      // chip and pull fresh data right away
+      window.dispatchEvent(new Event("talib-back-online"));
+    }
+  }, [online, t, refresh, refreshUnreadCount, refreshNotifications]);
+
+  // round 61 — the navigator flag can lag reality (captive portal keeps
+  // onLine=true while requests die): when the AUTH session itself leaves
+  // cached mode (a refresh finally reached the server), that IS the
+  // back-online moment — fire the same re-sync + toast once.
+  const wasSessionOfflineRef = React.useRef(false);
+  React.useEffect(() => {
+    if (sessionOffline) {
+      wasSessionOfflineRef.current = true;
+    } else if (wasSessionOfflineRef.current && online) {
+      wasSessionOfflineRef.current = false;
+      toast.success(t("auth.backOnline"));
+      refreshUnreadCount();
+      refreshNotifications();
+      window.dispatchEvent(new Event("talib-back-online"));
+    }
+  }, [sessionOffline, online, t, refreshUnreadCount, refreshNotifications]);
 
   const markAllNotificationsRead = React.useCallback(async () => {
     try {
@@ -561,7 +630,6 @@ function ShellInner() {
     return (
       <div dir={dir} className="min-h-screen bg-background">
         <TalibLoginScreen />
-        <SonnerToaster position="top-center" dir={dir} />
       </div>
     );
   }
@@ -607,7 +675,6 @@ function ShellInner() {
               }}
             />
           </main>
-          <SonnerToaster position="top-center" dir={dir} />
         </div>
       </ShellContext.Provider>
     );
@@ -759,6 +826,37 @@ function ShellInner() {
           </header>
         )}
 
+        {/* round 61 — in-app offline banner (owner: «offline is what I
+            consider important"): the app KEEPS WORKING from the device
+            cache while the network is down. Amber = saved-data mode, not a
+            dead end. Shown when the browser says offline OR when the auth
+            session itself is the cached one (captive-portal safety). */}
+        <AnimatePresence initial={false}>
+          {(sessionOffline || !online) && (
+            <motion.div
+              key="app-offline-banner"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25 }}
+              role="status"
+              aria-live="polite"
+              className="overflow-hidden bg-amber-500/10 border-b border-amber-500/30"
+            >
+              <div className="mx-auto max-w-5xl px-4 py-2 flex items-center gap-2.5">
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+                </span>
+                <WifiOff className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 leading-relaxed">
+                  {sessionOffline ? t("offline.bannerCached") : t("offline.banner")}
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Main content */}
         <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-4 pb-24">
           <AnimatePresence mode="wait">
@@ -810,8 +908,6 @@ function ShellInner() {
           />
         )}
 
-        <SonnerToaster position="top-center" dir={dir} />
-
         {/* round 27 (review §15): first-run tour — three steps (services
             grid → gear → حسابي), shown once, dismissible at every step. */}
         <TalibTourOverlay currentScreen={currentScreen} />
@@ -856,6 +952,18 @@ export default function Page() {
   return (
     <AuthProvider>
       <ShellInner />
+      {/* round 61 — ONE toaster for the whole app (login/onboarding/
+          authenticated): the login-success toast used to vanish the moment
+          the auth branch switched because each branch mounted its own
+          <Toaster> and unmounted it with the branch. */}
+      <AppToaster />
     </AuthProvider>
   );
+}
+
+function AppToaster() {
+  // dir follows the i18n locale — must live inside I18nProvider, which is
+  // the app layout's provider (src/app/layout.tsx wraps everything)
+  const { dir } = useI18n();
+  return <SonnerToaster position="top-center" dir={dir} />;
 }
