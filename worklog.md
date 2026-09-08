@@ -524,3 +524,15 @@ Work Log:
 Stage Summary:
 - Deliverable: the login flow now communicates connection state — a persistent live offline banner on the login screen, a precise offline message on submit attempts (no dead spinner), error classification in the auth provider, a hardened offline signout path, and ar/en strings. No new env vars, no schema changes, no owner actions needed.
 - Key decisions: banner uses warning-amber (data is safe, just waiting) not destructive-red; requests are NOT fired when the browser knows it's offline; onLine-but-dead-portal still goes through the fetch and keeps the generic network error; scope kept to the login flow (offline shell/PWA caching is a separate feature decision).
+
+---
+Task ID: 28 (addendum)
+Agent: main (Super Z)
+Task: r58 deployment confirmation.
+
+Work Log:
+- GitHub commit-status on 1412618: Vercel "Deployment has completed" (~90 s after push).
+- Live verification (gu-mo.vercel.app served chunks): all three new r58 strings present — «أنت غير متصل بالإنترنت», «لا يمكن الدخول الآن», «عاد الاتصال بالإنترنت» → the r58 build is serving in production.
+
+Stage Summary:
+- r58 is LIVE: offline status banner, submit guard, error classification, and hardened offline signout are all in production. No owner actions required.
