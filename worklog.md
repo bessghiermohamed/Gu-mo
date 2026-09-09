@@ -710,3 +710,17 @@ Stage Summary:
 - Deliverable: the shared cohort space finally receives EVERYTHING posted in its group (text/links/files — previously only media survived) AND can now be fed by a directly-bound CHANNEL (the owner's exact Vogue scenario — link it and pick the cohort, or convert an already-linked channel from the edit dialog with one checkbox to move existing posts). The admin Telegram section lost its text walls: subtitle near «ربط قناة» deleted, hints and status texts one-liners.
 - Key decisions: cohort sources bypass BOTH the r63 chatter filter and the r65 course gate (the space is private to the cohort and its promise is "everything appears"); library forums keep both filters exactly as before (regression-tested); module XOR cohort enforced client+server side; reps can bind channels only to their own cohort's space.
 - Owner actions: link Vogue (or any channel) → choose the cohort in «أو الفوج — مساحة مشتركة»; make sure @gu_mo_bot is ADMIN in that channel — new posts then appear in مساحة الفوج instantly. Existing linked channel? Convert it with the pencil button + «تطبيق التغيير على المنشورات المستوردة الموجودة».
+
+---
+Task ID: 36 (r67 — deployment verification)
+Agent: main (Super Z)
+Task: Verify the r67 push (6da438c) on production.
+
+Work Log:
+- Vercel deployment live with all r67 changes (chunk crawl seeded from shell + /app RSC payload): «أو الفوج — مساحة مشتركة», «البوت مشرف في القناة أولاً», «كل ما يُنشر في القناة يظهر في مساحة هذا الفوج» all PRESENT; the deleted subtitle «كل قناة مرتبطة بمقياس (أو فوج للمساحة المشتركة)» and the trimmed texts («انسخه كاملاً من BotFather», «لإضافة قسم منفصل من قناة مربوطة، الصق…») all GONE.
+- Route gates: GET /api/telegram/sources 403; POST webhook without secret rejected (401 via curl — the app's own secret gate; bare node-fetch gets intercepted by Vercel's edge WAF as 403, documented in the script).
+- LIVE functional proof of the r67 fix on production (scripts/r67-prod-verify.mjs): inserted a temporary cohort-bound channel row via REST → POSTed a real webhook update through the r63 self-activation path (?b=<token> + tgk_ derived secret — same processTelegramUpdate code Telegram hits, no config change) → status "inserted" → telegram_items row carries cohort_id → deleted the source → cascade left zero items. The exact owner scenario (channel → cohort shared space) works end-to-end on the live site.
+- Live bot webhook after all this: url=gu-mo.vercel.app/api/telegram/webhook, pending=0, no last_error.
+
+Stage Summary:
+- r67 fully deployed and verified on production (15/15). The owner can now link Vogue (or any channel) to a cohort and its posts flow into مساحة الفوج; cohort-group text/link posts arrive; the admin Telegram section is clean of text walls.
