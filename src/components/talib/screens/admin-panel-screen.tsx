@@ -2449,7 +2449,7 @@ function tgNextStep(s: TgStatus | null): string {
   if (!s.webhookSecretConfigured) return "٢) أضف TELEGRAM_WEBHOOK_SECRET (أي نص عشوائي طويل) في Vercel ثم Redeploy — أو استعمل بطاقة «تغيير البوت» بالأسفل (تولّد سرّها تلقائياً)";
   if (!s.tablesReady) return "٣) نفّذ ملف download/supabase_telegram.sql في محرر SQL داخل Supabase";
   if (!s.webhook?.url) return "٤) اضغط «تفعيل الربط» بالأسفل";
-  return "كل شيء مضبوط — انشر منشوراً جديداً في قناة مربوطة، أو جرّب «اختبار الاستيراد» من قائمة القنوات. البوت يجيب في المحادثات الخاصة، وفي المجموعات عند مناداته باسمه (@gu_mo_bot)، ويصنّف الملفات التي تُرسل له";
+  return "كل شيء مضبوط — انشر في قناة مربوطة أو جرّب «اختبار الاستيراد».";
 }
 
 const GEMINI_SAMPLE_UI = "امتحان محلول في التحليل الرياضي — السنة الأولى جامعي";
@@ -2529,30 +2529,26 @@ function TgStatusCard() {
           ok={botOk}
           label="توكن البوت (TELEGRAM_BOT_TOKEN)"
           okText={status?.botUsername ? `مضبوط — البوت: @${status.botUsername}` : "مضبوط ومقبول من تيليجرام"}
-          badText={
-            status?.botConfigured
-              ? "التوكن موجود لكن تيليجرام يرفضه — انسخه كاملاً من BotFather وحدّثه في Vercel ثم Redeploy"
-              : "غير مضبوط — أنشئ بوتاً عبر @BotFather ثم أضف TELEGRAM_BOT_TOKEN في Vercel"
-          }
+          badText={status?.botConfigured ? "التوكن مرفوض من تيليجرام" : "غير مضبوط"}
         />
-        <StatusLine ok={secretOk} label="سرّ الويبهوك (TELEGRAM_WEBHOOK_SECRET)" okText="مضبوط" badText="غير مضبوط — أضفه في Vercel (أي نص عشوائي طويل) — لا يعمل التفعيل بدونه" />
+        <StatusLine ok={secretOk} label="سرّ الويبهوك (TELEGRAM_WEBHOOK_SECRET)" okText="مضبوط" badText="غير مضبوط" />
         <StatusLine
           ok={webhookUrl.length > 0}
           label="الويبهوك (استقبال المنشورات)"
           okText={`مفعّل: ${webhookUrl}`}
-          badText="غير مفعّل — اضغط «تفعيل الربط» بعد ضبط التوكن والسر"
+          badText="غير مفعّل"
         />
         <StatusLine
           ok={geminiOk}
           label="التصنيف الذكي (GEMINI_API_KEY)"
           okText={`مضبوط — النموذج: ${status?.geminiModel ?? "gemini-2.5-flash"} (تصنيف + قراءة نص الصور)`}
-          badText="غير مضبوط — يُستعمل التصنيف المحلي بالكلمات المفتاحية (يعمل بشكل كامل)"
+          badText="غير مضبوط — يعمل التصنيف المحلي"
         />
         <StatusLine
           ok={tablesOk}
           label="جداول تيليجرام في قاعدة البيانات"
           okText="منشأة وجاهزة"
-          badText="غير منشأة — نفّذ download/supabase_telegram.sql في محرر SQL داخل Supabase"
+          badText="غير منشأة"
         />
       </div>
 
@@ -2820,6 +2816,8 @@ function TgSourcesManager() {
   const [editSource, setEditSource] = React.useState<TgSourceRow | null>(null);
   const [editTitle, setEditTitle] = React.useState("");
   const [editModuleId, setEditModuleId] = React.useState("");
+  // r67: تعديل ربط الفوج (تحويل قناة إلى مساحة فوج والعكس)
+  const [editCohortId, setEditCohortId] = React.useState("");
   const [editIsActive, setEditIsActive] = React.useState(true);
   const [editApply, setEditApply] = React.useState(false);
   const [editSaving, setEditSaving] = React.useState(false);
@@ -2866,8 +2864,9 @@ function TgSourcesManager() {
   }, [user]);
 
   React.useEffect(() => {
-    if (!yearId) { setCohorts([]); return; }
-    fetch(`/api/cohort?specialtyId=${user?.assignedSpecialtyId ?? 1}&academicYearId=${yearId}`)
+    // r67: تُحمَّل الأفواج دوماً (بدون سنة) — قناة مساحة الفوج تُربط بفوج
+    // مباشرة دون المرور بالسنة؛ اختيار سنة يضيّق القائمة فقط
+    fetch(`/api/cohort?specialtyId=${user?.assignedSpecialtyId ?? 1}${yearId ? `&academicYearId=${yearId}` : ""}`)
       .then((r) => r.json()).then((data) => setCohorts(data.cohorts ?? [])).catch(() => setCohorts([]));
   }, [yearId, user]);
 
@@ -2897,6 +2896,11 @@ function TgSourcesManager() {
       toast.error("هذا رابط قسم داخل قناة — اختر السنة الدراسية أو المقياس الذي يُصنَّف إليه القسم");
       return;
     }
+    // r67: قناة مربوطة بفوج + مقياس معاً لا معنى له — مساحة الفوج تسبق
+    if (sourceType === "channel" && cohortId && moduleId) {
+      toast.error("اختر واحداً: مقياس (مكتبة) أو فوج (مساحة مشتركة)");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/telegram/sources", {
@@ -2906,7 +2910,7 @@ function TgSourcesManager() {
           ...(yearId ? { yearId: parseInt(yearId) } : {}),
           ...(semester ? { semester: parseInt(semester) } : {}),
           ...(sourceType === "channel" && moduleId ? { moduleId: parseInt(moduleId) } : {}),
-          ...(sourceType === "group" && cohortId ? { cohortId: parseInt(cohortId) } : {}),
+          ...(cohortId ? { cohortId: parseInt(cohortId) } : {}),
         }),
       });
       const data = await res.json();
@@ -2914,11 +2918,14 @@ function TgSourcesManager() {
       // r66: قسم منفصل تحت قناة موجودة/جديدة
       if (data.topicAdded) {
         toast.success(data.message ?? "أُضيف القسم منفصلاً — منشوراته ستُصنَّف تلقائياً إلى نطاقه");
+      } else if (cohortId) {
+        // r67: مجموعة أو قناة مربوطة بمساحة فوج — كل ما يُنشر فيها يظهر بها تلقائياً
+        toast.success("تم الربط — كل ما يُنشر فيها سيظهر في مساحة الفوج المشتركة تلقائياً (تأكد أن البوت مشرف)");
       } else {
-        toast.success("تم ربط القناة — تأكد أن البوت مشرف فيها، ثم اربط مواضيعها من زر # ليصنّف منشورات كل موضوع مباشرة");
+        toast.success("تم ربط القناة — منشوراتها الجديدة ستُستورد وتُصنّف تلقائياً (البوت مشرف فيها)");
         if (data.warning) toast.info(`القناة رُبطت — لكن: ${data.warning}`);
       }
-      setOpen(false); setHandle(""); setTitle(""); setModuleId(""); setCohortId(""); setSemester("");
+      setOpen(false); setHandle(""); setTitle(""); setModuleId(""); setCohortId(""); setSemester(""); setYearId("");
       fetchSources();
     } catch { toast.error("فشل الاتصال"); }
     finally { setSaving(false); }
@@ -2927,6 +2934,7 @@ function TgSourcesManager() {
   function openEdit(s: TgSourceRow) {
     setEditTitle(s.titleAr);
     setEditModuleId(s.moduleId ? String(s.moduleId) : "");
+    setEditCohortId(s.cohortId ? String(s.cohortId) : "");
     setEditIsActive(s.isActive);
     setEditApply(false);
     setEditSource(s);
@@ -2934,6 +2942,9 @@ function TgSourcesManager() {
 
   async function handleEditSave() {
     if (!editSource) return;
+    // r67: مقياس وفوج معاً لا معنى له — أحدهما فقط
+    if (editModuleId && editCohortId) { toast.error("اختر واحداً: مقياس (مكتبة) أو فوج (مساحة مشتركة)"); return; }
+    if (editSource.sourceType === "group" && !editCohortId) { toast.error("المجموعة تتطلب فوجاً"); return; }
     setEditSaving(true);
     try {
       const res = await fetch("/api/telegram/sources", {
@@ -2942,6 +2953,8 @@ function TgSourcesManager() {
           id: editSource.id,
           titleAr: editTitle.trim(),
           ...(editSource.moduleId != null || editModuleId ? { moduleId: editModuleId ? parseInt(editModuleId) : null } : {}),
+          // r67: ربط الفوج قابل للتعديل — تحويل القناة إلى مساحة فوج والعكس
+          cohortId: editCohortId ? parseInt(editCohortId) : null,
           isActive: editIsActive,
           applyToItems: editApply,
         }),
@@ -3045,14 +3058,8 @@ function TgSourcesManager() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-xs text-muted-foreground">
-            كل قناة مرتبطة بمقياس (أو فوج للمساحة المشتركة) — منشوراتها الجديدة تُستورد وتُصنّف تلقائياً.
-            المصادر بلا مقياس (منتديات متعددة المواضيع مثل ENS) يربط البوت كل منشور فيها بالمقياس المطابق من عنوانه — والزر ✨ يربط المنشورات القديمة.
-            وزر <strong>#</strong> يربط مواضيع القناة (عام/سنة أولى/سنة ثانية/مقياس…) فيصبح تصنيف منشورات كل موضوع مباشراً دون تخمين.
-          </p>
-        </div>
+      {/* r67: نص الشرح الطويل حُذف بطلب المالك — الواجهة نظيفة حول «ربط قناة» */}
+      <div className="flex justify-end">
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm" shrink-0><Plus className="w-4 h-4 ml-1" />ربط قناة</Button></DialogTrigger>
           <DialogContent>
@@ -3062,20 +3069,18 @@ function TgSourcesManager() {
                 <Label>رابط القناة أو @اسمها</Label>
                 <Input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="https://t.me/channel_name أو @channel_name أو رابط قسم t.me/channel_name/12" dir="ltr" />
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  البوت يجب أن يكون مشرفاً في القناة قبل الربط.
+                  البوت مشرف في القناة أولاً.
                   {isTopicLinkHint ? (
-                    <span className="text-primary font-medium"> رُبط قسم/موضوع منفصل — منشوراته ستُصنَّف إلى السنة أو المقياس المختارين فقط، والقناة نفسها تبقى مربوطة واحدة.</span>
-                  ) : (
-                    <span> لإضافة قسم منفصل من قناة مربوطة، الصق رابط القسم (t.me/القناة/رقم_القسم) واختر نطاقه.</span>
-                  )}
+                    <span className="text-primary font-medium"> رابط قسم — سيُضاف قسماً منفصلاً تحت القناة.</span>
+                  ) : null}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1.5">
                   <Label>النوع</Label>
                   <select value={sourceType} onChange={(e) => setSourceType(e.target.value)} className={selectCls}>
-                    <option value="channel">قناة (محتوى مقياس)</option>
-                    <option value="group">مجموعة فوج (مساحة مشتركة)</option>
+                    <option value="channel">قناة</option>
+                    <option value="group">مجموعة فوج</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -3083,29 +3088,53 @@ function TgSourcesManager() {
                   <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isTopicLinkHint ? "مثال: سنة أولى، سنة ثانية، نحو…" : "يُقرأ تلقائياً من تيليجرام"} />
                 </div>
               </div>
-              <div className="space-y-1.5">
-                <Label>السنة الدراسية</Label>
-                <select value={yearId} onChange={(e) => setYearId(e.target.value)} className={selectCls}>
-                  <option value="">— بدون —</option>
-                  {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
-                </select>
-              </div>
+              {(sourceType === "group" || !cohortId) && (
+                <div className="space-y-1.5">
+                  <Label>السنة الدراسية</Label>
+                  <select value={yearId} onChange={(e) => setYearId(e.target.value)} className={selectCls}>
+                    <option value="">— بدون —</option>
+                    {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                  </select>
+                </div>
+              )}
               {sourceType === "channel" ? (
                 <>
+                  {!cohortId && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label>السداسي (اختياري)</Label>
+                        <select value={semester} onChange={(e) => setSemester(e.target.value)} className={selectCls}>
+                          <option value="">— بدون —</option>
+                          <option value="1">السداسي الأول</option>
+                          <option value="2">السداسي الثاني</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>المقياس (تصنيف منشورات القناة)</Label>
+                        <select value={moduleId} onChange={(e) => setModuleId(e.target.value)} className={selectCls}>
+                          <option value="">— عام (بدون مقياس) —</option>
+                          {yearCourses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                    </>
+                  )}
+                  {/* r67: القناة يمكن ربطها بمساحة فوج — كل ما يُنشر فيها يظهر بها تلقائياً */}
                   <div className="space-y-1.5">
-                    <Label>السداسي (اختياري)</Label>
-                    <select value={semester} onChange={(e) => setSemester(e.target.value)} className={selectCls}>
+                    <Label>أو الفوج — مساحة مشتركة</Label>
+                    <select
+                      value={cohortId}
+                      onChange={(e) => {
+                        setCohortId(e.target.value);
+                        if (e.target.value) { setModuleId(""); setSemester(""); setYearId(""); }
+                      }}
+                      className={selectCls}
+                    >
                       <option value="">— بدون —</option>
-                      <option value="1">السداسي الأول</option>
-                      <option value="2">السداسي الثاني</option>
+                      {cohorts.map((c) => <option key={c.id} value={c.id}>{c.groupName}</option>)}
                     </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>المقياس (تصنيف منشورات القناة)</Label>
-                    <select value={moduleId} onChange={(e) => setModuleId(e.target.value)} className={selectCls}>
-                      <option value="">— عام (بدون مقياس) —</option>
-                      {yearCourses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
+                    {cohortId && (
+                      <p className="text-xs text-muted-foreground">كل ما يُنشر في القناة يظهر في مساحة هذا الفوج تلقائياً.</p>
+                    )}
                   </div>
                 </>
               ) : (
@@ -3138,10 +3167,32 @@ function TgSourcesManager() {
               </div>
               <div className="space-y-1.5">
                 <Label>المقياس</Label>
-                <select value={editModuleId} onChange={(e) => setEditModuleId(e.target.value)} className={selectCls}>
+                <select
+                  value={editModuleId}
+                  onChange={(e) => { setEditModuleId(e.target.value); if (e.target.value) setEditCohortId(""); }}
+                  className={selectCls}
+                >
                   <option value="">— عام (بدون مقياس) —</option>
                   {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+              </div>
+              {/* r67: ربط الفوج — تحويل المصدر إلى مساحة فوج مشتركة أو فكّه منها */}
+              <div className="space-y-1.5">
+                <Label>الفوج — مساحة مشتركة</Label>
+                <select
+                  value={editCohortId}
+                  onChange={(e) => { setEditCohortId(e.target.value); if (e.target.value) setEditModuleId(""); }}
+                  className={selectCls}
+                >
+                  {editSource.sourceType === "channel" && <option value="">— بدون (مكتبة) —</option>}
+                  {editSource.cohortId != null && !cohorts.some((c) => String(c.id) === String(editSource.cohortId)) && (
+                    <option value={String(editSource.cohortId)}>{editSource.cohortName ?? `فوج #${editSource.cohortId}`}</option>
+                  )}
+                  {cohorts.map((c) => <option key={c.id} value={c.id}>{c.groupName}</option>)}
+                </select>
+                {editCohortId && (
+                  <p className="text-xs text-muted-foreground">كل ما يُنشر في المصدر يظهر في مساحة هذا الفوج.</p>
+                )}
               </div>
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <input type="checkbox" checked={editIsActive} onChange={(e) => setEditIsActive(e.target.checked)} className="accent-primary" />
@@ -3149,7 +3200,7 @@ function TgSourcesManager() {
               </label>
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <input type="checkbox" checked={editApply} onChange={(e) => setEditApply(e.target.checked)} className="accent-primary" />
-                تطبيق التغيير على المنشورات المستوردة الموجودة (إعادة تصنيفها للمقياس الجديد)
+                تطبيق التغيير على المنشورات المستوردة الموجودة
               </label>
             </div>
             <DialogFooter>

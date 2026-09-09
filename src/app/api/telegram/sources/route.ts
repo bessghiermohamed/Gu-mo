@@ -437,10 +437,17 @@ export async function POST(req: NextRequest) {
       if (sourceType === "group") {
         if (user.scopeCohortGroupId == null) return NextResponse.json({ error: "لا يمكنك ربط مجموعات — لا يوجد فوج في نطاقك" }, { status: 403 });
         cohortId = user.scopeCohortGroupId;
+      } else if (cohortId != null) {
+        // r67: قناة مربوطة بمساحة فوج — نطاق الممثل فوجه فقط
+        if (user.scopeCohortGroupId == null || Number(cohortId) !== Number(user.scopeCohortGroupId)) {
+          return NextResponse.json({ error: "كممثل يمكنك ربط قناة بمساحة فوجك فقط" }, { status: 403 });
+        }
       } else if (user.scopeAcademicYearId != null) {
         yearId = user.scopeAcademicYearId;
       }
     }
+    // r67: المجموعة تتطلب فوجاً دائماً؛ القناة اختيارية — بلا فوج فهي
+    // مكتبة (بوابة المحتوى الدراسي r65)، وبفوج فمنشوراتها في مساحته المشتركة
     if (sourceType === "group" && cohortId == null) {
       return NextResponse.json({ error: "اختر الفوج المرتبط بمساحته المشتركة" }, { status: 400 });
     }

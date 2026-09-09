@@ -442,8 +442,11 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
 
     // r63: مصادر المجموعات/المنتديات — نقاش «العام» لا يُستورد (إلا وسائط)،
     // أما مواضيع المنتدى فمحتوى بالعادة (مصادر، دروس، امتحانات…)
+    // r67: مساحة الفوج المشتركة استثناء — وعد الشاشة «ما ينشر في مجموعة
+    // الفوج يظهر هنا تلقائياً»: كل محتوى (نص/رابط/ملف) يُستورد إليها،
+    // وفلترة الدردشة تبقى لمصادر المكتبة (منتديات مثل ENS) فقط.
     const hasMedia = !!(msg.photo?.length || msg.document || msg.video || msg.audio);
-    if (source.sourceType === "group" && !isGroupContentWorthy(msg, hasMedia)) {
+    if (source.sourceType === "group" && source.cohortId == null && !isGroupContentWorthy(msg, hasMedia)) {
       return "ignored";
     }
 

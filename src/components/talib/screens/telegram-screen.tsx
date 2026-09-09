@@ -854,7 +854,7 @@ function SharedList({ items, loading, myCohortId, courses, currentUserName, onRe
         <div className="flex items-start gap-2">
           <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
           <p className="text-xs text-foreground/80 leading-relaxed">
-            مساحة مشتركة لكل منتميي الفوج: ما ينشر في مجموعة الفوج على تيليجرام يظهر هنا تلقائياً،
+            مساحة مشتركة لكل منتميي الفوج: ما يُنشر في مجموعة الفوج أو قناته المربوطة يظهر هنا تلقائياً،
             ويمكن لأي طالب إضافة روابط وملفات يدوياً. المحتوى الخاص بالفوج فقط — لا يراه الطلبة الآخرون.
           </p>
         </div>
