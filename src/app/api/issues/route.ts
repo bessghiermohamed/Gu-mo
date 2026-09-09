@@ -20,6 +20,18 @@ import { notifyReportSubmitted, notifyReportResolved } from "@/lib/notifications
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
+/** r69: عمود reporter_id غير منشأ في الإنتاج بعد (SQL الجولة 56 اختياري) —
+ * نتائج PostgREST: 42703 «column ... does not exist». كل عملية عليه تتراجع
+ * بلا العمود فيعمل التبليغ فوراً، ويظل إشعار الحل يعمل بمطابقة الاسم. */
+function reporterIdMissing(e: unknown): boolean {
+  if (e == null) return false;
+  const err = e as { message?: unknown; code?: unknown; error?: { message?: unknown; code?: unknown } };
+  const msg = [err.message, err.code, err.error?.message, err.error?.code]
+    .map((x) => (x == null ? "" : String(x)))
+    .join(" ");
+  return /reporter_id/i.test(msg) || /42703/.test(msg);
+}
+
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) {
@@ -34,16 +46,22 @@ export async function POST(req: NextRequest) {
     const now = new Date().toISOString().split("T")[0];
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      const { data, error } = await supabase.from("student_issue_reports").insert({
+      // r69: نحاول أولاً بعمود المُبلِّغ (r56)، وإن غاب العمود في هذا الإنتاج
+      // نعيد المحاولة بدونه — فلا يتعطل التبليغ أبداً غياب عمود اختياري.
+      const baseRow = {
         student_name: user.fullName,
         student_group: user.scopeCohortGroupId ? String(user.scopeCohortGroupId) : "بلا فوج",
         item_type: itemType.trim(), item_title: itemTitle.trim(),
         description: description?.trim() ?? "", date: now, status: "قيد المراجعة",
-        // round 56 — remember WHO filed it so the resolution notification
-        // can reach the reporter (column added by
-        // download/supabase_report_reporter.sql; legacy rows are null).
-        reporter_id: user.id,
-      }).select().single();
+      };
+      let { data, error } = await supabase
+        .from("student_issue_reports")
+        .insert({ ...baseRow, reporter_id: user.id })
+        .select()
+        .single();
+      if (error && reporterIdMissing(error)) {
+        ({ data, error } = await supabase.from("student_issue_reports").insert(baseRow).select().single());
+      }
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       // round 10 (review §14/§4): the report announces itself to supervisors
       // instead of waiting to be discovered in the "التبليغات" tab.
@@ -133,10 +151,22 @@ export async function PATCH(req: NextRequest) {
       const supabase = await createSupabaseServerClient();
       // round 56 — read identity + previous status so we can notify the
       // reporter of the OUTCOME (owner: «لا يصلني إشعار عند الحل»)
-      const { data: report } = await supabase
+      // r69: عمود المُبلِّغ اختياري — إن غاب نقرأ بدونه (الإشعار يسقط إلى
+      // مطابقة full_name كما كان قبل الجولة 56).
+      let report: Record<string, unknown> | null = null;
+      const primary = await supabase
         .from("student_issue_reports")
         .select("id, status, student_name, item_title, reporter_id")
         .eq("id", Number(id)).maybeSingle();
+      if (primary.error && reporterIdMissing(primary.error)) {
+        const fallback = await supabase
+          .from("student_issue_reports")
+          .select("id, status, student_name, item_title")
+          .eq("id", Number(id)).maybeSingle();
+        report = (fallback.data ?? null) as Record<string, unknown> | null;
+      } else {
+        report = (primary.data ?? null) as Record<string, unknown> | null;
+      }
       if (!report) return NextResponse.json({ error: "التبليغ غير موجود" }, { status: 404 });
       const prevStatus = String(report.status ?? "");
       const { error } = await supabase

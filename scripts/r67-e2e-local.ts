@@ -14,7 +14,7 @@
  */
 import { Database } from "bun:sqlite";
 
-const BASE = "http://127.0.0.1:3119";
+const BASE = "http://127.0.0.1:3123";
 const ENV_SECRET = "local-r62-test-secret";
 
 // معرّفات تيليجرام (سلبية بأسلوب القنوات/المجموعات الحقيقية)
@@ -235,7 +235,8 @@ async function main() {
   const b2 = await getSources(owner);
   const b2src = ((b2.data.sources ?? []) as Array<Record<string, unknown>>).find((s) => String(s.tgChannelId) === String(CHAN_CHAT));
   check("B2 المصدر cohortId صحيح", b2src != null && Number(b2src.cohortId) === cohortId, JSON.stringify(b2src?.cohortId));
-  check("B2 cohortName معروض", b2src != null && String(b2src.cohortName ?? "") === "فوج الاختبار 67", String(b2src?.cohortName));
+  // r69: الاسم صار يشمل السنة — تمييز الأفواج المتشاركة الاسم (تحديث متوقع)
+  check("B2 cohortName معروض (مع السنة — سلوك r69)", b2src != null && String(b2src.cohortName ?? "") === "فوج الاختبار 67 — السنة الثانية 67", String(b2src?.cohortName));
 
   // B3: منشور نصي غير دراسي في القناة → يستورد رغم بوابة المحتوى (مساحة فوج لا بوابة عليها)
   const b3 = await postWebhook(channelText(CHAN_CHAT, 601, "تنبيه: اجتماع الفوج مساء الجمعة في القاعة 4"));

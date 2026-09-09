@@ -118,6 +118,41 @@ async function resolveMyYearId(user: { id: number; scopeAcademicYearId: number |
  * نطاقه إن حُدد عند الإعداد، وإلا ممح فوجه المنضم إليه. المصدر المربوط
  * بملمح معين تظهر منشوراته لطلبة ذلك الممح فقط في المكتبة.
  */
+/**
+ * r69: اسم الفوج المميِّز للعرض — «فوج 7 — السنة الثانية». الأفواج قد تحمل
+ * الاسم نفسه في سنوات مختلفة؛ الاسم وحده لا يميّز (حدث فعلاً: فوجان
+ * باسم «فوج 7» في سنتين مختلفتين). يُستعمل في بطاقة المساحة المشتركة
+ * وفي تنقيح المشرف حتى يعرف الجميع أي فضاء يرون.
+ */
+async function resolveCohortLabel(cohortId: number | null): Promise<string | null> {
+  if (cohortId == null) return null;
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data } = await supabase
+        .from("cohort_groups")
+        .select("group_name, academic_years(year_name)")
+        .eq("id", cohortId)
+        .maybeSingle();
+      if (!data) return null;
+      const r = data as Record<string, unknown>;
+      const year = r.academic_years as Record<string, unknown> | null;
+      const yearName = year?.year_name != null ? String(year.year_name) : "";
+      const base = String(r.group_name ?? "").trim();
+      return yearName ? `${base} — ${yearName}` : base || null;
+    }
+    const c = await db.cohortGroup.findUnique({
+      where: { id: cohortId },
+      select: { groupName: true, subGroup: true, academicYear: { select: { yearName: true } } },
+    });
+    if (!c) return null;
+    const base = [c.groupName.trim(), c.subGroup?.trim()].filter(Boolean).join(" ");
+    return c.academicYear?.yearName ? `${base} — ${c.academicYear.yearName}` : base || null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveMyTrackId(user: { id: number; scopeTrackId: number | null; scopeCohortGroupId: number | null }): Promise<number | null> {
   if (user.scopeTrackId != null) return user.scopeTrackId;
   const cohortId = await resolveMyCohort(user);
@@ -263,6 +298,16 @@ export async function GET(req: NextRequest) {
     // r65: خطوتا التصفية الجديدتان في المكتبة — السنة والفصل
     const yearIdParam = url.searchParams.get("yearId");
     const semesterParam = url.searchParams.get("semester");
+    // r69: فلتر المساحة (وضع المشرف) — فوج معين أو «بلا مساحة» (المكتبة)
+    const cohortIdParam = url.searchParams.get("cohortId");
+    const adminCohortFilter =
+      mode === "admin" && cohortIdParam
+        ? cohortIdParam === "none"
+          ? "none"
+          : Number.isFinite(Number(cohortIdParam)) && Number(cohortIdParam) > 0
+            ? Number(cohortIdParam)
+            : null
+        : null;
 
     if (mode === "admin" && !canUploadContent(user)) {
       return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
@@ -307,6 +352,9 @@ export async function GET(req: NextRequest) {
       if (mode === "admin") {
         if (user.role !== "OWNER") query = query.eq("specialty_id", user.assignedSpecialtyId);
         if (sourceId) query = query.eq("source_id", Number(sourceId));
+        // r69: تصفية إدارية حسب مساحة الفوج — معاينة ما يراه طلبة كل فوج
+        if (adminCohortFilter === "none") query = query.is("cohort_id", null);
+        else if (adminCohortFilter != null) query = query.eq("cohort_id", adminCohortFilter as number);
       } else if (mode === "shared") {
         if (myCohortId == null) return NextResponse.json({ items: [], myCohortId: null });
         query = query.eq("cohort_id", myCohortId).eq("is_hidden", false);
@@ -353,6 +401,9 @@ export async function GET(req: NextRequest) {
       if (mode === "admin") {
         if (user.role !== "OWNER") where.specialtyId = user.assignedSpecialtyId;
         if (sourceId) where.sourceId = Number(sourceId);
+        // r69: تصفية إدارية حسب مساحة الفوج (محلياً)
+        if (adminCohortFilter === "none") where.cohortId = null;
+        else if (adminCohortFilter != null) where.cohortId = adminCohortFilter as number;
       } else if (mode === "shared") {
         if (myCohortId == null) return NextResponse.json({ items: [], myCohortId: null });
         where.cohortId = myCohortId;
@@ -482,6 +533,9 @@ export async function GET(req: NextRequest) {
       } catch { trackLock = { trackId: myTrackId, trackName: "" }; }
     }
 
+    // r69: اسم الفوج المميِّز في وضع المساحة — يعرف الطالب (والمشرف الذي
+    // يفحص بحسابه) أي فضاء يعرض، فلا يلتبس «فوج 7» بآخر بالاسم نفسه
+    const myCohortName = mode === "shared" && myCohortId != null ? await resolveCohortLabel(myCohortId) : null;
     return NextResponse.json({
       items: rows.map((r) =>
         shapeItem(
@@ -492,6 +546,7 @@ export async function GET(req: NextRequest) {
         )
       ),
       myCohortId,
+      myCohortName,
       yearLock,
       trackLock,
       setup: { bot: await isBotConfigured(), activeSources },

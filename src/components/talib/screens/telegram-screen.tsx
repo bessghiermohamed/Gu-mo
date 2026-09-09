@@ -168,6 +168,8 @@ export function TalibTelegramScreen() {
   const [setup, setSetup] = React.useState<{ bot: boolean; activeSources: number } | null>(null);
   const [tablesReady, setTablesReady] = React.useState(true);
   const [myCohortId, setMyCohortId] = React.useState<number | null>(null);
+  // r69: اسم الفوج المميِّز — يعرف المتصل أي فضاء يعرض (الأفواج تتشارك الأسماء)
+  const [myCohortName, setMyCohortName] = React.useState<string | null>(null);
 
   // filters
   const [query, setQuery] = React.useState("");
@@ -240,6 +242,7 @@ export function TalibTelegramScreen() {
       const data = await res.json();
       setItems(data.items ?? []);
       setMyCohortId(data.myCohortId ?? null);
+      setMyCohortName(data.myCohortName ?? null);
       setSetup(data.setup ?? null);
       setYearLock(data.yearLock ?? null);
       setTrackLock(data.trackLock ?? null);
@@ -463,6 +466,7 @@ export function TalibTelegramScreen() {
             items={items}
             loading={loading}
             myCohortId={myCohortId}
+            myCohortName={myCohortName}
             courses={courses}
             currentUserName={user?.fullName ?? ""}
             onRefresh={fetchItems}
@@ -830,10 +834,11 @@ function kindLabel(kind: string): string {
 // =====================================================
 // Shared space (مساحة الفوج)
 // =====================================================
-function SharedList({ items, loading, myCohortId, courses, currentUserName, onRefresh }: {
+function SharedList({ items, loading, myCohortId, myCohortName, courses, currentUserName, onRefresh }: {
   items: TgItem[];
   loading: boolean;
   myCohortId: number | null;
+  myCohortName: string | null;
   courses: Array<{ id: number; name: string; semester: number }>;
   currentUserName: string;
   onRefresh: () => void;
@@ -868,8 +873,8 @@ function SharedList({ items, loading, myCohortId, courses, currentUserName, onRe
         <div className="flex items-start gap-2">
           <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
           <p className="text-xs text-foreground/80 leading-relaxed">
-            مساحة مشتركة لكل منتميي الفوج: ما يُنشر في مجموعة الفوج أو قناته المربوطة يظهر هنا تلقائياً،
-            ويمكن لأي طالب إضافة روابط وملفات يدوياً. المحتوى الخاص بالفوج فقط — لا يراه الطلبة الآخرون.
+            مساحة {myCohortName ? <>«<strong>{myCohortName}</strong>» </> : "الفوج "}المشتركة: ما يُنشر في مجموعة الفوج أو قناته المربوطة يظهر هنا تلقائياً،
+            ويمكن لأي طالب إضافة روابط وملفات يدوياً. المحتوى الخاص بهذا الفوج فقط — لا يراه طلبة الأفواج الأخرى.
           </p>
         </div>
       </Card>

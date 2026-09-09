@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Home, BookOpen, CalendarDays, User, LayoutDashboard } from "lucide-react";
+import { Home, BookOpen, CalendarDays, User, LayoutDashboard, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
@@ -42,6 +42,13 @@ export function TalibBottomNavBar({ currentScreen, onNavigate }: Props) {
       show: true,
     },
     {
+      // r69: أدواتي في الشريط السفلي — كان الوصول إليها من شبكة الرئيسية فقط
+      route: "TOOLS",
+      label: t("nav.tools"),
+      icon: <Wrench className="w-5 h-5" />,
+      show: true,
+    },
+    {
       route: "PROFILE",
       label: t("nav.profile"),
       icon: <User className="w-5 h-5" />,
@@ -71,7 +78,7 @@ export function TalibBottomNavBar({ currentScreen, onNavigate }: Props) {
               id={item.route === "PROFILE" ? "talib-tour-profile" : undefined}
               onClick={() => onNavigate(item.route)}
               className={cn(
-                "flex flex-col items-center justify-center gap-1 py-2 px-3 rounded-xl transition-all min-w-16 min-h-14",
+                "flex flex-col items-center justify-center gap-1 py-2 px-2 sm:px-3 rounded-xl transition-all min-w-14 sm:min-w-16 min-h-14",
                 "hover:bg-accent/50 active:scale-95",
                 active && "bg-primary/10 text-primary"
               )}

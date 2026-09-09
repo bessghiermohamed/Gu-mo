@@ -748,3 +748,42 @@ Stage Summary:
 - Deliverable: a channel can now be linked MULTIPLE times — each binding carries its own rules (التخصص + الممح + السنة/السداسي/المقياس/الفوج), every new post is imported once per binding so each audience sees its own copy, and students are track-isolated automatically (like the year lock) with the ملمح shown in the lock chip. Deleting mis-categorized posts is now bulk: filter, «تحديد الكل», «حذف المحدد» — one call for up to 200 posts.
 - Key decisions: #N-suffix variant rows (zero DDL — works on production TODAY); identical rules rejected with variation guidance while ANY difference creates a new binding; track filter applied server-side for students/reps only (admins browse all) and degrades silently where cohort_groups.track_id is absent; OWNER-only cross-specialty linking (others stay locked to their own); the r66 deep-link regex bug fixed in passing (verified by e2e link assertions).
 - Owner actions: NONE required. Link a channel again (same link) and just pick a different التخصص or الممح or target — it becomes a new variation automatically.
+
+---
+Task ID: 37 (r68 — deployment verification)
+Agent: main (Super Z)
+Task: Verify the r68 push (fd2572d + 97d9d64) on production.
+
+Work Log:
+- Vercel deployment live: r68 client strings ALL present in served chunks (crawl seeded from the shell + /app RSC payload): «تحديد الكل»، «حذف المحدد»، «حذف جماعي»، «كل الملامح»، «تنويعة إضافية». Route gates: sources 403, bulk DELETE 401/403 for anonymous, webhook secret-gated (r68-prod-deploy-verify.mjs 8/8).
+- LIVE functional proof of the r68 core (scripts/r68-prod-functional.mjs 6/6): inserted a base channel row + a "#2" track-variation row (real FKs: cohort 35, track 13/PEP) via REST → POSTed a REAL webhook update through the r63 self-activation path (?b= + tgk_ derived secret — the exact processTelegramUpdate code Telegram hits, no config change) → status "inserted" → telegram_items carries TWO rows for the single message, one per binding source (the r68 invariant) → both sources deleted → cascade left ZERO rows. First functional run exposed an FK trap (fake cohort_id 999999 → PostgREST 409) — fixed with real production FKs.
+- Live bot webhook after all this: url=gu-mo.vercel.app/api/telegram/webhook, pending=0, last_error empty.
+- Committed the two verification scripts (97d9d64, secret audit clean — keys via runtime env only).
+
+Stage Summary:
+- r68 fully deployed and verified on production (14/14 across the two live scripts). The owner can re-link the same channel with a different التخصص/الملمح/سنة/مقياس/فوج and each new post lands once per binding; students are track-isolated automatically; mis-categorized posts can be bulk-deleted from the admin posts manager.
+
+---
+Task ID: 38
+Agent: main (Super Z)
+Task: Round 69 — owner: «ربطت القناة والمجموعة بفوج محدد والمنشورات لا تظهر في المساحة المشتركة (يبدو طبيعياً للطالب)» + «التقارير لا تعمل» + «أضف أدواتي للشريط السفلي للطالب العادي».
+
+Work Log:
+- PRODUCTION DIAGNOSIS (scripts/r69-prod-shared-probe.mjs — temp device_session for student 75, deleted after): the shared-space pipeline is HEALTHY — source 12 «اسد الجبال والوديان» is cohort-bound (35), both its posts sit in telegram_items with cohort_id=35, and GET ?mode=shared as student 75 returns BOTH. The real defect is AMBIGUITY: cohorts 26 and 35 are BOTH named «فوج 7» (different years) — every cohort dropdown offered two indistinguishable «فوج 7» options, the channel got bound to 35 (year 10) while the owner's own scope and test students are in 26 (year 8) → empty space, no error. The «group» link left no row: private invite links (t.me/+…) cannot be resolved by getChat at all (parseChannelHandle returns nothing → cryptic Telegram error).
+- Reports (issue 2) root cause: student_issue_reports has NO reporter_id column in production (r56's SQL was never run) → every POST insert failed 42703 → 500 «فشل الإرسال». Table is empty — no report ever landed.
+- FIX 1a — labels (sources route GET): cohort_names now join the year («فوج 7 — السنة الثانية») in BOTH branches (PostgREST embed academic_years(year_name) — verified live; Prisma relation academicYear).
+- FIX 1b — items route GET: shared mode returns myCohortName (resolveCohortLabel helper, both branches); admin mode accepts cohortId param («none» → cohort_id IS NULL; numeric → eq; garbage → ignored) so the owner can finally PREVIEW each cohort space's posts exactly as its students see them.
+- FIX 1c — admin UI: TgItemsManager gains a «كل المساحات + المكتبة / بلا مساحة (المكتبة) / مساحة فوج X — سنة Y» filter + per-item «مساحة …» badge (violet) + cohortId on rows; the link/edit dialogs and the rep-promote dialog label every cohort with its year (shared cohortOptionLabel helper; ID appended only when name+year still collide); space filter resets the bulk-selection like other filters.
+- FIX 1d — student telegram screen: the shared-space info card names the space («مساحة «فوج 7 — السنة الثانية» المشتركة…») so any tester immediately sees WHICH cohort's space is open.
+- FIX 2 — issues route (r68 track_id pattern): POST inserts WITH reporter_id then retries WITHOUT it on 42703/reporter_id (reporterIdMissing sniffer); PATCH reads the column with a column-less fallback (notification falls back to full_name matching). Zero DDL required — reports work TODAY; supabase_report_reporter.sql stays OPTIONAL (enables id-routed resolution notices).
+- FIX 3 — bottom nav (bottom-nav-bar.tsx): TOOLS destination «أدواتي» (Wrench, matching the tools screen) for EVERY role — students get 5 tiles, admins 6; tiles tightened to min-w-14 sm:min-w-16 px-2 sm:px-3 so 6 destinations fit 390px with zero overflow (browser-measured scrollWidth 390/390).
+- BONUS — sources POST: private invite links (t.me/+…, t.me/joinchat/…) get an actionable 400 explaining what to paste instead (numeric -100 id / t.me/c/… post link / @username) instead of Telegram's opaque error.
+- TOOLING TRAP (4th confirmation): patches via Python scripts with occurrence-count assertions (r69-patch-*.py) — one ambiguous anchor (yearCourses ×2) safely failed BEFORE writing (atomic pattern held).
+- Tests: r69-e2e-local.ts 20/20 on the production build (port 3123) — channel→cohort-A link, same-named cohort B isolation + myCohortName for BOTH students, webhook text ingest into the space, sources cohortName with year, admin cohortId filters (all/none/garbage), invite-link 400, reports POST/GET/PATCH/401/403, r68 bulk-delete regression on space posts. Regressions: r68 55/55, r67 29/29 (B2 expectation updated to the intentional year-suffixed cohortName — documented), r66 38/38. Gates: tsc 0, eslint 0 new, next build ✓ 72 routes.
+- Browser (agent-browser, 390×844, real onboarding+tour completed): student bottom bar = الرئيسية|المقررات|الجدول|أدواتي|حسابي and clicking أدواتي → #/tools renders the tools screen; owner bar adds لوحة الإشراف (6 tiles, no overflow); shared space card shows «مساحة «فوج 69 — السنة الأولى 69» المشتركة» + the 2 posts; link dialog cohort options «فوج 69 — السنة الأولى 69 / فوج 69 — السنة الثانية 69» in both channel and group modes; items manager filter + violet badges verified. SWALLOWED-STATE trap found: the PWA service worker + a stale `next start` (EADDRINUSE — old build kept serving) showed old UI; fixed by killing the port holder (ss -ltnp → kill) — chunk strings then verified present. 5 screenshots in download/r69-*.png.
+- Report: download/تقرير-الجولة-69.md.
+
+Stage Summary:
+- Deliverable: the cohort shared space is now UNAMBIGUOUS and verifiable — every cohort selector shows «فوج — السنة», the student's space card names its cohort, and the admin posts manager has a cohort filter + badges to preview any cohort's space; reports work on production TODAY (graceful reporter_id fallback, no SQL needed); «أدواتي» sits in the bottom bar for every role; private invite links get a clear actionable error.
+- Key decisions: zero-DDL everywhere (r68 pattern); cohortId admin filter is OWNER/rep-admin-scoped via the existing specialty gates; TOOLS nav item shown to all roles (not just students) with tightened tiles; r67-B2 test expectation updated for the intentional label change.
+- Owner actions: the existing Vogue-style binding («اسد الجبال والوديان» → فوج 7/سنة ثانية) can be corrected in one edit: القنوات والأربطة → pencil → pick the intended «فوج 7 — السنة الأولى» + «تطبيق التغيير على المنشورات المستوردة الموجودة» → the 2 posts move. Optionally run download/supabase_report_reporter.sql for id-routed report-resolution notifications (works without it via name matching).

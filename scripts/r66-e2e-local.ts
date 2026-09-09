@@ -16,7 +16,7 @@
  */
 import { Database } from "bun:sqlite";
 
-const BASE = "http://127.0.0.1:3118";
+const BASE = "http://127.0.0.1:3123";
 const ENV_SECRET = "local-r62-test-secret";
 // صيغة روابط تيليجرام: t.me/c/<internal>/<topic> حيث chatId = -100<internal>
 const FORUM_INTERNAL = 8880002;

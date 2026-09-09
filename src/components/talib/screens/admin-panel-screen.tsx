@@ -617,7 +617,8 @@ function RoleBadge({ role }: { role: string }) {
 
 function PromoteDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: () => void; onDone: () => void }) {
   const [newRole, setNewRole] = React.useState(user.role);
-  const [cohorts, setCohorts] = React.useState<Array<{ id: number; groupName: string }>>([]);
+  const [cohorts, setCohorts] = React.useState<Array<{ id: number; groupName: string; subGroup?: string; academicYearId?: number }>>([]);
+  const [years, setYears] = React.useState<Year[]>([]);
   const [scopeCohortId, setScopeCohortId] = React.useState(user.scopeCohortGroupId?.toString() ?? "");
   const [saving, setSaving] = React.useState(false);
 
@@ -626,6 +627,11 @@ function PromoteDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: (
       .then((r) => r.json())
       .then((data) => setCohorts(data.cohorts ?? []))
       .catch(() => setCohorts([]));
+    // r69: أسماء السنوات لتمييز الأفواج المتشاركة الاسم
+    fetch(`/api/onboarding/years?specialtyId=${user.assignedSpecialtyId}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => setYears(data.years ?? []))
+      .catch(() => setYears([]));
   }, [user.assignedSpecialtyId]);
 
   async function handleSave() {
@@ -674,7 +680,11 @@ function PromoteDialog({ user, onClose, onDone }: { user: AppUserRow; onClose: (
               ) : (
                 <select value={scopeCohortId} onChange={(e) => setScopeCohortId(e.target.value)} className={selectCls}>
                   <option value="">— بدون فوج محدد —</option>
-                  {cohorts.map((c) => <option key={c.id} value={c.id}>{c.groupName} (ID: {c.id})</option>)}
+                  {cohorts.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {cohortOptionLabel(c, cohorts, (yid) => years.find((y) => String(y.id) === String(yid))?.yearName ?? "")}
+                    </option>
+                  ))}
                 </select>
               )}
             </div>
@@ -2348,6 +2358,8 @@ interface TgItemAdminRow {
   titleAr: string;
   kind: string;
   itemType: string;
+  // r69: مساحة الفوج التي ينتمي إليها المنشور (null = مكتبة عامة)
+  cohortId: number | null;
   moduleId: number | null;
   moduleName: string | null;
   sourceTitle: string | null;
@@ -2362,7 +2374,7 @@ interface TgItemAdminRow {
 }
 
 interface TgCourseRow { id: number; name: string; semester: number; academicYearId: number }
-interface TgCohortRow { id: number; groupName: string; academicYearId: number }
+interface TgCohortRow { id: number; groupName: string; subGroup?: string; academicYearId: number }
 
 /** r65: رابط موضوع قناة — الخريطة الإدارية للقنوات متعددة المواضيع */
 interface TgTopicRow {
@@ -2376,6 +2388,19 @@ interface TgTopicRow {
   moduleId: number | null;
   moduleName: string | null;
   isGeneral: boolean;
+}
+
+/** r69: تسمية فوج مميِّزة — «فوج 7 — السنة الثانية». وُجد فعلاً فوجان
+ * بالاسم نفسه «فوج 7» في سنتين مختلفتين فربُطت قناة بالفوج الخطأ. الاسم
+ * وحده لا يكفي أبداً في القوائم. */
+function cohortOptionLabel(c: { id: number; groupName: string; subGroup?: string; academicYearId?: number }, list: Array<{ id: number; groupName: string; academicYearId?: number }>, yearNameFor?: (yearId: number | undefined) => string): string {
+  const base = [c.groupName.trim(), (c.subGroup ?? "").trim()].filter(Boolean).join(" ");
+  const yearName = c.academicYearId != null ? (yearNameFor?.(c.academicYearId) ?? "") : "";
+  const label = yearName ? `${base} — ${yearName}` : base;
+  const dup = list.filter(
+    (x) => x.groupName === c.groupName && String(x.academicYearId ?? "") === String(c.academicYearId ?? "")
+  ).length > 1;
+  return dup ? `${label} · رقم ${c.id}` : label;
 }
 
 const TG_TYPES_ADMIN = ["محاضرة", "أعمال موجهة TD", "تمارين", "امتحان", "ملخص", "كتاب", "إعلان", "عام"];
@@ -2920,6 +2945,12 @@ function TgSourcesManager() {
 
   const yearCourses = courses.filter((c) => !yearId || String(c.academicYearId) === yearId);
 
+  // r69: تسمية مميِّزة لأفواج نافذة الربط — السنة تُقرأ من قائمة السنوات المحمّلة
+  const cohortLabel = React.useCallback(
+    (c: TgCohortRow) => cohortOptionLabel(c, cohorts, (yid) => years.find((y) => String(y.id) === String(yid))?.yearName ?? ""),
+    [cohorts, years]
+  );
+
   // r66: هل الحقل الحالي رابط قسم داخل قناة؟ (يغيّر التلميحات والأسماء)
   const isTopicLinkHint = /(?:t\.me|telegram\.me)\/(?:c\/\d+|[A-Za-z0-9_]{4,})\/\d+/i.test(handle.trim());
 
@@ -3205,10 +3236,12 @@ function TgSourcesManager() {
                       className={selectCls}
                     >
                       <option value="">— بدون —</option>
-                      {cohorts.map((c) => <option key={c.id} value={c.id}>{c.groupName}</option>)}
+                      {cohorts.map((c) => <option key={c.id} value={c.id}>{cohortLabel(c)}</option>)}
                     </select>
                     {cohortId && (
-                      <p className="text-xs text-muted-foreground">كل ما يُنشر في القناة يظهر في مساحة هذا الفوج تلقائياً.</p>
+                      <p className="text-xs text-muted-foreground">
+                        كل ما يُنشر في القناة يظهر في مساحة هذا الفوج تلقائياً — يتأكد الاسم والسنة أعلاه أنك اخترت الفوج المقصود (الأفواج قد تتشارك الاسم).
+                      </p>
                     )}
                   </div>
                 </>
@@ -3217,7 +3250,7 @@ function TgSourcesManager() {
                   <Label>الفوج (أصحاب المساحة المشتركة)</Label>
                   <select value={cohortId} onChange={(e) => setCohortId(e.target.value)} className={selectCls}>
                     <option value="">— اختر الفوج —</option>
-                    {cohorts.map((c) => <option key={c.id} value={c.id}>{c.groupName}</option>)}
+                    {cohorts.map((c) => <option key={c.id} value={c.id}>{cohortLabel(c)}</option>)}
                   </select>
                 </div>
               )}
@@ -3276,7 +3309,7 @@ function TgSourcesManager() {
                   {editSource.cohortId != null && !cohorts.some((c) => String(c.id) === String(editSource.cohortId)) && (
                     <option value={String(editSource.cohortId)}>{editSource.cohortName ?? `فوج #${editSource.cohortId}`}</option>
                   )}
-                  {cohorts.map((c) => <option key={c.id} value={c.id}>{c.groupName}</option>)}
+                  {cohorts.map((c) => <option key={c.id} value={c.id}>{cohortLabel(c)}</option>)}
                 </select>
                 {editCohortId && (
                   <p className="text-xs text-muted-foreground">كل ما يُنشر في المصدر يظهر في مساحة هذا الفوج.</p>
@@ -3707,6 +3740,7 @@ function TgTopicsDialog({ source, onClose }: { source: TgSourceRow; onClose: () 
 // تنقيح المنشورات (تصنيف/إخفاء/تثبيت/إعادة ربط/حذف)
 // -----------------------------------------------------
 function TgItemsManager() {
+  const { user } = useAuth();
   const [items, setItems] = React.useState<TgItemAdminRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [q, setQ] = React.useState("");
@@ -3714,6 +3748,10 @@ function TgItemsManager() {
   const [itemType, setItemType] = React.useState("");
   const [sources, setSources] = React.useState<TgSourceRow[]>([]);
   const [courses, setCourses] = React.useState<TgCourseRow[]>([]);
+  // r69: فلتر المساحات — معاينة منشورات فوج بعينه كما يراها طلبته
+  const [cohortFilter, setCohortFilter] = React.useState("");
+  const [spaceCohorts, setSpaceCohorts] = React.useState<TgCohortRow[]>([]);
+  const [spaceYears, setSpaceYears] = React.useState<Year[]>([]);
   const [busyId, setBusyId] = React.useState<number | null>(null);
 
   // edit dialog
@@ -3735,7 +3773,12 @@ function TgItemsManager() {
   React.useEffect(() => {
     fetch("/api/telegram/sources", { cache: "no-store" }).then((r) => r.json()).then((d) => setSources(d.sources ?? [])).catch(() => setSources([]));
     fetch("/api/courses", { cache: "no-store" }).then((r) => r.json()).then((d) => setCourses(d.courses ?? [])).catch(() => setCourses([]));
-  }, []);
+    // r69: أفواج التخصص لفلتر المساحات + سنواتها لتمييز المتشاركة الاسم
+    fetch(`/api/cohort?specialtyId=${user?.assignedSpecialtyId ?? ""}`, { cache: "no-store" })
+      .then((r) => r.json()).then((d) => setSpaceCohorts(d.cohorts ?? [])).catch(() => setSpaceCohorts([]));
+    fetch(`/api/onboarding/years?specialtyId=${user?.assignedSpecialtyId ?? ""}`, { cache: "no-store" })
+      .then((r) => r.json()).then((d) => setSpaceYears(d.years ?? [])).catch(() => setSpaceYears([]));
+  }, [user?.assignedSpecialtyId]);
 
   const fetchItems = React.useCallback(async () => {
     setLoading(true);
@@ -3745,17 +3788,19 @@ function TgItemsManager() {
       if (q.trim()) params.set("q", q.trim());
       if (sourceId) params.set("sourceId", sourceId);
       if (itemType) params.set("itemType", itemType);
+      // r69: مساحة محددة («none» = المكتبة بلا مساحة) أو الكل
+      if (cohortFilter) params.set("cohortId", cohortFilter);
       const res = await fetch(`/api/telegram/items?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل تحميل المنشورات"); return; }
       setItems(data.items ?? []);
     } catch { toast.error("فشل تحميل المنشورات"); }
     finally { setLoading(false); }
-  }, [q, sourceId, itemType]);
+  }, [q, sourceId, itemType, cohortFilter]);
   React.useEffect(() => { fetchItems(); }, [fetchItems]);
 
   // r68: تغيير الفلاتر يبدأ تحديداً نظيفاً
-  React.useEffect(() => { setSelectedIds(new Set()); }, [q, sourceId, itemType]);
+  React.useEffect(() => { setSelectedIds(new Set()); }, [q, sourceId, itemType, cohortFilter]);
 
   async function patchItem(id: number, patch: Record<string, unknown>, successMsg: string) {
     setBusyId(id);
@@ -3853,6 +3898,20 @@ function TgItemsManager() {
   }
 
   const hiddenCount = items.filter((i) => i.isHidden).length;
+  // r69: تسمية مميِّزة للفوج مع سنته (كما في نافذة الربط تماماً)
+  const spaceLabel = React.useCallback(
+    (c: TgCohortRow) => cohortOptionLabel(
+      c, spaceCohorts,
+      (yid) => spaceYears.find((y) => String(y.id) === String(yid))?.yearName ?? ""
+    ),
+    [spaceCohorts, spaceYears]
+  );
+  // r69: خريطة معرّف الفوج → اسم مميِّز (لشارة المساحة على المنشور)
+  const spaceLabelById = React.useMemo(() => {
+    const map = new Map<number, string>();
+    for (const c of spaceCohorts) map.set(c.id, spaceLabel(c));
+    return map;
+  }, [spaceCohorts, spaceLabel]);
 
   return (
     <div className="space-y-3">
@@ -3865,6 +3924,14 @@ function TgItemsManager() {
         <select value={itemType} onChange={(e) => setItemType(e.target.value)} className={`${selectCls} w-36`}>
           <option value="">كل الأنواع</option>
           {TG_TYPES_ADMIN.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        {/* r69: تصفية حسب مساحة الفوج — معاينة ما يراه طلبة كل فوج */}
+        <select value={cohortFilter} onChange={(e) => setCohortFilter(e.target.value)} className={`${selectCls} w-48`}>
+          <option value="">كل المساحات + المكتبة</option>
+          <option value="none">بلا مساحة (المكتبة)</option>
+          {spaceCohorts.map((c) => (
+            <option key={c.id} value={String(c.id)}>مساحة {spaceLabel(c)}</option>
+          ))}
         </select>
       </div>
       <p className="text-xs text-muted-foreground">
@@ -3985,6 +4052,11 @@ function TgItemsManager() {
                     {i.aiClassified && <span title="صُنِّف آلياً" className="text-xs text-muted-foreground"><Sparkles className="w-3 h-3" /></span>}
                     {i.isHidden && <Badge variant="secondary" className="text-xs">مخفي</Badge>}
                     {i.origin === "manual" && <Badge variant="outline" className="text-xs border-teal-500/50 text-teal-700">يدوي</Badge>}
+                    {i.cohortId != null && (
+                      <Badge variant="outline" className="text-xs border-violet-500/50 text-violet-700">
+                        مساحة {spaceLabelById.get(i.cohortId) ?? `فوج #${i.cohortId}`}
+                      </Badge>
+                    )}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
                     {i.sourceTitle ? <span>{i.sourceTitle}</span> : <span>إضافة: {i.postedBy || "—"}</span>}

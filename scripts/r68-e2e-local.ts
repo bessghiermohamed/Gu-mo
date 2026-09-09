@@ -13,7 +13,7 @@
  */
 import { Database } from "bun:sqlite";
 
-const BASE = "http://127.0.0.1:3121";
+const BASE = "http://127.0.0.1:3123";
 const ENV_SECRET = "local-r62-test-secret";
 
 // معرّفات تيليجرام (سلبية بأسلوب القنوات الحقيقية)
