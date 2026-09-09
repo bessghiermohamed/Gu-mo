@@ -157,7 +157,9 @@ export function parseMessageContent(msg: TgMessage): ParsedContent {
   return base; // رسالة خدمة (انضمام عضو…) — تُتجاهل
 }
 
-/** يبني رابط t.me المباشر للمنشور الأصلي — وفي المنتديات يشمل الموضوع (topic) */
+/** يبني رابط t.me المباشر للمنشور الأصلي — وفي المنتديات يشمل الموضوع (topic).
+ * r66: معرّفات الأقسام المركّبة "chat:thread" تُجرَّد من لاحقة القسم
+ * هنا (thread يُمرَّر مستقلاً) فيبقى الرابط صحيحاً. */
 export function buildDeepLink(
   source: { tgChannelId: string; tgUsername: string },
   messageId: number,
@@ -166,7 +168,7 @@ export function buildDeepLink(
   const uname = source.tgUsername.replace(/^@/, "").trim();
   const topic = threadId && threadId > 0 ? `/${threadId}` : "";
   if (uname) return `https://t.me/${uname}${topic}/${messageId}`;
-  const raw = source.tgChannelId.replace(/^-100/, "");
+  const raw = source.tgChannelId.replace(/^-100/, "").replace(/:\\d+$/, "");
   return `https://t.me/c/${raw}${topic}/${messageId}`;
 }
 
@@ -422,7 +424,17 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
       }
     }
 
-    const source = await loadSourceByChatId(String(msg.chat.id));
+    // r66: الأقسام المستقلة (المسار البديل بلا جدول مواضيع) — منشور داخل
+    // موضوع يُبحث عنه أولاً بمُعرّفه المركّب "chat:thread"؛ إن وُجد قسم
+    // مربوط فربطه (مقياس/سنة) يحكم منشوراته حتمياً، وإلا يُستوى مستوى
+    // القناة كما كان. نفس منطق روابط المواضيع تماماً (r65).
+    const sectionKey =
+      msg.is_topic_message && msg.message_thread_id != null
+        ? `${msg.chat.id}:${msg.message_thread_id}`
+        : null;
+    const source =
+      (sectionKey ? await loadSourceByChatId(sectionKey) : null) ??
+      await loadSourceByChatId(String(msg.chat.id));
     if (!source || !source.isActive) return "ignored";
 
     const content = parseMessageContent(msg);

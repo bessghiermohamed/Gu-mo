@@ -289,11 +289,12 @@ export function looksLikeCourseContent(args: {
 }): boolean {
   const { text, fileName, moduleName, hasMedia } = args;
   // ملف/وسائط مرفقة = محتوى بالتعريف (PDF محاضرة، صورة امتحان…)
-  if (fileName.trim() || hasMedia) return true;
+  // (r66: حراسة من مدخلات ناقصة — السلوك نفسه)
+  if ((fileName ?? "").trim() || hasMedia) return true;
   // بلا مقياس مطابق = ليس محتوى دراسياً
-  if (!moduleName.trim()) return false;
+  if (!(moduleName ?? "").trim()) return false;
 
-  const hay = normalizeArabic(text);
+  const hay = normalizeArabic(text ?? "");
   const name = normalizeArabic(moduleName);
   if (!hay || !name) return false;
 

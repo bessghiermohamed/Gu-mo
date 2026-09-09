@@ -2333,6 +2333,8 @@ interface TgSourceRow {
   isActive: boolean;
   lastUpdateId: number;
   itemCount: number;
+  topicCount?: number;
+  isSection?: boolean;
 }
 
 interface TgItemAdminRow {
@@ -2883,9 +2885,18 @@ function TgSourcesManager() {
 
   const yearCourses = courses.filter((c) => !yearId || String(c.academicYearId) === yearId);
 
+  // r66: هل الحقل الحالي رابط قسم داخل قناة؟ (يغيّر التلميحات والأسماء)
+  const isTopicLinkHint = /(?:t\.me|telegram\.me)\/(?:c\/\d+|[A-Za-z0-9_]{4,})\/\d+/i.test(handle.trim());
+
   async function handleCreate() {
     if (!handle.trim()) { toast.error("أدخل رابط القناة أو @اسمها"); return; }
     if (sourceType === "group" && !cohortId) { toast.error("اختر الفوج المرتبط بالمساحة المشتركة"); return; }
+    // r66: رابط قسم (t.me/القناة/رقم) يتطلب اختيار نطاق — السنة أو المقياس
+    const isTopicLink = /(?:t\.me|telegram\.me)\/(?:c\/\d+|[A-Za-z0-9_]{4,})\/\d+/i.test(handle.trim());
+    if (isTopicLink && sourceType === "channel" && !yearId && !moduleId) {
+      toast.error("هذا رابط قسم داخل قناة — اختر السنة الدراسية أو المقياس الذي يُصنَّف إليه القسم");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/telegram/sources", {
@@ -2900,7 +2911,13 @@ function TgSourcesManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم ربط القناة — تأكد أن البوت مشرف فيها، ثم اربط مواضيعها من زر # ليصنّف منشورات كل موضوع مباشرة");
+      // r66: قسم منفصل تحت قناة موجودة/جديدة
+      if (data.topicAdded) {
+        toast.success(data.message ?? "أُضيف القسم منفصلاً — منشوراته ستُصنَّف تلقائياً إلى نطاقه");
+      } else {
+        toast.success("تم ربط القناة — تأكد أن البوت مشرف فيها، ثم اربط مواضيعها من زر # ليصنّف منشورات كل موضوع مباشرة");
+        if (data.warning) toast.info(`القناة رُبطت — لكن: ${data.warning}`);
+      }
       setOpen(false); setHandle(""); setTitle(""); setModuleId(""); setCohortId(""); setSemester("");
       fetchSources();
     } catch { toast.error("فشل الاتصال"); }
@@ -3043,8 +3060,15 @@ function TgSourcesManager() {
             <div className="space-y-3 py-2">
               <div className="space-y-1.5">
                 <Label>رابط القناة أو @اسمها</Label>
-                <Input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="https://t.me/channel_name أو @channel_name" dir="ltr" />
-                <p className="text-xs text-muted-foreground">البوت يجب أن يكون مشرفاً في القناة قبل الربط.</p>
+                <Input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="https://t.me/channel_name أو @channel_name أو رابط قسم t.me/channel_name/12" dir="ltr" />
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  البوت يجب أن يكون مشرفاً في القناة قبل الربط.
+                  {isTopicLinkHint ? (
+                    <span className="text-primary font-medium"> رُبط قسم/موضوع منفصل — منشوراته ستُصنَّف إلى السنة أو المقياس المختارين فقط، والقناة نفسها تبقى مربوطة واحدة.</span>
+                  ) : (
+                    <span> لإضافة قسم منفصل من قناة مربوطة، الصق رابط القسم (t.me/القناة/رقم_القسم) واختر نطاقه.</span>
+                  )}
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1.5">
@@ -3055,8 +3079,8 @@ function TgSourcesManager() {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>اسم للعرض (اختياري)</Label>
-                  <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="يُقرأ تلقائياً من تيليجرام" />
+                  <Label>{isTopicLinkHint ? "اسم القسم (اختياري)" : "اسم للعرض (اختياري)"}</Label>
+                  <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isTopicLinkHint ? "مثال: سنة أولى، سنة ثانية، نحو…" : "يُقرأ تلقائياً من تيليجرام"} />
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -3300,6 +3324,7 @@ function TgSourcesManager() {
                   <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
                     {s.tgUsername ? <span dir="ltr" className="font-mono">@{s.tgUsername}</span> : <span dir="ltr" className="font-mono">{s.tgChannelId}</span>}
                     <span>• {s.itemCount} منشوراً</span>
+                    {(s.topicCount ?? 0) > 0 && <span>• {s.topicCount} {(s.topicCount ?? 0) === 1 ? "قسم" : "أقسام"} مرتبطة</span>}
                     {s.moduleName ? <span>• المقياس: {s.moduleName}</span> : null}
                     {s.cohortName ? <span>• {s.cohortName}</span> : null}
                   </div>

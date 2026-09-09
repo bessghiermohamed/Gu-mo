@@ -83,6 +83,36 @@ async function resolveMyCohort(user: { id: number; scopeCohortGroupId: number | 
   }
 }
 
+/**
+ * r66: سنة الطالب الفعلية — تُشتق تلقائياً بلا اختيار:
+ * ١) نطاق المستخدم إن حُدد (التسجيل/التعيين)،
+ * ٢) وإلا سنة فوجه المنضم إليه (آخر طلب انضمام مقبول).
+ * بها يُقفل عرض المكتبة على سنة الطالب: مقياس السنة الأولى
+ * يظهر لطلبة السنة الأولى فقط، والثانية للثانية، وهكذا.
+ */
+async function resolveMyYearId(user: { id: number; scopeAcademicYearId: number | null; scopeCohortGroupId: number | null }): Promise<number | null> {
+  if (user.scopeAcademicYearId != null) return user.scopeAcademicYearId;
+  const cohortId = await resolveMyCohort(user);
+  if (cohortId == null) return null;
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data } = await supabase
+        .from("cohort_groups")
+        .select("academic_year_id")
+        .eq("id", cohortId)
+        .maybeSingle();
+      return data && (data as Record<string, unknown>).academic_year_id != null
+        ? Number((data as Record<string, unknown>).academic_year_id)
+        : null;
+    }
+    const c = await db.cohortGroup.findUnique({ where: { id: cohortId }, select: { academicYearId: true } });
+    return c?.academicYearId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function loadItem(id: number): Promise<ItemRow | null> {
   if (isVercel) {
     const supabase = await createSupabaseServerClient();
@@ -212,18 +242,20 @@ export async function GET(req: NextRequest) {
 
     const myCohortId = await resolveMyCohort(user);
 
-    // r65: عزل السنوات — الطالب/الممثل يرى مكتبة سنتّه فقط («مقياس سنة
-    // أولى يظهر لطلبة السنة الأولى فقط»)، والمشرف/المالك يتصفحان أي
-    // سنة عبر yearId أو يريان الكل. المكتبة أصلاً تعرض ما رُبط بمقياس
-    // فقط (تحت)، فما لم يُصنّف لا يظهر لأحد من الطلبة.
-    const yearLocked =
-      mode === "library" &&
-      user.scopeAcademicYearId != null &&
-      (user.role === "STUDENT" || user.role === "REPRESENTATIVE");
+    // r66: عزل السنوات التلقائي — سنة الطالب/الممثل تُشتق داخلياً
+    // (نطاقه أو فوجه) بلا أي اختيار منه: منشورات ومقاييس السنة
+    // الأولى تظهر لطلبة الأولى فقط، والثانية للثانية… والمشرف/المالك
+    // يتصفحان أي سنة عبر yearId أو يريان الكل. المكتبة أصلاً تعرض
+    // ما رُبط بمقياس فقط (تحت)، فما لم يُصنّف لا يظهر لأحد من الطلبة.
+    const myYearId =
+      mode === "library" && (user.role === "STUDENT" || user.role === "REPRESENTATIVE")
+        ? await resolveMyYearId(user)
+        : null;
+    const yearLocked = mode === "library" && myYearId != null;
     const finalYearId =
       mode === "library"
         ? yearLocked
-          ? user.scopeAcademicYearId
+          ? (myYearId as number)
           : yearIdParam != null && Number(yearIdParam) > 0
             ? Number(yearIdParam)
             : null
@@ -361,6 +393,21 @@ export async function GET(req: NextRequest) {
       }
     } catch { /* العدد تحسيني فقط */ }
 
+    // r66: اسم سنة القفل للعرض («تعرض مكتبة سنتك فقط»)
+    let yearLock: { yearId: number; yearName: string } | null = null;
+    if (yearLocked) {
+      try {
+        if (isVercel) {
+          const supabase = await createSupabaseServerClient();
+          const { data: y } = await supabase.from("academic_years").select("year_name").eq("id", myYearId).maybeSingle();
+          yearLock = { yearId: myYearId as number, yearName: String((y as Record<string, unknown> | null)?.year_name ?? "") };
+        } else {
+          const y = await db.academicYear.findUnique({ where: { id: myYearId as number }, select: { yearName: true } });
+          yearLock = { yearId: myYearId as number, yearName: y?.yearName ?? "" };
+        }
+      } catch { yearLock = { yearId: myYearId as number, yearName: "" }; }
+    }
+
     return NextResponse.json({
       items: rows.map((r) =>
         shapeItem(
@@ -371,6 +418,7 @@ export async function GET(req: NextRequest) {
         )
       ),
       myCohortId,
+      yearLock,
       setup: { bot: await isBotConfigured(), activeSources },
     });
   } catch {

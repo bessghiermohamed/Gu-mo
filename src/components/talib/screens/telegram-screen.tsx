@@ -182,12 +182,20 @@ export function TalibTelegramScreen() {
   const [sourceFilter, setSourceFilter] = React.useState("");
   const [years, setYears] = React.useState<Array<{ id: number; yearName: string }>>([]);
 
-  // r65: عزل السنوات — الطالب/الممثل يرى مكتبة سنتّه فقط (الخادم يقيد
-  // النتائج أيضاً)، والمشرف/المالك يتصفحان السنوات بحرية.
-  const yearLocked =
-    user != null && user.scopeAcademicYearId != null &&
-    (user.role === "STUDENT" || user.role === "REPRESENTATIVE");
-  const myYearName = years.find((y) => y.id === user?.scopeAcademicYearId)?.yearName ?? null;
+  // r66: عزل السنوات التلقائي — الخادم يشتق سنة الطالب من نطاقه أو من
+  // فوجه المنضم إليه (بلا أي اختيار منه) ويقفل المكتبة عليها؛ نقرأ قرار
+  // الخادم من الاستجابة (yearLock). البذرة الأولية من نطاق المستخدم
+  // إن وُجد لتجنّب وميض قائمة السنين قبل أول استجابة.
+  const [yearLock, setYearLock] = React.useState<{ yearId: number; yearName: string } | null>(
+    user != null && user.scopeAcademicYearId != null && (user.role === "STUDENT" || user.role === "REPRESENTATIVE")
+      ? { yearId: user.scopeAcademicYearId, yearName: "" }
+      : null
+  );
+  const yearLocked = yearLock != null;
+  const myYearName =
+    (yearLock?.yearName || "").trim() ||
+    years.find((y) => y.id === yearLock?.yearId)?.yearName ||
+    null;
 
   React.useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query.trim()), 350);
@@ -226,6 +234,7 @@ export function TalibTelegramScreen() {
       setItems(data.items ?? []);
       setMyCohortId(data.myCohortId ?? null);
       setSetup(data.setup ?? null);
+      setYearLock(data.yearLock ?? null);
       if (data.tablesReady === false) setTablesReady(false);
     } catch {
       setItems([]);
@@ -259,10 +268,13 @@ export function TalibTelegramScreen() {
   const anyFilterActive =
     !!(query.trim() || typeFilter || courseId || yearFilter || semesterFilter || kindFilter || sourceFilter);
 
-  // خيارات المقاييس تتبع السنة المختارة (للمشرفين) — وللطالب مقاييس سنتّه أصلاً
+  // خيارات المقاييس تتبع السنة المختارة (للمشرفين) — وللطالب مقاييس سنتّه
+  // المقفلة تلقائياً (r66: من قرار الخادم لا من اختياره)
   const courseOptions = yearFilter
     ? courses.filter((c) => String(c.academicYearId) === yearFilter)
-    : courses;
+    : yearLocked && yearLock
+      ? courses.filter((c) => String(c.academicYearId) === String(yearLock.yearId))
+      : courses;
 
   return (
     <div className="space-y-4">
@@ -314,14 +326,14 @@ export function TalibTelegramScreen() {
         </TabsList>
 
         <TabsContent value="library" className="mt-4 space-y-3">
-          {/* r65: عزل السنوات — سنة الطالب مقفلة (الخادم يقيد النتائج أيضاً) */}
+          {/* r66: عزل السنوات التلقائي — سنة الطالب مقفلة داخلياً (لا اختيار) */}
           {yearLocked && (
             <Card className="p-2.5 bg-primary/5 border-primary/20">
               <p className="text-xs text-foreground/80 flex items-center gap-2">
                 <Lock className="w-3.5 h-3.5 text-primary shrink-0" aria-hidden />
                 <span>
-                  تعرض مكتبة <strong>{myYearName ?? "سنتك الدراسية"}</strong> فقط — مواد سنتك الدراسية،
-                  وما يُصنّف لسنة أخرى لا يظهر لك.
+                  تعرض مكتبة <strong>{myYearName ?? "سنتك الدراسية"}</strong> فقط تلقائياً — مواد سنتك الدراسية،
+                  وما يُصنّف لسنة أخرى لا يظهر لك ولا ترى أنت موادّها.
                 </span>
               </p>
             </Card>

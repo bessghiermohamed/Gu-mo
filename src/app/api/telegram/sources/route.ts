@@ -21,6 +21,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canUploadContent } from "@/lib/auth/permissions";
 import { parseChannelHandle, resolveChat, isBotConfigured } from "@/lib/telegram/ingest";
+import { invalidateTopicCache } from "@/lib/telegram/topic-bindings";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -124,6 +125,7 @@ export async function GET() {
   try {
     let sources: SourceRow[];
     let itemCounts: Record<number, number> = {};
+    let topicCounts: Record<number, number> = {};
     let moduleNames: Record<number, string> = {};
     let cohortNames: Record<number, string> = {};
 
@@ -152,6 +154,14 @@ export async function GET() {
           const sid = Number((it as Record<string, unknown>).source_id);
           if (sid) itemCounts[sid] = (itemCounts[sid] ?? 0) + 1;
         }
+        // r66: عدد الأقسام المرتبطة لكل مصدر (عرض «أقسام منفصلة»)
+        try {
+          const { data: topics } = await supabase.from("telegram_topics").select("source_id");
+          for (const t of topics ?? []) {
+            const sid = Number((t as Record<string, unknown>).source_id);
+            if (sid) topicCounts[sid] = (topicCounts[sid] ?? 0) + 1;
+          }
+        } catch { /* الجدول غائب — صفر أقسام */ }
         const ids = Array.from(new Set(sources.map((s) => s.moduleId).filter((x): x is number => x != null)));
         if (ids.length > 0) {
           const { data: mods } = await supabase.from("module_courses").select("id, name").in("id", ids);
@@ -170,6 +180,10 @@ export async function GET() {
       });
       const items = await db.telegramItem.findMany({ select: { sourceId: true } });
       for (const it of items) if (it.sourceId != null) itemCounts[it.sourceId] = (itemCounts[it.sourceId] ?? 0) + 1;
+      try {
+        const topics = await db.telegramTopic.findMany({ select: { sourceId: true } });
+        for (const t of topics) topicCounts[t.sourceId] = (topicCounts[t.sourceId] ?? 0) + 1;
+      } catch { /* تحسيني */ }
       const ids = Array.from(new Set(sources.map((s) => s.moduleId).filter((x): x is number => x != null)));
       for (const id of ids) {
         const m = await db.moduleCourse.findUnique({ where: { id }, select: { name: true } });
@@ -182,6 +196,19 @@ export async function GET() {
       }
     }
 
+    // r66: المسار البديل — الأقسام المستقلة (مركّبة "chat:thread") تُحتسب
+    // لقناتها الأم فتظهر «أقسام مرتبطة» حتى بلا جدول مواضيع
+    const idByChat: Record<string, number> = {};
+    for (const s of sources) if (!s.tgChannelId.includes(":")) idByChat[s.tgChannelId] = s.id;
+    const sectionCounts: Record<number, number> = {};
+    for (const s of sources) {
+      const i = s.tgChannelId.indexOf(":");
+      if (i > 0) {
+        const pid = idByChat[s.tgChannelId.slice(0, i)];
+        if (pid != null) sectionCounts[pid] = (sectionCounts[pid] ?? 0) + 1;
+      }
+    }
+
     return NextResponse.json({
       sources: sources.map((s) => ({
         id: s.id, tgChannelId: s.tgChannelId, tgUsername: s.tgUsername, titleAr: s.titleAr,
@@ -191,12 +218,204 @@ export async function GET() {
         cohortId: s.cohortId,
         cohortName: s.cohortId != null ? cohortNames[s.cohortId] ?? null : null,
         isActive: s.isActive, lastUpdateId: s.lastUpdateId, itemCount: itemCounts[s.id] ?? 0,
+        topicCount: (topicCounts[s.id] ?? 0) + (sectionCounts[s.id] ?? 0),
+        isSection: s.tgChannelId.includes(":"),
       })),
     });
   } catch (e) {
     // الجداول غير منشأة غالباً — العلامة تُظهر التحذير في الواجهة
     return NextResponse.json({ sources: [], tablesReady: false, error: "جدول تيليجرام غير منشأ بعد — نفّذ supabase_telegram.sql" });
   }
+}
+
+/**
+ * r66: يستخرج رقم القسم/الموضوع من رابط كامل إن وُجد:
+ *   https://t.me/c/123456789/12      → 12 (رابط قسم/موضوع)
+ *   https://t.me/channel_name/12     → 12
+ *   https://t.me/c/123456789/12/345  → 12 (رسالة داخل الموضوع)
+ *   @name أو رابط قناة بلا رقم       → null (ربط قناة كاملة)
+ */
+function extractThreadId(handle: string): number | null {
+  const m = handle.match(/(?:https?:\/\/)?(?:t\.me|telegram\.me)\/(?:c\/\d+|[A-Za-z0-9_]{4,})\/(\d{1,10})(?:\/\d{1,10})?/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/** r66: تحقق أن السنة تتبع تخصصاً ما (قبل ربط قسم بها) */
+async function yearInSpecialty(specialtyId: number, yearId: number): Promise<boolean> {
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data } = await supabase.from("academic_years").select("id").eq("id", yearId).eq("specialty_id", specialtyId).maybeSingle();
+      return !!data;
+    }
+    const y = await db.academicYear.findFirst({ where: { id: yearId, specialtyId }, select: { id: true } });
+    return !!y;
+  } catch {
+    return false;
+  }
+}
+
+/** r66: إضافة/تحديث رابط قسم (topic) تحت مصدر موجود — القلب الجديد لدعم «أقسام منفصلة».
+ * reason: "missing-table" يعني أن جدول telegram_topics غير منشأ (في الإنتاج
+ * غالباً) — يُستعمل لتشغيل المسار البديل (قسم كمصدر مستقل) بدل الفشل. */
+async function upsertTopicBinding(
+  sourceId: number,
+  threadId: number,
+  title: string,
+  link: string,
+  yearId: number | null,
+  moduleId: number | null
+): Promise<{ ok: boolean; created: boolean; reason?: "missing-table"; error?: string }> {
+  const finalTitle = (title || "").trim().slice(0, 120) || `القسم ${threadId}`;
+  const finalLink = /^https?:\/\//i.test(link) ? link.trim() : "";
+  if (isVercel) {
+    const supabase = await createSupabaseServerClient();
+    let data: { id: number } | null = null;
+    try {
+      const r = await supabase
+        .from("telegram_topics")
+        .select("id")
+        .eq("source_id", sourceId)
+        .eq("tg_thread_id", threadId)
+        .maybeSingle();
+      data = (r.data as { id: number } | null) ?? null;
+      if (r.error) throw new Error(r.error.message);
+    } catch (e) {
+      const msg = (e as Error).message ?? "";
+      if (/PGRST205|does not exist|schema cache|جدول المواضيع/i.test(msg)) {
+        return { ok: false, created: false, reason: "missing-table", error: "جدول المواضيع غير منشأ" };
+      }
+      return { ok: false, created: false, error: msg };
+    }
+    if (data) {
+      const { error } = await supabase
+        .from("telegram_topics")
+        .update({ title_ar: finalTitle, link: finalLink, year_id: yearId, module_id: moduleId, is_general: false })
+        .eq("id", Number(data.id));
+      if (error) return { ok: false, created: false, error: error.message };
+      invalidateTopicCache(sourceId);
+      return { ok: true, created: false };
+    }
+    const { error } = await supabase
+      .from("telegram_topics")
+      .insert({ source_id: sourceId, tg_thread_id: threadId, title_ar: finalTitle, link: finalLink, year_id: yearId, module_id: moduleId, is_general: false });
+    if (error) return { ok: false, created: false, error: error.message };
+    invalidateTopicCache(sourceId);
+    return { ok: true, created: true };
+  }
+  try {
+    const dup = await db.telegramTopic.findUnique({ where: { sourceId_tgThreadId: { sourceId, tgThreadId: threadId } } });
+    if (dup) {
+      await db.telegramTopic.update({
+        where: { id: dup.id },
+        data: { titleAr: finalTitle, link: finalLink, yearId, moduleId, isGeneral: false },
+      });
+      invalidateTopicCache(sourceId);
+      return { ok: true, created: false };
+    }
+    await db.telegramTopic.create({
+      data: { sourceId, tgThreadId: threadId, titleAr: finalTitle, link: finalLink, yearId, moduleId, isGeneral: false },
+    });
+    invalidateTopicCache(sourceId);
+    return { ok: true, created: true };
+  } catch (e) {
+    const msg = (e as Error).message ?? String(e);
+    if (/telegram_topics|telegramTopic|P2021|does not exist|no such table/i.test(msg)) {
+      return { ok: false, created: false, reason: "missing-table", error: "جدول المواضيع غير منشأ" };
+    }
+    return { ok: false, created: false, error: msg };
+  }
+}
+
+/** معرّف مركّب لقسم يعمل مصدراً مستقلاً: "chatId:threadId"
+ * (يعمل لأن tg_channel_id عمود TEXT فريد — دون أي DDL) */
+function sectionChannelId(chatId: string, threadId: number): string {
+  return `${chatId}:${threadId}`;
+}
+
+/** r66: المسار البديل للإنتاج بلا جدول مواضيع — القسم يُخزَّن مصدراً
+ * مستقلاً تحت قناته الأصلية: نفس الأعمدة، معرّف مركّب "chat:thread"،
+ * وربط السنة/المقياس عليه مباشرة. الاستيراد يبحث عن المركّب أولاً
+ * لمنشورات المواضيع (ingest.ts) فيصنّف حتمياً إلى نطاق القسم. */
+async function upsertSectionSource(args: {
+  chatId: string;
+  threadId: number;
+  title: string;
+  yearId: number | null;
+  moduleId: number | null;
+  parent: {
+    tgUsername: string;
+    titleAr: string;
+    sourceType: string;
+    kind: string;
+    specialtyId: number;
+    trackId: number | null;
+    semester: number | null;
+  };
+}): Promise<{ ok: boolean; created: boolean; sectionSource?: SourceRow; error?: string }> {
+  const composite = sectionChannelId(args.chatId, args.threadId);
+  const sectionTitle = `${args.parent.titleAr} • ${args.title}`.slice(0, 160);
+  if (isVercel) {
+    const supabase = await createSupabaseServerClient();
+    const { data: dup } = await supabase
+      .from("telegram_sources")
+      .select("id, tg_channel_id, tg_username, title_ar, source_type, kind, specialty_id, track_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
+      .eq("tg_channel_id", composite)
+      .maybeSingle();
+    if (dup) {
+      const { error } = await supabase
+        .from("telegram_sources")
+        .update({ title_ar: sectionTitle, year_id: args.yearId, module_id: args.moduleId, is_active: true })
+        .eq("id", Number(dup.id));
+      if (error) return { ok: false, created: false, error: error.message };
+      return { ok: true, created: false, sectionSource: mapVercelSourceRow(dup) };
+    }
+    const { data, error } = await supabase
+      .from("telegram_sources")
+      .insert({
+        tg_channel_id: composite, tg_username: args.parent.tgUsername, title_ar: sectionTitle,
+        source_type: args.parent.sourceType, kind: args.parent.kind, specialty_id: args.parent.specialtyId,
+        track_id: args.parent.trackId, year_id: args.yearId, semester: args.parent.semester,
+        module_id: args.moduleId, cohort_id: null, is_active: true,
+      })
+      .select("id, tg_channel_id, tg_username, title_ar, source_type, kind, specialty_id, track_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
+      .single();
+    if (error || !data) return { ok: false, created: false, error: error?.message ?? "تعذر إنشاء القسم" };
+    return { ok: true, created: true, sectionSource: mapVercelSourceRow(data) };
+  }
+  const dup = await db.telegramSource.findUnique({ where: { tgChannelId: composite } });
+  if (dup) {
+    const updated = await db.telegramSource.update({
+      where: { id: dup.id },
+      data: { titleAr: sectionTitle, yearId: args.yearId, moduleId: args.moduleId, isActive: true },
+    });
+    return { ok: true, created: false, sectionSource: toSourceRow(updated) };
+  }
+  const created = await db.telegramSource.create({
+    data: {
+      tgChannelId: composite, tgUsername: args.parent.tgUsername, titleAr: sectionTitle,
+      sourceType: args.parent.sourceType, kind: args.parent.kind, specialtyId: args.parent.specialtyId,
+      trackId: args.parent.trackId, yearId: args.yearId, semester: args.parent.semester,
+      moduleId: args.moduleId, cohortId: null, isActive: true,
+    },
+  });
+  return { ok: true, created: true, sectionSource: toSourceRow(created) };
+}
+
+function mapVercelSourceRow(d: unknown): SourceRow {
+  const r = d as Record<string, unknown>;
+  return {
+    id: Number(r.id), tgChannelId: String(r.tg_channel_id ?? ""), tgUsername: String(r.tg_username ?? ""),
+    titleAr: String(r.title_ar ?? ""), sourceType: String(r.source_type ?? "channel"), kind: String(r.kind ?? "public"),
+    specialtyId: Number(r.specialty_id ?? 1), trackId: r.track_id == null ? null : Number(r.track_id),
+    yearId: r.year_id == null ? null : Number(r.year_id), semester: r.semester == null ? null : Number(r.semester),
+    moduleId: r.module_id == null ? null : Number(r.module_id), cohortId: r.cohort_id == null ? null : Number(r.cohort_id),
+    isActive: !!r.is_active, lastUpdateId: Number(r.last_update_id ?? 0),
+  };
+}
+
+function toSourceRow(s: { id: number; tgChannelId: string; tgUsername: string; titleAr: string; sourceType: string; kind: string; specialtyId: number; trackId: number | null; yearId: number | null; semester: number | null; moduleId: number | null; cohortId: number | null; isActive: boolean; lastUpdateId: number }): SourceRow {
+  return s;
 }
 
 export async function POST(req: NextRequest) {
@@ -254,10 +473,83 @@ export async function POST(req: NextRequest) {
     if (!kind) kind = "private";
     const titleAr = String(body.title ?? "").trim() || autoTitle || tgUsername || `قناة ${tgChannelId.slice(-6)}`;
 
+    // r66: رابط يحمل رقم قسم/موضوع → القسم يُضاف منفصلاً تحت قناته
+    // (بدل رفض «القناة مربوطة مسبقاً»). القسم يرث السنة/المقياس المختارين.
+    const threadId = extractThreadId(handle);
+    // اسم القسم: ما كتبه المشرف، أو «القسم N» — لا اسم القناة (autoTitle) لأنه ليس اسم القسم
+    const topicTitle = String(body.title ?? "").trim() || (threadId != null ? `القسم ${threadId}` : "");
+    if (threadId != null && sourceType === "channel") {
+      if (moduleId == null && yearId == null) {
+        return NextResponse.json(
+          { error: "هذا رابط قسم داخل قناة — اختر السنة الدراسية أو المقياس الذي يُصنَّف إليه هذا القسم (أو اربط القناة كاملة بلا رقم قسم)" },
+          { status: 400 }
+        );
+      }
+      if (yearId != null && !(await yearInSpecialty(specialtyId, yearId))) {
+        return NextResponse.json({ error: "السنة المختارة لا تتبع تخصصك" }, { status: 403 });
+      }
+    }
+
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      const { data: existing } = await supabase.from("telegram_sources").select("id").eq("tg_channel_id", tgChannelId).maybeSingle();
-      if (existing) return NextResponse.json({ error: "هذه القناة مربوطة مسبقاً" }, { status: 409 });
+      const { data: existing } = await supabase
+        .from("telegram_sources")
+        .select("id, tg_channel_id, tg_username, title_ar, source_type, kind, specialty_id, track_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
+        .eq("tg_channel_id", tgChannelId)
+        .maybeSingle();
+      if (existing) {
+        // r66: القناة موجودة + رابط قسم → ربط القسم تحت المصدر القائم
+        if (threadId != null && sourceType === "channel") {
+          const ex = existing as Record<string, unknown>;
+          const existingSpecialtyId = Number(ex.specialty_id ?? specialtyId);
+          if (user.role !== "OWNER" && existingSpecialtyId !== specialtyId) {
+            return NextResponse.json({ error: "هذه القناة مربوطة لتخصص آخر — اطلب من المالك نقلها أو اربط قسماً ضمن تخصصك" }, { status: 403 });
+          }
+          const parentTitle = String(ex.title_ar ?? titleAr);
+          const res = await upsertTopicBinding(
+            Number(ex.id),
+            threadId, topicTitle, handle, yearId, moduleId
+          );
+          if (!res.ok) {
+            // r66: جدول المواضيع غير منشأ (الإنتاج بلا DDL) — القسم يعمل
+            // مصدراً مستقلاً بمُعرّف مركّب "chat:thread" تحت القناة نفسها
+            if (res.reason === "missing-table") {
+              const sec = await upsertSectionSource({
+                chatId: tgChannelId, threadId, title: topicTitle, yearId, moduleId,
+                parent: {
+                  tgUsername: String(ex.tg_username ?? tgUsername),
+                  titleAr: parentTitle,
+                  sourceType: String(ex.source_type ?? sourceType),
+                  kind: String(ex.kind ?? kind),
+                  specialtyId: existingSpecialtyId,
+                  trackId: ex.track_id == null ? null : Number(ex.track_id),
+                  semester: ex.semester == null ? null : Number(ex.semester),
+                },
+              });
+              if (!sec.ok) return NextResponse.json({ error: sec.error }, { status: 500 });
+              return NextResponse.json({
+                source: sec.sectionSource,
+                topicAdded: true,
+                created: sec.created,
+                message: sec.created
+                  ? `أُضيف «${topicTitle}» قسماً منفصلاً تحت «${parentTitle}» — يظهر في قائمة المصادر قسماً مستقلاً، ومنشوراته القادمة ستُصنَّف تلقائياً إلى نطاقه ولا تظهر لغيره`
+                  : `حدُّث ربط القسم «${topicTitle}» تحت «${parentTitle}» (قسم مستقل في المصادر)`,
+              });
+            }
+            return NextResponse.json({ error: res.error }, { status: 500 });
+          }
+          invalidateTopicCache(Number(ex.id));
+          return NextResponse.json({
+            source: existing,
+            topicAdded: true,
+            created: res.created,
+            message: res.created
+              ? `أُضيف «${topicTitle}» قسماً منفصلاً تحت القناة الموجودة — منشوراته القادمة ستُصنَّف تلقائياً إلى نطاقه ولا تظهر لغيره`
+              : `حدُّث ربط القسم «${topicTitle}» تحت القناة الموجودة`,
+          });
+        }
+        return NextResponse.json({ error: "هذه القناة مربوطة مسبقاً — لإضافة قسم منها الصق رابط القسم (t.me/القناة/رقم_القسم) واختر نطاقه" }, { status: 409 });
+      }
       const { data, error } = await supabase
         .from("telegram_sources")
         .insert({
@@ -270,10 +562,83 @@ export async function POST(req: NextRequest) {
         .select()
         .single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      // r66: قناة جديدة برابط قسم → أنشئ رابط القسم فوراً تحتها
+      if (threadId != null && sourceType === "channel" && data) {
+        const newId = Number((data as Record<string, unknown>).id);
+        const res = await upsertTopicBinding(newId, threadId, topicTitle, handle, yearId, moduleId);
+        if (res.ok) {
+          return NextResponse.json({
+            source: data,
+            topicAdded: true,
+            created: true,
+            message: `رُبطت القناة وأُضيف «${topicTitle}» قسماً منفصلاً فيها — منشوراته القادمة ستُصنَّف تلقائياً إلى نطاقه`,
+          });
+        }
+        // r66: جدول المواضيع غائب — المسار البديل: قسم مستقل مركّب
+        if (res.reason === "missing-table") {
+          const sec = await upsertSectionSource({
+            chatId: tgChannelId, threadId, title: topicTitle, yearId, moduleId,
+            parent: { tgUsername, titleAr, sourceType, kind, specialtyId,
+              trackId: body.trackId != null && Number(body.trackId) > 0 ? Number(body.trackId) : null,
+              semester: body.semester === 2 ? 2 : body.semester === 1 ? 1 : null },
+          });
+          if (sec.ok) {
+            return NextResponse.json({
+              source: data,
+              topicAdded: true,
+              created: true,
+              message: `رُبطت القناة وأُضيف «${topicTitle}» قسماً منفصلاً فيها (قسم مستقل في المصادر) — منشوراته القادمة ستُصنَّف تلقائياً إلى نطاقه`,
+            });
+          }
+          return NextResponse.json({ source: data, topicAdded: false, warning: sec.error });
+        }
+        // فشل آخر — نجاح جزئي مع توضيح
+        return NextResponse.json({ source: data, topicAdded: false, warning: res.error });
+      }
       return NextResponse.json({ source: data });
     }
     const dup = await db.telegramSource.findUnique({ where: { tgChannelId } });
-    if (dup) return NextResponse.json({ error: "هذه القناة مربوطة مسبقاً" }, { status: 409 });
+    if (dup) {
+      // r66: القناة موجودة + رابط قسم → ربط القسم تحت المصدر القائم
+      if (threadId != null && sourceType === "channel") {
+        if (user.role !== "OWNER" && dup.specialtyId !== specialtyId) {
+          return NextResponse.json({ error: "هذه القناة مربوطة لتخصص آخر — اطلب من المالك نقلها أو اربط قسماً ضمن تخصصك" }, { status: 403 });
+        }
+        const res = await upsertTopicBinding(dup.id, threadId, topicTitle, handle, yearId, moduleId);
+        if (!res.ok) {
+          // r66: المسار البديل عند غياب جدول المواضيع — قسم مستقل مركّب
+          if (res.reason === "missing-table") {
+            const sec = await upsertSectionSource({
+              chatId: tgChannelId, threadId, title: topicTitle, yearId, moduleId,
+              parent: {
+                tgUsername: dup.tgUsername, titleAr: dup.titleAr, sourceType: dup.sourceType,
+                kind: dup.kind, specialtyId: dup.specialtyId, trackId: dup.trackId, semester: dup.semester,
+              },
+            });
+            if (!sec.ok) return NextResponse.json({ error: sec.error }, { status: 500 });
+            return NextResponse.json({
+              source: sec.sectionSource,
+              topicAdded: true,
+              created: sec.created,
+              message: sec.created
+                ? `أُضيف «${topicTitle}» قسماً منفصلاً تحت «${dup.titleAr}» — يظهر في قائمة المصادر قسماً مستقلاً، ومنشوراته القادمة ستُصنَّف تلقائياً إلى نطاقه ولا تظهر لغيره`
+                : `حدُّث ربط القسم «${topicTitle}» تحت «${dup.titleAr}» (قسم مستقل في المصادر)`,
+            });
+          }
+          return NextResponse.json({ error: res.error }, { status: 500 });
+        }
+        invalidateTopicCache(dup.id);
+        return NextResponse.json({
+          source: dup,
+          topicAdded: true,
+          created: res.created,
+          message: res.created
+            ? `أُضيف «${topicTitle}» قسماً منفصلاً تحت القناة الموجودة — منشوراته القادمة ستُصنَّف تلقائياً إلى نطاقه ولا تظهر لغيره`
+            : `حدُّث ربط القسم «${topicTitle}» تحت القناة الموجودة`,
+        });
+      }
+      return NextResponse.json({ error: "هذه القناة مربوطة مسبقاً — لإضافة قسم منها الصق رابط القسم (t.me/القناة/رقم_القسم) واختر نطاقه" }, { status: 409 });
+    }
     const created = await db.telegramSource.create({
       data: {
         tgChannelId, tgUsername, titleAr, sourceType, kind, specialtyId,
@@ -282,6 +647,37 @@ export async function POST(req: NextRequest) {
         moduleId, cohortId, isActive: true,
       },
     });
+    // r66: قناة جديدة برابط قسم → أنشئ ربط القسم فوراً تحتها
+    if (threadId != null && sourceType === "channel") {
+      const res = await upsertTopicBinding(created.id, threadId, topicTitle, handle, yearId, moduleId);
+      if (res.ok) {
+        return NextResponse.json({
+          source: created,
+          topicAdded: true,
+          created: true,
+          message: `رُبطت القناة وأُضيف «${topicTitle}» قسماً منفصلاً فيها — منشوراته القادمة ستُصنَّف تلقائياً إلى نطاقه`,
+        });
+      }
+      // r66: جدول المواضيع غائب — المسار البديل: قسم مستقل مركّب
+      if (res.reason === "missing-table") {
+        const sec = await upsertSectionSource({
+          chatId: tgChannelId, threadId, title: topicTitle, yearId, moduleId,
+          parent: { tgUsername, titleAr, sourceType, kind, specialtyId,
+            trackId: body.trackId != null && Number(body.trackId) > 0 ? Number(body.trackId) : null,
+            semester: body.semester === 2 ? 2 : body.semester === 1 ? 1 : null },
+        });
+        if (sec.ok) {
+          return NextResponse.json({
+            source: created,
+            topicAdded: true,
+            created: true,
+            message: `رُبطت القناة وأُضيف «${topicTitle}» قسماً منفصلاً فيها (قسم مستقل في المصادر) — منشوراته القادمة ستُصنَّف تلقائياً إلى نطاقه`,
+          });
+        }
+        return NextResponse.json({ source: created, topicAdded: false, warning: sec.error });
+      }
+      return NextResponse.json({ source: created, topicAdded: false, warning: res.error });
+    }
     return NextResponse.json({ source: created });
   } catch (e) {
     return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });
