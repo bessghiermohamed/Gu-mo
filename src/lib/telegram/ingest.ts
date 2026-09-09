@@ -26,6 +26,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { classifyItem, isGeminiConfigured } from "./classify";
 import { buildSearchText, firstLineTitle, fileNameToTitle } from "./normalize";
 import { loadModuleCandidates } from "./module-match";
+import { loadTopicBindings } from "./topic-bindings";
 import { resolveBotCredentials } from "./bot-config";
 import { telegramApi, getMeWith, activateWebhookWith, downloadFileBase64With } from "./bot-api";
 import { handlePrivateMessage, handleGroupMessage, isBotAddressed, type PrivateChatOutcome, type GroupChatOutcome } from "./bot-chat";
@@ -364,7 +365,7 @@ async function getModuleName(moduleId: number | null): Promise<string> {
 }
 
 /** حالة معالجة تحديث تيليجرام — تشمل الآن مخرجات عقل البوت (خاص + مجموعات) */
-export type UpdateStatus = "inserted" | "updated" | "ignored" | PrivateChatOutcome | GroupChatOutcome;
+export type UpdateStatus = "inserted" | "updated" | "ignored" | "skipped" | PrivateChatOutcome | GroupChatOutcome;
 
 /** اسم مستخدم البوت الفعّال — للكشف عن المنشن داخل المجموعات (تخزين مؤقت) */
 let cachedBotUsername: { value: string; at: number } | null = null;
@@ -437,10 +438,48 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
     // تنزيل الصور يحتاج توكن بوت — الصريح (?b=) أولاً ثم الفعّال
     const downloadToken = explicitToken || (await resolveBotCredentials()).token;
 
-    const threadId = msg.message_thread_id;
-    const link = buildDeepLink(source, msg.message_id, msg.is_topic_message ? threadId : undefined);
+    const threadId = msg.is_topic_message ? msg.message_thread_id : undefined;
+    const link = buildDeepLink(source, msg.message_id, threadId);
     const postedAt = new Date(msg.date * 1000).toISOString();
     const postedBy = msg.from ? (msg.from.first_name || msg.from.username || "") : "";
+
+    // --- r65: روابط المواضيع — خريطة المشرف لمواضيع القناة ---
+    // الموضوع المربوط بمقياس يفرضه حتمياً على كل منشوراته، والمربوط
+    // بسنة يضيّق مقاييس الترشيح عليها، والموضوع «عام» ليس محتوى دراسياً
+    // أصلاً فلا يُضاف شيئاً من منشوراته.
+    const bindings = await loadTopicBindings(source.id);
+    const binding = threadId != null ? bindings.find((b) => b.tgThreadId === threadId) : undefined;
+    if (binding?.isGeneral) return "skipped";
+    const bindingModuleId = binding?.moduleId ?? null;
+
+    // --- هل المنشور موجود سابقاً؟ (upsert idempotent) ---
+    let existingId: number | null = null;
+    let existingTitle = "";
+    let existingModuleId: number | null = null;
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data: existing } = await supabase
+        .from("telegram_items")
+        .select("id, title_ar, module_id")
+        .eq("source_id", source.id)
+        .eq("tg_message_id", msg.message_id)
+        .maybeSingle();
+      if (existing) {
+        existingId = Number(existing.id);
+        existingTitle = String(existing.title_ar ?? "");
+        existingModuleId = existing.module_id == null ? null : Number(existing.module_id);
+      }
+    } else {
+      const existing = await db.telegramItem.findUnique({
+        where: { sourceId_tgMessageId: { sourceId: source.id, tgMessageId: msg.message_id } },
+        select: { id: true, titleAr: true, moduleId: true },
+      });
+      if (existing) {
+        existingId = existing.id;
+        existingTitle = existing.titleAr;
+        existingModuleId = existing.moduleId;
+      }
+    }
 
     // --- التصنيف (Gemini ثم fallback محلي) ---
     const wantsVision =
@@ -454,12 +493,13 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
         imageMime = dl.mime;
       }
     }
-    const topicName = topicNameFor(String(msg.chat.id), threadId);
-    const context = `القناة: ${source.titleAr}${source.moduleId ? ` — المقياس: ${await getModuleName(source.moduleId)}` : ""}${topicName ? ` — الموضوع (Topic): ${topicName}` : ""}${msg.is_topic_message ? " — منشور داخل موضوع منتدى" : ""}`;
-    // r64: مقاييس التخصص المرشحة للربط الذكي — يختار النموذج المقياس المطابق
-    // لكل منشور. المصدر المربوط بمقياس واحد (قرار إداري) يفوز دائماً.
-    const moduleCandidates = source.moduleId == null
-      ? await loadModuleCandidates(source.specialtyId, source.yearId)
+    const topicName = binding?.titleAr || topicNameFor(String(msg.chat.id), threadId);
+    const context = `القناة: ${source.titleAr}${source.moduleId ? ` — المقياس: ${await getModuleName(source.moduleId)}` : ""}${bindingModuleId ? ` — المقياس (ربط الموضوع): ${await getModuleName(bindingModuleId)}` : ""}${topicName ? ` — الموضوع (Topic): ${topicName}` : ""}${msg.is_topic_message ? " — منشور داخل موضوع منتدى" : ""}`;
+    // r64: مقاييس التخصص المرشحة للربط الذكي — يختار النموذج المقياس
+    // المطابق لكل منشور. المصدر أو الموضوع المربوط بمقياس (قرار
+    // إداري) يفوز دائماً، والموضوع المربوط بسنة يضيّق المرشحين (r65).
+    const moduleCandidates = source.moduleId == null && bindingModuleId == null
+      ? await loadModuleCandidates(source.specialtyId, binding?.yearId ?? source.yearId)
       : [];
     const classifyInput = {
       kind: content.kind, caption: content.caption, fileName: content.fileName,
@@ -470,17 +510,20 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
     const cls = await classifyItem(classifyInput);
     const captionPlusOcr = [content.caption, cls.extractedText].filter(Boolean).join("\n");
 
+    // --- r65: بوابة المحتوى الدراسي ---
+    // منشور جديد في مصدر مكتبة (ليس مساحة فوج) بلا ربط إداري بمقياس:
+    // لا يُضاف إلا إن كان محتوى دراسيّاً يطابق مقياساً فعلاً — فلا تدخل
+    // المكتبةَ رسالة ترحيب ولا نقاش عام ولا ذِكر عرضي لمقياس
+    // («لدينا 10 مقاييس لكن ليست الهندسة المعمارية»).
+    const boundModuleId = source.moduleId ?? bindingModuleId;
+    if (existingId == null && source.cohortId == null && boundModuleId == null) {
+      if (!cls.isCourse || cls.moduleMatch == null) return "skipped";
+    }
+
     // --- الكتابة (upsert مع حماية حقول التنقيح) ---
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      const { data: existing } = await supabase
-        .from("telegram_items")
-        .select("id, title_ar, module_id")
-        .eq("source_id", source.id)
-        .eq("tg_message_id", msg.message_id)
-        .maybeSingle();
-
-      if (!existing) {
+      if (existingId == null) {
         const { error } = await supabase.from("telegram_items").insert({
           source_id: source.id,
           tg_message_id: msg.message_id,
@@ -496,7 +539,7 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
           size_bytes: content.sizeBytes,
           link,
           specialty_id: source.specialtyId,
-          module_id: source.moduleId ?? cls.moduleMatch?.id ?? null,
+          module_id: boundModuleId ?? cls.moduleMatch?.id ?? null,
           item_type: cls.itemType,
           origin: "telegram",
           posted_by: postedBy,
@@ -512,7 +555,7 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
         // المحتوى والرابط فقط — التنقيح الإداري محمي.
         const patch: Record<string, unknown> = {
           caption_text: captionPlusOcr,
-          search_text: buildSearchText(String(existing.title_ar ?? cls.title), captionPlusOcr, content.fileName),
+          search_text: buildSearchText(existingTitle || cls.title, captionPlusOcr, content.fileName),
           file_name: content.fileName,
           mime_type: content.mimeType,
           file_id: content.fileId,
@@ -523,23 +566,23 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
           posted_at: postedAt,
           ai_classified: cls.aiClassified,
         };
-        if (!String(existing.title_ar ?? "").trim()) patch.title_ar = cls.title;
-        // r64: املأ المقياس حين يكون فارغاً فقط — الربط الإداري اليدوي محمي
-        if (existing.module_id == null && cls.moduleMatch) patch.module_id = cls.moduleMatch.id;
-        await supabase.from("telegram_items").update(patch).eq("id", Number(existing.id));
+        if (!existingTitle.trim()) patch.title_ar = cls.title;
+        // r64/r65: املأ المقياس حين يكون فارغاً فقط — ربط الموضوع
+        // الإداري أولاً ثم مطابقة التصنيف؛ الربط اليدوي محمي دائماً.
+        if (existingModuleId == null) {
+          const fill = bindingModuleId ?? (source.moduleId == null && cls.moduleMatch ? cls.moduleMatch.id : null);
+          if (fill != null) patch.module_id = fill;
+        }
+        await supabase.from("telegram_items").update(patch).eq("id", existingId);
       }
       if (update.update_id > source.lastUpdateId) {
         await supabase.from("telegram_sources").update({ last_update_id: update.update_id }).eq("id", source.id);
       }
-      return existing ? "updated" : "inserted";
+      return existingId != null ? "updated" : "inserted";
     }
 
     // --- Prisma (محلي) ---
-    const existing = await db.telegramItem.findUnique({
-      where: { sourceId_tgMessageId: { sourceId: source.id, tgMessageId: msg.message_id } },
-      select: { id: true, titleAr: true, moduleId: true },
-    });
-    if (!existing) {
+    if (existingId == null) {
       await db.telegramItem.create({
         data: {
           sourceId: source.id, tgMessageId: msg.message_id, mediaGroupId: content.mediaGroupId,
@@ -547,7 +590,7 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
           searchText: buildSearchText(cls.title, captionPlusOcr, content.fileName),
           fileName: content.fileName, mimeType: content.mimeType, fileId: content.fileId,
           fileUniqueId: content.fileUniqueId, sizeBytes: content.sizeBytes, link,
-          specialtyId: source.specialtyId, moduleId: source.moduleId ?? cls.moduleMatch?.id ?? null, itemType: cls.itemType,
+          specialtyId: source.specialtyId, moduleId: boundModuleId ?? cls.moduleMatch?.id ?? null, itemType: cls.itemType,
           origin: "telegram", postedBy, cohortId: source.cohortId,
           isHidden: false, isFeatured: false, aiClassified: cls.aiClassified,
           postedAt: new Date(postedAt),
@@ -555,24 +598,25 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
       });
     } else {
       await db.telegramItem.update({
-        where: { id: existing.id },
+        where: { id: existingId },
         data: {
           captionText: captionPlusOcr,
-          searchText: buildSearchText(existing.titleAr || cls.title, captionPlusOcr, content.fileName),
+          searchText: buildSearchText(existingTitle || cls.title, captionPlusOcr, content.fileName),
           fileName: content.fileName, mimeType: content.mimeType, fileId: content.fileId,
           fileUniqueId: content.fileUniqueId, sizeBytes: content.sizeBytes,
           mediaGroupId: content.mediaGroupId, link, postedAt: new Date(postedAt),
           aiClassified: cls.aiClassified,
-          ...(existing.titleAr ? {} : { titleAr: cls.title }),
-          // r64: املأ المقياس الفارغ فقط — الربط الإداري اليدوي محمي
-          ...(existing.moduleId == null && cls.moduleMatch ? { moduleId: cls.moduleMatch.id } : {}),
+          ...(existingTitle ? {} : { titleAr: cls.title }),
+          ...(existingModuleId == null && (bindingModuleId != null || (source.moduleId == null && cls.moduleMatch))
+            ? { moduleId: bindingModuleId ?? cls.moduleMatch!.id }
+            : {}),
         },
       });
     }
     if (update.update_id > source.lastUpdateId) {
       await db.telegramSource.update({ where: { id: source.id }, data: { lastUpdateId: update.update_id } });
     }
-    return existing ? "updated" : "inserted";
+    return existingId != null ? "updated" : "inserted";
   } catch {
     return "ignored";
   }

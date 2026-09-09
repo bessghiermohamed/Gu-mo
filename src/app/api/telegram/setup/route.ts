@@ -235,6 +235,9 @@ async function simulateIngest(body: Record<string, unknown>, user: { role: strin
 
   const customText = typeof body.text === "string" ? body.text.trim() : "";
   const text = customText ? customText.slice(0, 500) : "سلسلة تمارين محلولة رقم 3 — التحليل الرياضي — السنة الأولى";
+  // r65: محاكاة منشور داخل موضوع مربوط — يختبر ربط الموضوع نفسه
+  const threadIdRaw = Number(body.threadId);
+  const threadId = Number.isFinite(threadIdRaw) && threadIdRaw > 0 ? Math.floor(threadIdRaw) : null;
 
   // معرفات ضخمة عشوائية (ضمن حد INT32 للعمود) حتى لا تتصادم مع منشورات
   // حقيقية أبداً — رسائل تيليجرام الفعلية أقرب للصفر من هذا المدى بكثير
@@ -252,12 +255,26 @@ async function simulateIngest(body: Record<string, unknown>, user: { role: strin
       date: Math.floor(Date.now() / 1000),
       // r64: مصدر المجموعات/المنتديات — الرسائل داخل موضوع فقط هي المحتوى
       // المستورد (isGroupContentWorthy)، فيُحاكى الفحص كمنشور موضوع حقيقي.
-      ...(source.sourceType === "group" ? { is_topic_message: true, message_thread_id: 1 } : {}),
+      // r65: threadId صريح يقدّم ربط الموضوع المراد فحصه على الموضوع الافتراضي.
+      ...(source.sourceType === "group" || threadId != null
+        ? { is_topic_message: true, message_thread_id: threadId ?? 1 }
+        : {}),
       text,
     },
   };
 
   const status = await processTelegramUpdate(update);
+  if (status === "skipped") {
+    // r65: البوابة تعمل كما يجب — النص ليس محتوى دراسياً يطابق مقياساً
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      status,
+      item: null,
+      message:
+        "لم يُضَف المنشور — وهذا هو السلوك الصحيح ✅ بوابة المحتوى الدراسي: البوت لا يضيف إلا ما يطابق مقياساً فعلاً (رسالة ترحيب/نقاش عام/ذِكر عرضي لمقياس مثل «لدينا 10 مقاييس لكن ليست الهندسة» لا تدخل المكتبة). إن كنت تتوقع إضافته فتحقق من عنوان المقياس أو اربط موضوع القناة بمقياس.",
+    });
+  }
   if (status === "ignored") {
     return NextResponse.json(
       {

@@ -18,6 +18,7 @@ import {
   Send, Search, Loader2, FileText, ImageIcon, Video, Headphones, File,
   MessageSquare, Link as LinkIcon, Star, Plus, Trash2, Users, ExternalLink,
   FolderOpen, Sparkles, Info, UserPlus, Settings, Bot, ChevronDown, ChevronUp,
+  Lock, RotateCcw,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +86,25 @@ const TYPE_COLORS: Record<string, string> = {
   "إعلان": "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/30",
   "عام": "bg-muted text-muted-foreground border-border",
 };
+
+/** r65: فلاتر المكتبة الست — السنة ← الفصل ← المقياس ← النوع ← نوع الملف ← المصدر */
+const SEMESTER_FILTERS = [
+  { value: "", label: "كل الفصول" },
+  { value: "1", label: "الفصل 1" },
+  { value: "2", label: "الفصل 2" },
+];
+
+const KIND_FILTERS = [
+  { value: "", label: "كل الملفات" },
+  { value: "pdf", label: "PDF" },
+  { value: "image", label: "صور" },
+  { value: "video", label: "فيديو" },
+  { value: "audio", label: "صوت" },
+  { value: "doc", label: "مستندات" },
+  { value: "ppt", label: "عروض" },
+  { value: "link", label: "روابط" },
+  { value: "text", label: "نصوص" },
+];
 
 const selectCls = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm";
 
@@ -154,7 +174,20 @@ export function TalibTelegramScreen() {
   const [debouncedQuery, setDebouncedQuery] = React.useState("");
   const [typeFilter, setTypeFilter] = React.useState("");
   const [courseId, setCourseId] = React.useState("");
-  const [courses, setCourses] = React.useState<Array<{ id: number; name: string; semester: number }>>([]);
+  const [courses, setCourses] = React.useState<Array<{ id: number; name: string; semester: number; academicYearId: number }>>([]);
+  // r65: الفلاتر الست — السنة ← الفصل ← المقياس (موجود) ← النوع (موجود) ← نوع الملف ← المصدر
+  const [yearFilter, setYearFilter] = React.useState("");
+  const [semesterFilter, setSemesterFilter] = React.useState("");
+  const [kindFilter, setKindFilter] = React.useState("");
+  const [sourceFilter, setSourceFilter] = React.useState("");
+  const [years, setYears] = React.useState<Array<{ id: number; yearName: string }>>([]);
+
+  // r65: عزل السنوات — الطالب/الممثل يرى مكتبة سنتّه فقط (الخادم يقيد
+  // النتائج أيضاً)، والمشرف/المالك يتصفحان السنوات بحرية.
+  const yearLocked =
+    user != null && user.scopeAcademicYearId != null &&
+    (user.role === "STUDENT" || user.role === "REPRESENTATIVE");
+  const myYearName = years.find((y) => y.id === user?.scopeAcademicYearId)?.yearName ?? null;
 
   React.useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query.trim()), 350);
@@ -168,6 +201,13 @@ export function TalibTelegramScreen() {
       .catch(() => setCourses([]));
   }, []);
 
+  React.useEffect(() => {
+    fetch(`/api/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
+      .then((r) => r.json())
+      .then((data) => setYears(data.years ?? []))
+      .catch(() => setYears([]));
+  }, [user]);
+
   const fetchItems = React.useCallback(async () => {
     setLoading(true);
     try {
@@ -175,7 +215,12 @@ export function TalibTelegramScreen() {
       params.set("mode", tab);
       if (debouncedQuery) params.set("q", debouncedQuery);
       if (typeFilter) params.set("itemType", typeFilter);
-      if (tab === "library" && courseId) params.set("moduleId", courseId);
+      if (kindFilter) params.set("kind", kindFilter);
+      if (tab === "library") {
+        if (!yearLocked && yearFilter) params.set("yearId", yearFilter);
+        if (semesterFilter) params.set("semester", semesterFilter);
+        if (courseId) params.set("moduleId", courseId);
+      }
       const res = await fetch(`/api/telegram/items?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
       setItems(data.items ?? []);
@@ -187,9 +232,37 @@ export function TalibTelegramScreen() {
     } finally {
       setLoading(false);
     }
-  }, [tab, debouncedQuery, typeFilter, courseId]);
+  }, [tab, debouncedQuery, typeFilter, kindFilter, yearFilter, semesterFilter, courseId, yearLocked]);
 
   React.useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  // r65: المصدر — سادسة الفلاتر، تُشتق من المنشورات المحمّلة (بلا طلب إضافي)
+  const sourceOptions = React.useMemo(() => {
+    const seen = new Set<string>();
+    for (const it of items) if (it.sourceTitle?.trim()) seen.add(it.sourceTitle.trim());
+    return Array.from(seen);
+  }, [items]);
+  const displayItems = React.useMemo(
+    () => (sourceFilter ? items.filter((it) => (it.sourceTitle ?? "").trim() === sourceFilter) : items),
+    [items, sourceFilter]
+  );
+
+  function resetFilters() {
+    setQuery("");
+    setTypeFilter("");
+    setCourseId("");
+    setYearFilter("");
+    setSemesterFilter("");
+    setKindFilter("");
+    setSourceFilter("");
+  }
+  const anyFilterActive =
+    !!(query.trim() || typeFilter || courseId || yearFilter || semesterFilter || kindFilter || sourceFilter);
+
+  // خيارات المقاييس تتبع السنة المختارة (للمشرفين) — وللطالب مقاييس سنتّه أصلاً
+  const courseOptions = yearFilter
+    ? courses.filter((c) => String(c.academicYearId) === yearFilter)
+    : courses;
 
   return (
     <div className="space-y-4">
@@ -241,6 +314,19 @@ export function TalibTelegramScreen() {
         </TabsList>
 
         <TabsContent value="library" className="mt-4 space-y-3">
+          {/* r65: عزل السنوات — سنة الطالب مقفلة (الخادم يقيد النتائج أيضاً) */}
+          {yearLocked && (
+            <Card className="p-2.5 bg-primary/5 border-primary/20">
+              <p className="text-xs text-foreground/80 flex items-center gap-2">
+                <Lock className="w-3.5 h-3.5 text-primary shrink-0" aria-hidden />
+                <span>
+                  تعرض مكتبة <strong>{myYearName ?? "سنتك الدراسية"}</strong> فقط — مواد سنتك الدراسية،
+                  وما يُصنّف لسنة أخرى لا يظهر لك.
+                </span>
+              </p>
+            </Card>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 right-3 text-muted-foreground" />
@@ -252,14 +338,45 @@ export function TalibTelegramScreen() {
                 aria-label="البحث في دروس تيليجرام"
               />
             </div>
+          </div>
+
+          {/* الفلاتر الست: السنة ← الفصل ← المقياس ← النوع (أدناه) ← نوع الملف ← المصدر */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {!yearLocked && (
+              <select
+                value={yearFilter}
+                onChange={(e) => { setYearFilter(e.target.value); setCourseId(""); }}
+                className={selectCls}
+                aria-label="تصفية حسب السنة"
+              >
+                <option value="">كل السنوات</option>
+                {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+              </select>
+            )}
+            <select
+              value={semesterFilter}
+              onChange={(e) => setSemesterFilter(e.target.value)}
+              className={selectCls}
+              aria-label="تصفية حسب الفصل"
+            >
+              {SEMESTER_FILTERS.map((f) => <option key={f.value || "sem-all"} value={f.value}>{f.label}</option>)}
+            </select>
             <select
               value={courseId}
               onChange={(e) => setCourseId(e.target.value)}
-              className={cn(selectCls, "w-full sm:w-40 shrink-0")}
+              className={selectCls}
               aria-label="تصفية حسب المقياس"
             >
               <option value="">كل المقاييس</option>
-              {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {courseOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select
+              value={kindFilter}
+              onChange={(e) => setKindFilter(e.target.value)}
+              className={selectCls}
+              aria-label="تصفية حسب نوع الملف"
+            >
+              {KIND_FILTERS.map((f) => <option key={f.value || "kind-all"} value={f.value}>{f.label}</option>)}
             </select>
           </div>
 
@@ -281,8 +398,33 @@ export function TalibTelegramScreen() {
             ))}
           </div>
 
+          <div className="flex items-center gap-2">
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              className={cn(selectCls, "flex-1")}
+              aria-label="تصفية حسب المصدر"
+              disabled={sourceOptions.length === 0}
+            >
+              <option value="">كل المصادر</option>
+              {sourceOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            {anyFilterActive && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 shrink-0"
+                onClick={resetFilters}
+                aria-label="مسح كل الفلاتر"
+              >
+                <RotateCcw className="w-3.5 h-3.5 ml-1" />
+                مسح
+              </Button>
+            )}
+          </div>
+
           <LibraryList
-            items={items}
+            items={displayItems}
             loading={loading}
             setup={setup}
             canManage={canManageRoles(user ?? null)}

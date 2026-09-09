@@ -542,6 +542,7 @@ model TelegramSource {
   isActive      Boolean  @default(true) // إيقاف الاستيراد مؤقتاً
   lastUpdateId  Int      @default(0)
   items         TelegramItem[]
+  topics        TelegramTopic[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -596,6 +597,32 @@ model BotConfig {
   webhookSecret String   @default("")
   botUsername   String   @default("")
   updatedAt     DateTime @updatedAt
+}
+
+// =====================================================
+// 14c. روابط مواضيع القنوات (TelegramTopic) - الجولة 65
+// القنوات/المنتديات الكبيرة (مثل ENS) تحتوي مواضيع متعددة:
+// عام، سنة أولى، سنة ثانية، مقياس محدد… هذا الجدول يربط كل
+// موضوع (thread) بنطاقه الأكاديمي فيصنّف البوت منشوراته
+// مباشرة دون تخمين: موضوع «السنة الأولى» → مقاييس السنة
+// الأولى فقط، موضوع «النحو والتطبيق» → كل منشوراته تحت
+// مقياس النحو، والموضوع «عام» يُتجاهل (ليس محتوى دراسياً).
+// =====================================================
+model TelegramTopic {
+  id         Int      @id @default(autoincrement())
+  sourceId   Int
+  source     TelegramSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  tgThreadId Int // message_thread_id في تيليجرام
+  titleAr    String   @default("") // اسم الموضوع للعرض
+  link       String   @default("") // رابط الموضوع (t.me/.../thread)
+  yearId     Int? // ربط بسنة كاملة (يضيّق مقاييس الترشيح)
+  moduleId   Int? // ربط بمقياس محدد (تصنيف حتمي)
+  isGeneral  Boolean  @default(false) // موضوع عام — ليس محتوى دراسياً
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([sourceId, tgThreadId])
+  @@index([sourceId])
 }
 
 // =====================================================

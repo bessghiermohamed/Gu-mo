@@ -231,3 +231,96 @@ export function formatCandidatesForPrompt(candidates: ModuleCandidate[], max = 4
     .map((c) => (c.yearName ? `${c.name} (${c.yearName})` : c.name))
     .join("، ");
 }
+
+// ------------------------------------------------------------
+// r65: بوابة «المحتوى الدراسي» — pure logic
+// هل هذا المنشور مادة دراسية تخص مقياساً، أم مجرد ذِكر عرضي
+// لمقياس داخل نقاش؟ مثال المالك: «لدينا 10 مقاييس لكن ليست
+// الهندسة المعمارية» — تذكر مقياساً لكنها ليست محتواه، فلا
+// يضيفها البوت ولا يصنفها.
+// ------------------------------------------------------------
+
+/** كلمات نفي/استثناء إذا سبقت اسم المقياس مباشرة → ذِكر عرضي لا محتوى */
+const NEGATION_WORDS_RAW = [
+  "ليس", "ليست", "ليسا", "ليسوا", "لسنا", "بدون", "بلا", "عدا", "خلا",
+  "باستثناء", "لا يشمل", "لا نتناول", "لا ندرس", "لا يوجد", "ليست من",
+  "ليس من", "ما عدا", "ما خلا", "ناقص", "غير متوفر", "لا نوفر", "ليس لدينا",
+];
+/** النسخة المطبَّعة (همزات…) للمقارنة مع نص مطبَّع */
+const NEGATION_WORDS = NEGATION_WORDS_RAW.map((w) => normalizeArabic(w)).filter(Boolean);
+
+/** كلمة داخل نافذة النفي: القصيرة بحدود كلمة، والعبارة باحتواء عادي */
+function negationInWindow(before: string): boolean {
+  for (const w of NEGATION_WORDS) {
+    if (w.includes(" ")) {
+      if (before.includes(w)) return true;
+    } else if (w.length <= 3) {
+      if (new RegExp(`(^|\\s)${w}(\\s|$)`).test(before)) return true;
+    } else if (before.includes(w)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** هل يظهر نفي/استثناء قبل اسم المقياس (نافذة 24 حرفاً قبله)؟ */
+function negatedBeforeMention(hayNormalized: string, probe: string): boolean {
+  let idx = hayNormalized.indexOf(probe);
+  while (idx !== -1) {
+    const before = hayNormalized.slice(Math.max(0, idx - 24), idx);
+    if (negationInWindow(before)) return true;
+    idx = hayNormalized.indexOf(probe, idx + 1);
+  }
+  return false;
+}
+
+/**
+ * البوابة المحلية (بلا ذكاء اصطناعي): يعتمد القرار على
+ *  1) مرفق ملف/وسائط → محتوى بالتعريف
+ *  2) لا مقياس مطابق → ليس محتوى دراسياً (ترحيب، اجتماع، نقاش…)
+ *  3) نفي يسبق المقياس → ذِكر عرضي («… لكن ليست الهندسة»)
+ *  4) نص طويل يستوعب المقياس ذكراً جانبياً (تغطية منخفضة) → نقاش
+ */
+export function looksLikeCourseContent(args: {
+  text: string;
+  fileName: string;
+  moduleName: string;
+  hasMedia: boolean;
+}): boolean {
+  const { text, fileName, moduleName, hasMedia } = args;
+  // ملف/وسائط مرفقة = محتوى بالتعريف (PDF محاضرة، صورة امتحان…)
+  if (fileName.trim() || hasMedia) return true;
+  // بلا مقياس مطابق = ليس محتوى دراسياً
+  if (!moduleName.trim()) return false;
+
+  const hay = normalizeArabic(text);
+  const name = normalizeArabic(moduleName);
+  if (!hay || !name) return false;
+
+  // نفي/استثناء يسبق اسم المقياس → ذِكر عرضي لا محتوى
+  const stemName = name.replace(/^ال/, "");
+  const probes = name.length >= 4 && stemName.length >= 4 ? [name, stemName] : [name];
+  for (const probe of probes) {
+    if (negatedBeforeMention(hay, probe)) return false;
+  }
+
+  // المقياس لا يظهر في نص المنشور نفسه (المطابقة جاءت من سياق القناة
+  // أو اسم الموضوع) — المنشور لا يدل بذاته على مقياس → ليس محتوى دراسياً
+  if (probeLen(hay, probes) === 0) return false;
+
+  // نص طويل والتغطية منخفضة → المقياس ذِكر جانبي في نقاش
+  const words = hay.split(/\s+/).filter(Boolean);
+  const coverage = probeLen(hay, probes) / Math.max(hay.length, 1);
+  if (words.length > 14 && coverage < 0.25) return false;
+
+  return true;
+}
+
+/** طول أطول ظهور لمقاطع المقياس داخل النص (لتقدير التغطية) */
+function probeLen(hay: string, probes: string[]): number {
+  let best = 0;
+  for (const p of probes) {
+    if (p.length > best && hay.includes(p)) best = p.length;
+  }
+  return best;
+}

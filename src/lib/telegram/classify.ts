@@ -20,7 +20,7 @@
 
 import { TG_ITEM_TYPES } from "./types";
 import { firstLineTitle, fileNameToTitle } from "./normalize";
-import { resolveModuleByName, inferModuleFromText, type ModuleCandidate } from "./module-match";
+import { resolveModuleByName, inferModuleFromText, looksLikeCourseContent, type ModuleCandidate } from "./module-match";
 
 export interface ClassifyInput {
   kind: string; // pdf | doc | ppt | image | video | audio | text | link | other
@@ -45,6 +45,9 @@ export interface ClassifyResult {
   aiClassified: boolean;
   /** r64: المقياس المطابق (مُعاد معرّفه من القائمة) أو null */
   moduleMatch: ModuleCandidate | null;
+  /** r65: هل هذا محتوى دراسي يخص مقياساً؟ (false → لا يُستورد أصلاً —
+   * رسالة ترحيب/نقاش/ذِكر عرضي لمقياس مثل «لدينا 10 مقاييس لكن ليست الهندسة») */
+  isCourse: boolean;
 }
 
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -152,7 +155,16 @@ export function heuristicClassify(input: ClassifyInput): ClassifyResult {
   const moduleMatch = input.moduleCandidates?.length
     ? inferModuleFromText(input.moduleCandidates, `${input.caption} ${input.fileName} ${input.context ?? ""}`)
     : null;
-  return { itemType, title, extractedText: "", aiClassified: false, moduleMatch };
+  // r65: بوابة المحتوى الدراسي — تُقيّم نص المنشور نفسه (لا السياق:
+  // القناة/اسم الموضوع يطالعه المصنّف للمطابقة، أما البوابة فتحكم على
+  // المنشور) — والذِكر العرضي/النفي لا يُعَدّ محتوى
+  const isCourse = looksLikeCourseContent({
+    text: input.caption,
+    fileName: input.fileName,
+    moduleName: moduleMatch?.name ?? "",
+    hasMedia: input.kind !== "text" && input.kind !== "link",
+  });
+  return { itemType, title, extractedText: "", aiClassified: false, moduleMatch, isCourse };
 }
 
 // ------------------------------------------------------------
@@ -175,7 +187,7 @@ function buildPrompt(input: ClassifyInput): string {
 — الوصف/النص يظهر ${input.imageBase64 ? "داخل الصورة المرفقة (اقرأه بالضبط)" : "أدناه"}${ctx}${fileName}${caption}${modules}
 
 أعد JSON فقط بهذه الصيغة (بدون أي نص إضافي):
-{"item_type": "<النوع من القائمة>", "title": "<عنوان قصير واضح بالعربية، 6 كلمات كحد أقصى، من محتوى المنشور نفسه>", "module_name": "${input.moduleCandidates?.length ? "<اسم المقياس المطابق من القائمة حرفياً، أو نص فارغ إن لم يطابق شيء" : "<نص فارغ>"}", "text": "${input.imageBase64 ? "<انقل كل النص الظاهر في الصورة كما هو>" : "<نص فارغ>"}"}`;
+{"is_course": <true فقط إن كان المنشور محتوى دراسيّاً يخص مقياساً (ملف دراسة، امتحان، محاضرة، TD، ملخص، كتاب، أو إعلان يخص مقياساً بعينه). false إن كان نقاشاً عاماً أو ترحيباً أو إعلاناً إدارياً أو ذِكراً عرضياً لمقياس مثل «لدينا عشرة مقاييس لكن ليست الهندسة»>, "item_type": "<النوع من القائمة>", "title": "<عنوان قصير واضح بالعربية، 6 كلمات كحد أقصى، من محتوى المنشور نفسه>", "module_name": "${input.moduleCandidates?.length ? "<اسم المقياس المطابق من القائمة حرفياً، أو نص فارغ إن لم يطابق شيء" : "<نص فارغ>"}", "text": "${input.imageBase64 ? "<انقل كل النص الظاهر في الصورة كما هو>" : "<نص فارغ>"}"}`;
 }
 
 interface GeminiPart {
@@ -229,7 +241,7 @@ async function callGeminiModel(
     };
     const raw = data.candidates?.[0]?.content?.parts?.find((p) => p.text)?.text ?? "";
     const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-    const parsed = JSON.parse(cleaned) as { item_type?: string; title?: string; text?: string; module_name?: string };
+    const parsed = JSON.parse(cleaned) as { item_type?: string; title?: string; text?: string; module_name?: string; is_course?: boolean };
     const itemType = TG_ITEM_TYPES.includes(parsed.item_type as never) ? parsed.item_type! : "";
     if (!itemType) return null;
     const title = (parsed.title ?? "").trim().slice(0, 120);
@@ -243,6 +255,16 @@ async function callGeminiModel(
       extractedText: (parsed.text ?? "").trim().slice(0, 4000),
       aiClassified: true,
       moduleMatch,
+      // r65: بوابة المحتوى — حكم النموذج، وإن أغفل الحقل فالبوابة المحلية تقرر
+      isCourse:
+        parsed.is_course === undefined
+          ? looksLikeCourseContent({
+              text: input.caption,
+              fileName: input.fileName,
+              moduleName: moduleMatch?.name ?? "",
+              hasMedia: input.kind !== "text" && input.kind !== "link",
+            })
+          : !!parsed.is_course,
     };
   } catch {
     return null; // انقطاع/مهلة/JSON تالف → التالي في السلسلة أو الكلمات المفتاحية

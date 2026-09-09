@@ -160,6 +160,35 @@ function shapeItem(item: ItemRow, moduleName: string | null, sourceTitle: string
   };
 }
 
+/** r65: مقاييس سنة/فصل (لتقييد المكتبة) — null عند أي فشل يعني بلا تقييد */
+async function moduleIdsForFilters(
+  specialtyId: number,
+  yearId: number | null,
+  semester: number | null
+): Promise<number[] | null> {
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      let q = supabase.from("module_courses").select("id").eq("specialty_id", specialtyId);
+      if (yearId != null) q = q.eq("academic_year_id", yearId);
+      if (semester != null) q = q.eq("semester", semester);
+      const { data } = await q;
+      return (data ?? []).map((m: Record<string, unknown>) => Number(m.id));
+    }
+    const mods = await db.moduleCourse.findMany({
+      where: {
+        specialtyId,
+        ...(yearId != null ? { academicYearId: yearId } : {}),
+        ...(semester != null ? { semester } : {}),
+      },
+      select: { id: true },
+    });
+    return mods.map((m) => m.id);
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ items: [], myCohortId: null });
@@ -173,6 +202,9 @@ export async function GET(req: NextRequest) {
     const featured = url.searchParams.get("featured");
     const q = (url.searchParams.get("q") ?? "").trim();
     const limit = Math.min(Number(url.searchParams.get("limit") ?? 200) || 200, 500);
+    // r65: خطوتا التصفية الجديدتان في المكتبة — السنة والفصل
+    const yearIdParam = url.searchParams.get("yearId");
+    const semesterParam = url.searchParams.get("semester");
 
     if (mode === "admin" && !canUploadContent(user)) {
       return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
@@ -180,21 +212,28 @@ export async function GET(req: NextRequest) {
 
     const myCohortId = await resolveMyCohort(user);
 
-    // السماح فقط بمقاييس سنة المتصل (نفس منطق /api/courses)
+    // r65: عزل السنوات — الطالب/الممثل يرى مكتبة سنتّه فقط («مقياس سنة
+    // أولى يظهر لطلبة السنة الأولى فقط»)، والمشرف/المالك يتصفحان أي
+    // سنة عبر yearId أو يريان الكل. المكتبة أصلاً تعرض ما رُبط بمقياس
+    // فقط (تحت)، فما لم يُصنّف لا يظهر لأحد من الطلبة.
+    const yearLocked =
+      mode === "library" &&
+      user.scopeAcademicYearId != null &&
+      (user.role === "STUDENT" || user.role === "REPRESENTATIVE");
+    const finalYearId =
+      mode === "library"
+        ? yearLocked
+          ? user.scopeAcademicYearId
+          : yearIdParam != null && Number(yearIdParam) > 0
+            ? Number(yearIdParam)
+            : null
+        : null;
+    const finalSemester = semesterParam === "1" || semesterParam === "2" ? Number(semesterParam) : null;
+
+    // r65: مقاييس السنة/الفصل المطلوبين — تعمل كقيد moduleId IN (…)
     let allowedModuleIds: number[] | null = null;
-    if (mode !== "admin" && user.scopeAcademicYearId != null) {
-      if (isVercel) {
-        const supabase = await createSupabaseServerClient();
-        const { data: mods } = await supabase
-          .from("module_courses").select("id").eq("specialty_id", user.assignedSpecialtyId).eq("academic_year_id", user.scopeAcademicYearId);
-        allowedModuleIds = (mods ?? []).map((m: Record<string, unknown>) => Number(m.id));
-      } else {
-        const mods = await db.moduleCourse.findMany({
-          where: { specialtyId: user.assignedSpecialtyId, academicYearId: user.scopeAcademicYearId },
-          select: { id: true },
-        });
-        allowedModuleIds = mods.map((m) => m.id);
-      }
+    if (mode === "library" && (finalYearId != null || finalSemester != null)) {
+      allowedModuleIds = await moduleIdsForFilters(user.assignedSpecialtyId, finalYearId, finalSemester);
     }
 
     let rows: ItemRow[] = [];
@@ -209,8 +248,13 @@ export async function GET(req: NextRequest) {
         query = query.eq("cohort_id", myCohortId).eq("is_hidden", false);
       } else {
         query = query.eq("specialty_id", user.assignedSpecialtyId).eq("is_hidden", false).is("cohort_id", null);
+        // r65: المكتبة تعرض المنشورات المرتبطة بمقياس فقط — غير المصنّف
+        // لا يظهر للطلبة (يبقى متاحاً للتنقيح في وضع المشرف)
+        query = query.not("module_id", "is", null);
         if (allowedModuleIds != null) {
-          query = query.or(`module_id.in.(${allowedModuleIds.join(",")}),module_id.is.null`);
+          query = allowedModuleIds.length > 0
+            ? query.in("module_id", allowedModuleIds)
+            : query.eq("tg_message_id", -1); // لا مقاييس مطابقة → مجموعة فارغة
         }
       }
       if (mode !== "admin" && moduleId) query = query.eq("module_id", Number(moduleId));
@@ -253,9 +297,8 @@ export async function GET(req: NextRequest) {
         where.specialtyId = user.assignedSpecialtyId;
         where.isHidden = false;
         where.cohortId = null;
-        if (allowedModuleIds != null) {
-          where.OR = [{ moduleId: { in: allowedModuleIds } }, { moduleId: null }];
-        }
+        // r65: المكتبة تعرض ما رُبط بمقياس فقط (غير المصنّف غير مرئي للطلبة)
+        where.moduleId = allowedModuleIds != null ? { in: allowedModuleIds } : { not: null };
       }
       if (mode !== "admin" && moduleId) where.moduleId = Number(moduleId);
       if (itemType) where.itemType = itemType;

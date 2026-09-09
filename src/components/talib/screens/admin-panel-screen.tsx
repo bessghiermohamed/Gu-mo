@@ -8,7 +8,7 @@ import {
   Flag, AlertTriangle, CheckCheck, RotateCcw, Send, Eye, EyeOff, Star, Link2, Sparkles, Power,
   FlaskConical, Zap, ExternalLink, Mail, IdCard,
   Network, ChevronDown, ChevronLeft, Search, ArrowLeftRight, UserMinus, UserCog,
-  LayoutDashboard, Inbox, Megaphone, Target,
+  LayoutDashboard, Inbox, Megaphone, Target, Hash,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -2356,6 +2356,20 @@ interface TgItemAdminRow {
 interface TgCourseRow { id: number; name: string; semester: number; academicYearId: number }
 interface TgCohortRow { id: number; groupName: string; academicYearId: number }
 
+/** r65: رابط موضوع قناة — الخريطة الإدارية للقنوات متعددة المواضيع */
+interface TgTopicRow {
+  id: number;
+  sourceId: number;
+  tgThreadId: number;
+  titleAr: string;
+  link: string;
+  yearId: number | null;
+  yearName: string | null;
+  moduleId: number | null;
+  moduleName: string | null;
+  isGeneral: boolean;
+}
+
 const TG_TYPES_ADMIN = ["محاضرة", "أعمال موجهة TD", "تمارين", "امتحان", "ملخص", "كتاب", "إعلان", "عام"];
 
 function TelegramManager() {
@@ -2819,6 +2833,7 @@ function TgSourcesManager() {
   const [testRunning, setTestRunning] = React.useState(false);
   const [testResult, setTestResult] = React.useState<{
     ok: boolean;
+    skipped?: boolean;
     message: string;
     aiClassified?: boolean;
     item?: { title: string; itemType: string; kind: string; caption: string; link: string; moduleName?: string } | null;
@@ -2830,6 +2845,11 @@ function TgSourcesManager() {
   const [healResult, setHealResult] = React.useState<{
     ok: boolean; processed: number; moduleAssigned: number; remaining: number; message: string;
   } | null>(null);
+
+  // r65 — روابط المواضيع: خريطة القناة (عام/سنة/مقياس لكل موضوع)
+  const [topicsSource, setTopicsSource] = React.useState<TgSourceRow | null>(null);
+  // r65 — رقم موضوع اختياري لاختبار ربطه في فحص الاستيراد
+  const [testThreadId, setTestThreadId] = React.useState("");
 
   // cascade data
   const [years, setYears] = React.useState<Year[]>([]);
@@ -2880,7 +2900,7 @@ function TgSourcesManager() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم ربط القناة — تأكد أن البوت مشرف فيها ليستورد المنشورات الجديدة");
+      toast.success("تم ربط القناة — تأكد أن البوت مشرف فيها، ثم اربط مواضيعها من زر # ليصنّف منشورات كل موضوع مباشرة");
       setOpen(false); setHandle(""); setTitle(""); setModuleId(""); setCohortId(""); setSemester("");
       fetchSources();
     } catch { toast.error("فشل الاتصال"); }
@@ -2984,12 +3004,14 @@ function TgSourcesManager() {
           action: "simulate",
           sourceId: testSource.id,
           ...(testText.trim() ? { text: testText.trim() } : {}),
+          ...(testThreadId.trim() && /^\d+$/.test(testThreadId.trim()) ? { threadId: testThreadId.trim() } : {}),
         }),
       });
       const data = await res.json();
       if (!res.ok) { setTestResult({ ok: false, message: data.error ?? "فشل الفحص" }); return; }
       setTestResult(data);
-      if (data.ok) toast.success("نجح الاستيراد التجريبي");
+      if (data.skipped) toast.info("بوابة المحتوى — لم يُضف المنشور (سلوك صحيح)");
+      else if (data.ok) toast.success("نجح الاستيراد التجريبي");
       else toast.error(data.message ?? "تعذّر الفحص");
       fetchSources();
     } catch { setTestResult({ ok: false, message: "فشل الاتصال" }); }
@@ -3011,6 +3033,7 @@ function TgSourcesManager() {
           <p className="text-xs text-muted-foreground">
             كل قناة مرتبطة بمقياس (أو فوج للمساحة المشتركة) — منشوراتها الجديدة تُستورد وتُصنّف تلقائياً.
             المصادر بلا مقياس (منتديات متعددة المواضيع مثل ENS) يربط البوت كل منشور فيها بالمقياس المطابق من عنوانه — والزر ✨ يربط المنشورات القديمة.
+            وزر <strong>#</strong> يربط مواضيع القناة (عام/سنة أولى/سنة ثانية/مقياس…) فيصبح تصنيف منشورات كل موضوع مباشراً دون تخمين.
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
@@ -3198,11 +3221,25 @@ function TgSourcesManager() {
                 />
                 <p className="text-xs text-muted-foreground">اكتب عيّنة مما تنشره عادة لترى كيف سيُصنّف (مثال: امتحان الفيزياء — الدورة العادية).</p>
               </div>
+              {/* r65: رقم الموضوع — يختبر ربط الموضوع المحدد (زر #) */}
+              <div className="space-y-1.5">
+                <Label>رقم الموضوع (اختياري — لاختبار ربط موضوع)</Label>
+                <Input
+                  value={testThreadId}
+                  onChange={(e) => setTestThreadId(e.target.value.replace(/[^\d]/g, ""))}
+                  placeholder="مثال: 12"
+                  dir="ltr"
+                  inputMode="numeric"
+                />
+                <p className="text-xs text-muted-foreground">
+                  إن ربطت مواضيع القناة (زر <strong>#</strong>) أدخل رقم الموضوع هنا ليتّم الفحص كمنشور داخل ذلك الموضوع — فيطبّق البوت ربطه مباشرة.
+                </p>
+              </div>
               {testResult ? (
-                <div className={`rounded-lg p-3 text-xs leading-relaxed border ${testResult.ok ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700 dark:text-emerald-300" : "bg-destructive/10 border-destructive/30 text-destructive"}`}>
+                <div className={`rounded-lg p-3 text-xs leading-relaxed border ${testResult.skipped ? "bg-amber-500/10 border-amber-600/30 text-amber-700 dark:text-amber-300" : testResult.ok ? "bg-emerald-500/10 border-emerald-600/30 text-emerald-700 dark:text-emerald-300" : "bg-destructive/10 border-destructive/30 text-destructive"}`}>
                   <p className="font-bold flex items-center gap-1.5">
                     {testResult.ok ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-                    {testResult.ok ? "نجح الاستيراد التجريبي" : "تعذّر الفحص"}
+                    {testResult.skipped ? "لم يُضَف — بوابة المحتوى الدراسي" : testResult.ok ? "نجح الاستيراد التجريبي" : "تعذّر الفحص"}
                   </p>
                   <p className="mt-1">{testResult.message}</p>
                   {testResult.item ? (
@@ -3237,6 +3274,9 @@ function TgSourcesManager() {
         </Dialog>
       )}
 
+      {/* r65 — روابط مواضيع القناة: الخريطة الإدارية للمنتديات */}
+      {topicsSource && <TgTopicsDialog source={topicsSource} onClose={() => setTopicsSource(null)} />}
+
       {loading ? (
         <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div>
       ) : sources.length === 0 ? (
@@ -3265,12 +3305,16 @@ function TgSourcesManager() {
                   </div>
                 </div>
                 <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setTopicsSource(s)}
+                    aria-label="روابط المواضيع" title="روابط المواضيع — اربط كل موضوع في القناة بسنة أو مقياس فيصنّف البوت منشوراته مباشرة">
+                    <Hash className="w-3.5 h-3.5 text-sky-600" />
+                  </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => runSmartLink(s)}
                     disabled={healRunning}
                     aria-label="الربط الذكي بالمقاييس" title="الربط الذكي — يربط منشورات هذا المصدر بلا مقياس بمقاييس التخصص (يعيد فحصها بالذكاء الاصطناعي)">
                     {healRunning && healSource?.id === s.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-violet-500" />}
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setTestSource(s); setTestText(""); setTestResult(null); }}
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setTestSource(s); setTestText(""); setTestResult(null); setTestThreadId(""); }}
                     aria-label="اختبار الاستيراد" title="اختبار الاستيراد — محاكاة منشور جديد">
                     <Zap className="w-3.5 h-3.5 text-amber-600" />
                   </Button>
@@ -3291,6 +3335,200 @@ function TgSourcesManager() {
         </div>
       )}
     </div>
+  );
+}
+
+// -----------------------------------------------------
+// r65 — روابط مواضيع القناة: الخريطة الإدارية للقنوات
+// متعددة المواضيع (عام/سنة أولى/سنة ثانية/مقياس محدد…)
+// -----------------------------------------------------
+function TgTopicsDialog({ source, onClose }: { source: TgSourceRow; onClose: () => void }) {
+  const { user } = useAuth();
+  const [topics, setTopics] = React.useState<TgTopicRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [tablesReady, setTablesReady] = React.useState(true);
+
+  // add form
+  const [handle, setHandle] = React.useState("");
+  const [title, setTitle] = React.useState("");
+  const [target, setTarget] = React.useState("module"); // module | year | general
+  const [moduleId, setModuleId] = React.useState("");
+  const [yearId, setYearId] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [deleting, setDeleting] = React.useState<number | null>(null);
+
+  // cascade data
+  const [years, setYears] = React.useState<Year[]>([]);
+  const [courses, setCourses] = React.useState<TgCourseRow[]>([]);
+
+  React.useEffect(() => {
+    fetch(`/api/onboarding/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
+      .then((r) => r.json()).then((data) => setYears(data.years ?? [])).catch(() => setYears([]));
+    fetch("/api/courses", { cache: "no-store" })
+      .then((r) => r.json()).then((data) => setCourses(data.courses ?? [])).catch(() => setCourses([]));
+  }, [user]);
+
+  const fetchTopics = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/telegram/topics?sourceId=${source.id}`, { cache: "no-store" });
+      const data = await res.json();
+      setTopics(data.topics ?? []);
+      if (data.tablesReady === false) setTablesReady(false);
+    } catch { setTopics([]); }
+    finally { setLoading(false); }
+  }, [source.id]);
+  React.useEffect(() => { fetchTopics(); }, [fetchTopics]);
+
+  const yearCourses = courses.filter((c) => !yearId || String(c.academicYearId) === yearId);
+
+  async function handleAdd() {
+    if (!handle.trim()) { toast.error("الصق رابط الموضوع أو رقمه"); return; }
+    if (target === "module" && !moduleId) { toast.error("اختر المقياس"); return; }
+    if (target === "year" && !yearId) { toast.error("اختر السنة"); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/telegram/topics", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceId: source.id,
+          handle: handle.trim(),
+          ...(title.trim() ? { titleAr: title.trim() } : {}),
+          ...(target === "module" ? { moduleId: parseInt(moduleId) } : {}),
+          ...(target === "year" ? { yearId: parseInt(yearId) } : {}),
+          ...(target === "general" ? { isGeneral: true } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشلت الإضافة"); return; }
+      toast.success("رُبط الموضوع — منشوراته القادمة ستُصنّف مباشرة");
+      setHandle(""); setTitle(""); setModuleId(""); setYearId("");
+      fetchTopics();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setSaving(false); }
+  }
+
+  async function handleDelete(id: number) {
+    setDeleting(id);
+    try {
+      const res = await fetch(`/api/telegram/topics?id=${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحذف"); return; }
+      toast.success("حُذف ربط الموضوع");
+      fetchTopics();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setDeleting(null); }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Hash className="w-5 h-5 text-sky-600" />
+            روابط المواضيع — {source.titleAr}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2 max-h-[60vh] overflow-y-auto scrollbar-thin">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            القنوات الكبيرة (مثل ENS) منظمة في مواضيع: عام، سنة أولى، سنة ثانية، مقياس محدد…
+            اربط كل موضوع بنطاقه مرة واحدة فيصنّف البوت منشوراته <strong>مباشرة دون تخمين</strong>:
+            موضوع مربوط بمقياس ← كل منشوراته تحته، وموضوع مربط بسنة ← الترشيح يقتصر على مقاييس تلك السنة،
+            والموضوع «عام» ← لا يُستورد أصلاً (ليس محتوى دراسياً).
+          </p>
+
+          {!tablesReady ? (
+            <div className="rounded-lg bg-amber-500/10 text-amber-700 text-xs p-3 leading-relaxed">
+              جدول المواضيع غير منشأ — نفّذ <span className="font-mono" dir="ltr">supabase_telegram_topics.sql</span> في محرر SQL داخل Supabase ثم أعد فتح هذه النافذة.
+            </div>
+          ) : loading ? (
+            <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div>
+          ) : topics.length === 0 ? (
+            <div className="text-center py-3 text-xs text-muted-foreground border border-dashed rounded-lg">
+              لا روابط مواضيع بعد — أضف أول رابط أدناه.
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {topics.map((t) => (
+                <div key={t.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 p-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-xs">{t.titleAr || `الموضوع #${t.tgThreadId}`}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {t.isGeneral ? "عام — لا يُستورد" : t.moduleName ?? (t.yearName ? `سنة: ${t.yearName}` : `#${t.tgThreadId}`)}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
+                      <span dir="ltr" className="font-mono">#{t.tgThreadId}</span>
+                      {t.link ? (
+                        <a href={t.link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-0.5">
+                          <ExternalLink className="w-3 h-3" /> فتح
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8 shrink-0"
+                    onClick={() => handleDelete(t.id)} disabled={deleting === t.id} aria-label="حذف ربط الموضوع">
+                    {deleting === t.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ربط موضوع جديد */}
+          <div className="rounded-lg border border-primary/25 bg-primary/5 p-3 space-y-2">
+            <p className="text-xs font-bold flex items-center gap-1"><Plus className="w-3.5 h-3.5" />ربط موضوع جديد</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label>رابط الموضوع أو رقمه</Label>
+                <Input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="t.me/القناة/12 أو 12" dir="ltr" />
+              </div>
+              <div className="space-y-1">
+                <Label>اسم الموضوع (اختياري)</Label>
+                <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: السنة الأولى" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>هدف الربط</Label>
+              <select value={target} onChange={(e) => setTarget(e.target.value)} className={selectCls} aria-label="هدف ربط الموضوع">
+                <option value="module">مقياس محدد (تصنيف حتمي)</option>
+                <option value="year">سنة كاملة (مقاييس السنة فقط)</option>
+                <option value="general">عام — ليس محتوى دراسياً (لا يُستورد)</option>
+              </select>
+            </div>
+            {target !== "general" && (
+              <div className="space-y-1">
+                <Label>السنة</Label>
+                <select value={yearId} onChange={(e) => { setYearId(e.target.value); setModuleId(""); }} className={selectCls} aria-label="سنة ربط الموضوع">
+                  <option value="">— بدون —</option>
+                  {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                </select>
+              </div>
+            )}
+            {target === "module" && (
+              <div className="space-y-1">
+                <Label>المقياس</Label>
+                <select value={moduleId} onChange={(e) => setModuleId(e.target.value)} className={selectCls} aria-label="مقياس ربط الموضوع">
+                  <option value="">— اختر المقياس —</option>
+                  {yearCourses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
+            <Button size="sm" onClick={handleAdd} disabled={saving} className="w-full">
+              {saving ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Plus className="w-4 h-4 ml-1" />}
+              ربط الموضوع
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              نصيحة: افتح الموضوع في تيليجرام وانسخ رابطه — الرقم الأخير في الرابط هو رقم الموضوع.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>إغلاق</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
