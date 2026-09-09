@@ -76,17 +76,35 @@ function sourceByChat(chatId: string): Record<string, unknown> | null {
 }
 
 // ---------------------------------------------------------------------------
-// Prepare: Alk channel source exists (classic ingest target), ENS does NOT
-// (the activation route will create it later in the test)
+// Prepare: Alk channel source exists (classic ingest target). ENS is
+// deliberately pre-registered as a WRONG type ("channel") with a junk
+// General-chatter item — the activation route must correct it to "group"
+// and clean the swallowed chatter (r63b).
 // ---------------------------------------------------------------------------
 db.run("DELETE FROM TelegramSource WHERE tgChannelId = ?", [String(ALK_CHAT)]);
 db.run("DELETE FROM TelegramSource WHERE tgChannelId = ?", [String(ENS_CHAT)]);
 db.run("DELETE FROM TelegramItem");
+db.run("DELETE FROM BotConfig");
 db.run(
   `INSERT INTO TelegramSource (tgChannelId, tgUsername, titleAr, sourceType, kind, specialtyId, isActive, lastUpdateId, createdAt, updatedAt)
    VALUES (?, 'alkgro', 'Alk', 'channel', 'public', 1, 1, 0, datetime('now'), datetime('now'))`,
   [String(ALK_CHAT)]
 );
+// ENS مسجّلة خطأً كـ«قناة» مع عنصر نقاش عام مبتلَع — يجب أن يصحّحه التفعيل
+const ensSrc = db.query("SELECT id FROM TelegramSource WHERE tgChannelId = ?").get(String(ENS_CHAT)) as { id: number } | undefined;
+const ensId =
+  (db.run(
+    `INSERT INTO TelegramSource (tgChannelId, tgUsername, titleAr, sourceType, kind, specialtyId, isActive, lastUpdateId, createdAt, updatedAt)
+     VALUES (?, 'pepstudents2', 'pep students', 'channel', 'public', 1, 1, 0, datetime('now'), datetime('now'))`,
+    [String(ENS_CHAT)]
+  ),
+  (db.query("SELECT id FROM TelegramSource WHERE tgChannelId = ?").get(String(ENS_CHAT)) as { id: number }).id);
+db.run(
+  `INSERT INTO TelegramItem (sourceId, tgMessageId, mediaGroupId, kind, titleAr, captionText, searchText, fileName, mimeType, fileId, fileUniqueId, sizeBytes, link, specialtyId, moduleId, itemType, origin, postedBy, cohortId, isHidden, isFeatured, aiClassified, postedAt, createdAt, updatedAt)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  [ensId, 141790, "", "text", "ختي هذا تطبيق ؟", "ختي هذا تطبيق ؟", "تطبيق", "", "", "", "", 0, "https://t.me/pepstudents2/141790", 1, null, "عام", "telegram", "La lune", null, 0, 0, 0, "2026-09-08 10:00:00", "2026-09-08 10:00:00", "2026-09-08 10:00:00"]
+);
+void ensSrc;
 
 const status = async (res: Response): Promise<{ code: number; body: Record<string, unknown> }> => {
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -205,8 +223,8 @@ console.log("\n=== C. activation route (registers ENS forum + refreshes Alk) ===
   const ens = sources.find((s) => String(s.chatId) === String(ENS_CHAT));
   const alk = sources.find((s) => String(s.chatId) === String(ALK_CHAT));
   const ghost = sources.find((s) => String(s.chatId) === "-100999999999");
-  check("ENS forum registered (created)", !!ens && ens.registered === true && ens.created === true && ens.sourceType === "group", JSON.stringify(ens));
-  check("Alk channel refreshed (not duplicated)", !!alk && alk.registered === true && alk.created === false, JSON.stringify(alk));
+  check("ENS forum corrected to group + chatter cleaned", !!ens && ens.registered === true && ens.created === false && ens.sourceType === "group" && ens.typeCorrected === true && Number(ens.cleanedChatter ?? 0) >= 1, JSON.stringify(ens));
+  check("Alk channel refreshed (not duplicated)", !!alk && alk.registered === true && alk.created === false && alk.sourceType === "channel", JSON.stringify(alk));
   check("nonexistent chat refused with error", !!ghost && ghost.registered === false && !!ghost.error, JSON.stringify(ghost));
   check("webhook set fails gracefully on localhost", act.body.webhook?.ok === false, JSON.stringify(act.body.webhook));
   check("token never echoed in response", !JSON.stringify(act.body).includes(REAL_TOKEN));

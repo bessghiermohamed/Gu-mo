@@ -69,7 +69,10 @@ interface SourceOutcome {
   sourceType: string;
   registered: boolean;
   created: boolean;
+  typeCorrected?: boolean;
+  cleanedChatter?: number;
   itemCount: number;
+  recentTitles?: string[];
   error?: string;
 }
 
@@ -103,25 +106,29 @@ async function registerSource(
   const kind = outcome.username ? "public" : "private";
   const specialtyId = chat.specialtyId ?? fallbackSpecialtyId;
 
-  // 2) upsert — لا نطال حقول التنقيح الإداري (module/cohort/year) إن وُجدت
+  // 2) upsert — لا نطال حقول التنقيح الإداري (module/cohort/year) إن وُجدت.
+  //    r63b: نوع المصدر يُصحّح دائماً من نوع المحادثة الفعلي — مجموعة منتدى
+  //    سُجّلت سابقاً كـ«قناة» تبتلع نقاش «العام»؛ تصحيحها إلى «مجموعة» يوقف ذلك.
   try {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       const { data: existing } = await supabase
         .from("telegram_sources")
-        .select("id")
+        .select("id, source_type")
         .eq("tg_channel_id", chatIdStr)
         .maybeSingle();
       if (existing) {
+        const prevType = String((existing as Record<string, unknown>).source_type ?? "channel");
         const { error } = await supabase
           .from("telegram_sources")
-          .update({ tg_username: outcome.username, title_ar: outcome.title, is_active: true })
+          .update({ tg_username: outcome.username, title_ar: outcome.title, source_type: outcome.sourceType, is_active: true })
           .eq("id", Number(existing.id));
         if (error) {
           outcome.error = error.message;
           return outcome;
         }
         outcome.registered = true;
+        outcome.typeCorrected = prevType !== outcome.sourceType;
       } else {
         const { error } = await supabase.from("telegram_sources").insert({
           tg_channel_id: chatIdStr,
@@ -144,9 +151,10 @@ async function registerSource(
       if (existing) {
         await db.telegramSource.update({
           where: { id: existing.id },
-          data: { tgUsername: outcome.username, titleAr: outcome.title, isActive: true },
+          data: { tgUsername: outcome.username, titleAr: outcome.title, sourceType: outcome.sourceType, isActive: true },
         });
         outcome.registered = true;
+        outcome.typeCorrected = existing.sourceType !== outcome.sourceType;
       } else {
         await db.telegramSource.create({
           data: {
@@ -167,10 +175,63 @@ async function registerSource(
     outcome.error = (e as Error).message;
     return outcome;
   }
+
+  // 3) r63b: إن صُحّح النوع إلى «مجموعة» فكان سابقاً «قناة» — نظّف نقاش
+  //    «العام» الذي ابتُلع خطأً (نص بلا وسائط وبرابط t.me بلا موضوع).
+  //    عناصر التنقيح ذات الوسائط أو داخل مواضيع تبقى كما هي.
+  if (outcome.typeCorrected && outcome.sourceType === "group") {
+    outcome.cleanedChatter = await cleanupGeneralChatter(chatIdStr);
+  }
   return outcome;
 }
 
-/** يعدّ منشورات المصادر المسجّلة — ملاحظة حية أن التحديثات وصلت فعلاً */
+/** يحذف عناصر نقاش العام المبتلعة خطأً — روابطها بلا جزء الموضوع */
+async function cleanupGeneralChatter(chatIdStr: string): Promise<number> {
+  try {
+    let removed = 0;
+    const isChatterLink = (link: string): boolean => {
+      // t.me/<user>/<msg> (بلا موضوع) أو t.me/c/<id>/<msg> — مقطع رقمي واحد بعد الجذر
+      const m = /^https:\/\/t\.me\/(?:c\/\d+|[^/]+)\/(\d+)$/.exec((link ?? "").trim());
+      return !!m;
+    };
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data: src } = await supabase
+        .from("telegram_sources")
+        .select("id")
+        .eq("tg_channel_id", chatIdStr)
+        .maybeSingle();
+      if (!src) return 0;
+      const { data: items } = await supabase
+        .from("telegram_items")
+        .select("id, kind, link")
+        .eq("source_id", Number(src.id))
+        .eq("kind", "text");
+      for (const it of items ?? []) {
+        const row = it as Record<string, unknown>;
+        if (isChatterLink(String(row.link ?? ""))) {
+          await supabase.from("telegram_items").delete().eq("id", Number(row.id));
+          removed += 1;
+        }
+      }
+    } else {
+      const src = await db.telegramSource.findUnique({ where: { tgChannelId: chatIdStr }, select: { id: true } });
+      if (!src) return 0;
+      const items = await db.telegramItem.findMany({ where: { sourceId: src.id, kind: "text" }, select: { id: true, link: true } });
+      for (const it of items) {
+        if (isChatterLink(it.link)) {
+          await db.telegramItem.delete({ where: { id: it.id } });
+          removed += 1;
+        }
+      }
+    }
+    return removed;
+  } catch {
+    return 0;
+  }
+}
+
+/** يعدّ منشورات المصادر المسجّلة ويقرأ أحدث عناوينها — ملاحظة حية أن التحديثات وصلت فعلاً */
 async function countSourceItems(sourceOutcomes: SourceOutcome[]): Promise<void> {
   for (const s of sourceOutcomes) {
     if (!s.registered) continue;
@@ -188,10 +249,26 @@ async function countSourceItems(sourceOutcomes: SourceOutcome[]): Promise<void> 
             .select("id", { count: "exact", head: true })
             .eq("source_id", Number(src.id));
           s.itemCount = count ?? 0;
+          const { data: recent } = await supabase
+            .from("telegram_items")
+            .select("title_ar")
+            .eq("source_id", Number(src.id))
+            .order("posted_at", { ascending: false })
+            .limit(3);
+          s.recentTitles = (recent ?? []).map((r) => String((r as Record<string, unknown>).title_ar ?? "")).filter(Boolean);
         }
       } else {
         const src = await db.telegramSource.findUnique({ where: { tgChannelId: s.chatId }, select: { id: true } });
-        if (src) s.itemCount = await db.telegramItem.count({ where: { sourceId: src.id } });
+        if (src) {
+          s.itemCount = await db.telegramItem.count({ where: { sourceId: src.id } });
+          const recent = await db.telegramItem.findMany({
+            where: { sourceId: src.id },
+            orderBy: { postedAt: "desc" },
+            select: { titleAr: true },
+            take: 3,
+          });
+          s.recentTitles = recent.map((r) => r.titleAr).filter(Boolean);
+        }
       }
     } catch {
       // عدّ استرشادي فقط
@@ -274,7 +351,9 @@ export async function POST(req: NextRequest) {
       sourceType: s.sourceType,
       registered: s.registered,
       created: s.created,
+      ...(s.typeCorrected ? { typeCorrected: true, cleanedChatter: s.cleanedChatter ?? 0 } : {}),
       itemCount: s.itemCount,
+      ...(s.recentTitles?.length ? { recentTitles: s.recentTitles } : {}),
       ...(s.error ? { error: s.error } : {}),
     })),
     message: hook.ok
