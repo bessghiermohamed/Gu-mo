@@ -55,7 +55,7 @@ async function main() {
     const shared = await (await fetch(`${APP}/api/telegram/items?mode=shared`, {
       headers: { cookie: `talib_session=${studentToken}` }, signal: AbortSignal.timeout(30000),
     })).json();
-    check("1.1 المساحة ترجع منشورات فوج 35", (shared.items ?? []).length === 2, `len=${(shared.items ?? []).length}`);
+    check("1.1 المساحة ترجع منشورات فوج 35 (كما هي الآن — المنشورات تتزايد فعلياً)", (shared.items ?? []).length >= 2 && (shared.items ?? []).every((i) => Number(i.cohortId) === 35), `len=${(shared.items ?? []).length}`);
     check(
       "1.2 myCohortName مميِّز بالسنة",
       /فوج 7/.test(String(shared.myCohortName ?? "")) && /السنة الثانية/.test(String(shared.myCohortName ?? "")),
@@ -78,7 +78,7 @@ async function main() {
       headers: { cookie: `talib_session=${ownerToken}` }, signal: AbortSignal.timeout(30000),
     })).json();
     const aItems = admin35.items ?? [];
-    check("3.1 فلتر المساحة (فوج 35) → منشوراته فقط", aItems.length === 2 && aItems.every((i) => Number(i.cohortId) === 35), `len=${aItems.length}`);
+    check("3.1 فلتر المساحة (فوج 35) → منشوراته فقط", aItems.length >= 2 && aItems.every((i) => Number(i.cohortId) === 35), `len=${aItems.length}`);
     const adminNone = await (await fetch(`${APP}/api/telegram/items?mode=admin&cohortId=none`, {
       headers: { cookie: `talib_session=${ownerToken}` }, signal: AbortSignal.timeout(30000),
     })).json();

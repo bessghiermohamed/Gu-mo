@@ -787,3 +787,16 @@ Stage Summary:
 - Deliverable: the cohort shared space is now UNAMBIGUOUS and verifiable — every cohort selector shows «فوج — السنة», the student's space card names its cohort, and the admin posts manager has a cohort filter + badges to preview any cohort's space; reports work on production TODAY (graceful reporter_id fallback, no SQL needed); «أدواتي» sits in the bottom bar for every role; private invite links get a clear actionable error.
 - Key decisions: zero-DDL everywhere (r68 pattern); cohortId admin filter is OWNER/rep-admin-scoped via the existing specialty gates; TOOLS nav item shown to all roles (not just students) with tightened tiles; r67-B2 test expectation updated for the intentional label change.
 - Owner actions: the existing Vogue-style binding («اسد الجبال والوديان» → فوج 7/سنة ثانية) can be corrected in one edit: القنوات والأربطة → pencil → pick the intended «فوج 7 — السنة الأولى» + «تطبيق التغيير على المنشورات المستوردة الموجودة» → the 2 posts move. Optionally run download/supabase_report_reporter.sql for id-routed report-resolution notifications (works without it via name matching).
+
+---
+Task ID: 38 (r69 — deployment verification)
+Agent: main (Super Z)
+Task: Verify the r69 push (488ab0c) on production.
+
+Work Log:
+- Vercel deployment live; scripts/r69-prod-verify.mjs 11/11 (temp sessions for student 75 + owner 24, both deleted): shared mode returns ALL 18 real cohort-35 posts with myCohortName «فوج 7 — السنة الثانية»; sources list carries the year-suffixed cohortName; admin cohortId=35 filter isolates the space's posts (and cohortId=none excludes them); the private-invite-link 400 is live; a REAL report POST landed, showed for the owner, and was deleted (the reporter_id-less table no longer blocks anything); «أدواتي» and «كل المساحات + المكتبة» present in served chunks.
+- NOTABLE: between the diagnosis probe and the verify run, the owner posted/edited 16 more channel posts (برنامج رياضيات/لسانيات/إسلامية… سنة ثانية) — every one landed in the cohort-35 space correctly. The pipeline works; the remaining fix is the one-owner-action binding correction documented in the report (edit dialog → pick «فوج 7 — السنة الأولى» + applyToItems).
+- Live bot webhook after all this: url=gu-mo.vercel.app/api/telegram/webhook, pending=0, no last_error.
+
+Stage Summary:
+- r69 fully deployed and verified on production (11/11). The owner's three requests are live: unambiguous cohort spaces with admin preview, working reports with zero SQL required, and أدواتي in the bottom bar for every role.
