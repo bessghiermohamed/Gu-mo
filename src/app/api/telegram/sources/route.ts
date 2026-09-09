@@ -308,14 +308,34 @@ export async function PATCH(req: NextRequest) {
     const targetError = await assertTargetsInSpecialty(source.specialtyId, newModuleId, newCohortId);
     if (targetError) return NextResponse.json({ error: targetError }, { status: 403 });
 
+    // r63: نقل المصدر لتخصص آخر (يستعمله المالك بعد التسجيل الذاتي إن كان التخصص الافتراضي غير دقيق)
+    let newSpecialtyId = source.specialtyId;
+    if (body.specialtyId !== undefined) {
+      if (user.role !== "OWNER") {
+        return NextResponse.json({ error: "نقل المصدر بين التخصصات متاح للمالك فقط" }, { status: 403 });
+      }
+      const sid = Number(body.specialtyId);
+      if (!sid || sid <= 0) return NextResponse.json({ error: "معرّف تخصص غير صالح" }, { status: 400 });
+      if (isVercel) {
+        const supabase = await createSupabaseServerClient();
+        const { data: spec } = await supabase.from("specialties").select("id").eq("id", sid).maybeSingle();
+        if (!spec) return NextResponse.json({ error: "التخصص غير موجود" }, { status: 400 });
+      } else {
+        const spec = await db.specialty.findUnique({ where: { id: sid }, select: { id: true } });
+        if (!spec) return NextResponse.json({ error: "التخصص غير موجود" }, { status: 400 });
+      }
+      newSpecialtyId = sid;
+    }
+
     const applyToItems = body.applyToItems === true;
     const mappingChanged =
-      (newModuleId !== source.moduleId) || (newCohortId !== source.cohortId);
+      (newModuleId !== source.moduleId) || (newCohortId !== source.cohortId) || (newSpecialtyId !== source.specialtyId);
 
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       const patch: Record<string, unknown> = {};
       if (body.titleAr !== undefined && String(body.titleAr).trim()) patch.title_ar = String(body.titleAr).trim();
+      if (body.specialtyId !== undefined) patch.specialty_id = newSpecialtyId;
       if (body.moduleId !== undefined) patch.module_id = newModuleId;
       if (body.cohortId !== undefined) patch.cohort_id = newCohortId;
       if (body.yearId !== undefined) patch.year_id = body.yearId != null && Number(body.yearId) > 0 ? Number(body.yearId) : null;
@@ -326,6 +346,7 @@ export async function PATCH(req: NextRequest) {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       if (applyToItems && mappingChanged) {
         const itemPatch: Record<string, unknown> = {};
+        if (body.specialtyId !== undefined) itemPatch.specialty_id = newSpecialtyId;
         if (body.moduleId !== undefined) itemPatch.module_id = newModuleId;
         if (body.cohortId !== undefined) itemPatch.cohort_id = newCohortId;
         if (Object.keys(itemPatch).length > 0) {
@@ -337,6 +358,7 @@ export async function PATCH(req: NextRequest) {
         where: { id },
         data: {
           ...(body.titleAr !== undefined && String(body.titleAr).trim() ? { titleAr: String(body.titleAr).trim() } : {}),
+          ...(body.specialtyId !== undefined ? { specialtyId: newSpecialtyId } : {}),
           ...(body.moduleId !== undefined ? { moduleId: newModuleId } : {}),
           ...(body.cohortId !== undefined ? { cohortId: newCohortId } : {}),
           ...(body.yearId !== undefined ? { yearId: body.yearId != null && Number(body.yearId) > 0 ? Number(body.yearId) : null } : {}),
@@ -348,6 +370,7 @@ export async function PATCH(req: NextRequest) {
         await db.telegramItem.updateMany({
           where: { sourceId: id },
           data: {
+            ...(body.specialtyId !== undefined ? { specialtyId: newSpecialtyId } : {}),
             ...(body.moduleId !== undefined ? { moduleId: newModuleId } : {}),
             ...(body.cohortId !== undefined ? { cohortId: newCohortId } : {}),
           },

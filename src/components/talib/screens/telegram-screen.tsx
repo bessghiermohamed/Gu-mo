@@ -17,7 +17,7 @@ import { motion } from "framer-motion";
 import {
   Send, Search, Loader2, FileText, ImageIcon, Video, Headphones, File,
   MessageSquare, Link as LinkIcon, Star, Plus, Trash2, Users, ExternalLink,
-  FolderOpen, Sparkles, Info, UserPlus, Settings,
+  FolderOpen, Sparkles, Info, UserPlus, Settings, Bot, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Accordion, AccordionItem, AccordionTrigger, AccordionContent,
+} from "@/components/ui/accordion";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -215,6 +218,9 @@ export function TalibTelegramScreen() {
         )}
       </div>
 
+      {/* r63 — بطاقة البوت الذكي: الطلبة يكتشفون رفيقهم في تيليجرام */}
+      <SmartBotCard />
+
       {/* الجداول غير منشأة — أقرب عطل للمشرفين مع الحل */}
       {!tablesReady && canManageRoles(user ?? null) && (
         <Card className="p-3 border-amber-500/40 bg-amber-500/10">
@@ -300,6 +306,52 @@ export function TalibTelegramScreen() {
 }
 
 // =====================================================
+// بطاقة البوت الذكي (r63) — «رفيقك في تيليجرام»
+// =====================================================
+function SmartBotCard() {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <Card className="p-4 bg-gradient-to-bl from-primary/10 via-card to-card border-primary/25">
+      <div className="flex items-start gap-3">
+        <div className="w-11 h-11 rounded-2xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
+          <Bot className="w-6 h-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="font-bold text-sm">البوت الذكي لطالب</h2>
+            <Badge variant="outline" className="text-xs border-primary/30 text-primary" dir="ltr">@gu_mo_bot</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+            رفيقك داخل تيليجرام: اسأله في الخاص فيجيب بذكاء، أرسل له ملفاً أو صورة فيخبرك بنوعه وعنوانه،
+            وفي مجموعات المنصة نادِه بذكر اسمه ليجيبك في الموضوع نفسه.
+          </p>
+          <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+            <Button asChild size="sm">
+              <a href="https://t.me/gu_mo_bot" target="_blank" rel="noopener noreferrer">
+                <Send className="w-3.5 h-3.5 ml-1" />
+                راسل البوت
+              </a>
+            </Button>
+            <Button variant="ghost" size="sm" className="text-xs h-8" onClick={() => setOpen((v) => !v)}>
+              {open ? <ChevronUp className="w-3.5 h-3.5 ml-1" /> : <ChevronDown className="w-3.5 h-3.5 ml-1" />}
+              كيف أستعمله؟
+            </Button>
+          </div>
+          {open && (
+            <div className="mt-2.5 rounded-lg bg-muted/50 border border-border/60 p-3 text-xs leading-relaxed space-y-1.5">
+              <p>• <strong>سؤال دراسي؟</strong> اكتبه مباشرة في الخاص — نفس عقل «المساعد الذكي» داخل التطبيق.</p>
+              <p>• <strong>ملف أو صورة؟</strong> أرسلها في الخاص فيصنّفها: محاضرة، TD، تمارين، امتحان… مع عنوان مقترح — لا يُحفظ منها شيء.</p>
+              <p>• <strong>داخل مجموعة طلابية مربوطة؟</strong> اكتب سؤالك مسبوقاً باسم البوت (مثال: <span dir="ltr" className="font-mono">@gu_mo_bot ما هو النحو؟</span>) أو ردّ على رسالة البوت.</p>
+              <p className="text-muted-foreground">خصوصيتك محفوظة: رسائلك الخاصة لا تدخل التطبيق ولا تُسجّل أبداً.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// =====================================================
 // Library list (channels content)
 // =====================================================
 function LibraryList({ items, loading, setup, canManage, onRefresh }: {
@@ -357,11 +409,72 @@ function LibraryList({ items, loading, setup, canManage, onRefresh }: {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">{items.length} عنصراً — مرتبة حسب الأحدث</p>
-      {groups.map(({ key, item, images }) => (
-        <ItemCard key={key} item={item} images={images} showCourse onRefresh={onRefresh} />
-      ))}
+      <p className="text-xs text-muted-foreground">{items.length} عنصراً — مرتبة حسب الأحدث، مجمّعة حسب المقياس/القناة</p>
+      <LibraryGroups groups={groups} onRefresh={onRefresh} />
     </div>
+  );
+}
+
+/**
+ * r63 — تجميع المكتبة في أقسام قابلة للطي (Accordion): المقياس إن وُجد،
+ * وإلا اسم القناة/المجموعة المصدر. أول قسم (الأحدث نشاطاً) مفتوح افتراضياً،
+ * والبقية مطوية — قائمة طويلة تصبح قابلة للتصفح بلمسة واحدة.
+ */
+function LibraryGroups({ groups, onRefresh }: {
+  groups: Array<{ key: string; item: TgItem; images: TgItem[] }>;
+  onRefresh: () => void;
+}) {
+  // تجميع: مفتاح القسم = اسم المقياس أو المصدر، مع الحفاظ على ترتيب الأحدث
+  const sections = React.useMemo(() => {
+    const map = new Map<string, { label: string; entries: Array<{ key: string; item: TgItem; images: TgItem[] }> }>();
+    for (const entry of groups) {
+      const label = entry.item.moduleName?.trim() || entry.item.sourceTitle?.trim() || "متنوع";
+      if (!map.has(label)) map.set(label, { label, entries: [] });
+      map.get(label)!.entries.push(entry);
+    }
+    return Array.from(map.values());
+  }, [groups]);
+
+  const [openSections, setOpenSections] = React.useState<string[]>(() =>
+    sections.length > 0 ? [sections[0].label] : []
+  );
+  // حافظ على فتح أول قسم عند تغيّر النتائج إن لم يفتح المستخدم شيئاً بعد
+  const touchedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!touchedRef.current && sections.length > 0) {
+      setOpenSections([sections[0].label]);
+    }
+  }, [sections]);
+
+  return (
+    <Card className="p-2">
+      <Accordion
+        type="multiple"
+        value={openSections}
+        onValueChange={(v) => {
+          touchedRef.current = true;
+          setOpenSections(v);
+        }}
+      >
+        {sections.map((section) => (
+          <AccordionItem key={section.label} value={section.label} className="border-border/60">
+            <AccordionTrigger className="py-3 hover:no-underline">
+              <div className="flex items-center gap-2 min-w-0 text-right">
+                <span className="font-bold text-sm truncate">{section.label}</span>
+                <Badge variant="secondary" className="text-xs shrink-0">{section.entries.length}</Badge>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="pb-3">
+              <div className="space-y-3">
+                {section.entries.map(({ key, item, images }) => (
+                  <ItemCard key={key} item={item} images={images} showCourse onRefresh={onRefresh} />
+                ))}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
+    </Card>
   );
 }
 
@@ -379,6 +492,9 @@ function ItemCard({ item, images, showCourse, currentUserName, onRefresh }: {
   const [deleting, setDeleting] = React.useState(false);
   const [imgError, setImgError] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  // r63 — نص المنشور قابل للتوسيع بدل الاقتصاص الدائم عند سطرين
+  const [captionExpanded, setCaptionExpanded] = React.useState(false);
+  const captionLong = (item.captionText ?? "").length > 140;
 
   async function handleDeleteOwn() {
     if (!confirmDelete) return;
@@ -438,7 +554,26 @@ function ItemCard({ item, images, showCourse, currentUserName, onRefresh }: {
               )}
             </div>
             {item.captionText && (
-              <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2 leading-relaxed">{item.captionText}</p>
+              <div className="mt-1.5">
+                <p
+                  className={cn(
+                    "text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap",
+                    !captionExpanded && captionLong && "line-clamp-2"
+                  )}
+                >
+                  {item.captionText}
+                </p>
+                {captionLong && (
+                  <button
+                    type="button"
+                    onClick={() => setCaptionExpanded((v) => !v)}
+                    className="text-xs text-primary hover:underline mt-0.5"
+                    aria-expanded={captionExpanded}
+                  >
+                    {captionExpanded ? "أقل" : "المزيد"}
+                  </button>
+                )}
+              </div>
             )}
             <p className="text-xs text-muted-foreground mt-2 flex items-center gap-2 flex-wrap">
               {item.sourceTitle && <span>{item.sourceTitle}</span>}

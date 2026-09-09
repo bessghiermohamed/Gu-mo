@@ -21,6 +21,7 @@ import {
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from "@/components/ui/accordion";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
@@ -2361,7 +2362,30 @@ function TelegramManager() {
   return (
     <div className="space-y-4">
       <TgStatusCard />
-      <TgBotSwapCard />
+      {/* r63 — بطاقة تبديل البوت مطوية افتراضياً: التفعيل الذاتي غطّى الحاجة
+          اليومية، وتبقى لمن يريد مستقبلاً لصق بوت آخر بلا Vercel */}
+      <Collapsible>
+        <Card className="overflow-hidden">
+          <CollapsibleTrigger className="w-full text-right p-4 flex items-center justify-between gap-2 hover:bg-muted/40 transition-colors">
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary shrink-0" />
+                تغيير البوت — بدون Vercel
+                <Badge variant="secondary" className="text-[10px] shrink-0">متقدّم</Badge>
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1 text-right leading-relaxed">
+                للتبديل المستقبلي إلى بوت آخر بلصق توكنه — لا حاجة إليه الآن: بوت المنصة مفعّل ذاتياً
+              </p>
+            </div>
+            <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 transition-transform [[data-state=open]>&]:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="px-4 pb-4">
+              <TgBotSwapCard />
+            </div>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
       <Card className="p-4">
         <Tabs defaultValue="sources">
           <TabsList className="grid w-full grid-cols-2">
@@ -2409,7 +2433,7 @@ function tgNextStep(s: TgStatus | null): string {
   if (!s.webhookSecretConfigured) return "٢) أضف TELEGRAM_WEBHOOK_SECRET (أي نص عشوائي طويل) في Vercel ثم Redeploy — أو استعمل بطاقة «تغيير البوت» بالأسفل (تولّد سرّها تلقائياً)";
   if (!s.tablesReady) return "٣) نفّذ ملف download/supabase_telegram.sql في محرر SQL داخل Supabase";
   if (!s.webhook?.url) return "٤) اضغط «تفعيل الربط» بالأسفل";
-  return "كل شيء مضبوط — انشر منشوراً جديداً في قناة مربوطة، أو جرّب «اختبار الاستيراد» من قائمة القنوات. البوت يجيب الآن أيضاً في المحادثات الخاصة";
+  return "كل شيء مضبوط — انشر منشوراً جديداً في قناة مربوطة، أو جرّب «اختبار الاستيراد» من قائمة القنوات. البوت يجيب في المحادثات الخاصة، وفي المجموعات عند مناداته باسمه (@gu_mo_bot)، ويصنّف الملفات التي تُرسل له";
 }
 
 const GEMINI_SAMPLE_UI = "امتحان محلول في التحليل الرياضي — السنة الأولى جامعي";
@@ -2568,19 +2592,30 @@ function TgStatusCard() {
         </div>
       ) : null}
 
-      <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-lg leading-relaxed space-y-1">
-        <p className="font-bold text-foreground/80">خطوات الربط الكاملة (مرة واحدة):</p>
-        <p>١. في تيليجرام: كلم <span dir="ltr" className="font-mono">@BotFather</span> ← <span dir="ltr" className="font-mono">/newbot</span> ← انسخ التوكن (شكله <span dir="ltr" className="font-mono">123456:ABC-xyz…</span>).</p>
-        <p>٢. <strong>الأسرع (بدون Vercel):</strong> الصق التوكن في بطاقة «تغيير البوت» بالأسفل ← يُفعّل الربط فوراً ويتولى السـرّ تلقائياً — ثم أضف البوت مشرفاً في قنواتك. (تتطلب هذه الطريقة جدول <span dir="ltr" className="font-mono">bot_config</span> ومفتاح الخدمة — البطاقة تخبرك إن نقص شيء.)</p>
-        <p>أو الطريق الكلاسيكي: في <a href="https://vercel.com/bessghiermohamed/Gu-mo/settings/environment-variables" target="_blank" rel="noreferrer" className="text-primary underline inline-flex items-center gap-0.5">Vercel ← Environment Variables <ExternalLink className="w-3 h-3" /></a> أضف المتغيرات الثلاثة:
-          <span dir="ltr" className="font-mono">TELEGRAM_BOT_TOKEN</span> و <span dir="ltr" className="font-mono">TELEGRAM_WEBHOOK_SECRET</span> (أي نص عشوائي طويل) و <span dir="ltr" className="font-mono">GEMINI_API_KEY</span> (اختياري — للتصنيف الذكي وقراءة نص الصور).
-        </p>
-        <p>٣. مهم (الطريق الكلاسيكي فقط): بعد إضافة أي متغير ← Vercel ← Deployments ← آخر نشر ← <strong>Redeploy</strong> حتى يُحمّل.</p>
-        <p>٤. في <strong>Supabase</strong> ← SQL Editor ← نفّذ محتوى ملفي <span dir="ltr" className="font-mono">download/supabase_telegram.sql</span> و <span dir="ltr" className="font-mono">download/supabase_bot_config.sql</span> (من مستودع GitHub).</p>
-        <p>٥. أضف البوت «مشرفاً» في كل قناة تريد استيرادها (تكفي صلاحية قراءة المنشورات).</p>
-        <p>٦. هنا: «ربط قناة» ← أدخل <span dir="ltr" className="font-mono">@اسم_القناة</span> ← «تفعيل الربط» ← «اختبار الاستيراد». ويمكن لأي طالب مراسلة البوت خاصاً: يجيب عن أسئلته ويصنّف الملفات التي يرسلها.</p>
-        <p className="text-xs pt-1 border-t border-border/60">تُستورد المنشورات <strong>الجديدة فقط</strong> بعد الربط (اتفاقنا) — والمنشورات القديمة تبقى في تيليجرام كمرجع. الروابط المحفوظة تفتح الأصل مباشرة.</p>
-      </div>
+      {/* r63 — خطوات الربط الكاملة: مطوية افتراضياً (التسجيل الذاتي للبوت غطّى الحاجة)،
+          وتُفتح عند الحاجة فقط — المحتوى الطويل لم يعد يزاحم الواجهة */}
+      <Collapsible>
+        <CollapsibleTrigger className="w-full text-right rounded-lg bg-muted/30 p-3 flex items-center justify-between gap-2 text-xs font-bold text-foreground/80 hover:bg-muted/50 transition-colors">
+          <span>خطوات الربط الكاملة (مرجع — مرة واحدة)</span>
+          <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 transition-transform [[data-state=open]>&]:rotate-180" />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-b-lg leading-relaxed space-y-1 border border-t-0 border-border/60">
+            <p className="font-bold text-foreground/80">الوضع الجديد (الجولة 63) — بلا خطوات:</p>
+            <p>بوت المنصة <span dir="ltr" className="font-mono">@gu_mo_bot</span> مفعّل <strong>تسجيلاً ذاتياً</strong>: التوكن يسافر داخل رابط الويبهوك نفسه ولا يحتاج Vercel ولا جدولاً ولا لوحات — أضِفه فقط «مشرفاً» في أي قناة/مجموعة جديدة ثم ربطها من تبويب «القنوات والأربطة». وهو يجيب الآن أيضاً داخل المجموعات عند مناداته باسمه.</p>
+            <p className="pt-1 font-bold text-foreground/80">الطريق الكلاسيكي (إن فضّلته):</p>
+            <p>١. في تيليجرام: كلم <span dir="ltr" className="font-mono">@BotFather</span> ← <span dir="ltr" className="font-mono">/newbot</span> ← انسخ التوكن (شكله <span dir="ltr" className="font-mono">123456:ABC-xyz…</span>).</p>
+            <p>٢. في <a href="https://vercel.com/bessghiermohamed/Gu-mo/settings/environment-variables" target="_blank" rel="noreferrer" className="text-primary underline inline-flex items-center gap-0.5">Vercel ← Environment Variables <ExternalLink className="w-3 h-3" /></a> أضف المتغيرات الثلاثة:
+              <span dir="ltr" className="font-mono">TELEGRAM_BOT_TOKEN</span> و <span dir="ltr" className="font-mono">TELEGRAM_WEBHOOK_SECRET</span> (أي نص عشوائي طويل) و <span dir="ltr" className="font-mono">GEMINI_API_KEY</span> (اختياري — للتصنيف الذكي وقراءة نص الصور).
+            </p>
+            <p>٣. بعد إضافة أي متغير ← Vercel ← Deployments ← آخر نشر ← <strong>Redeploy</strong> حتى يُحمّل.</p>
+            <p>٤. في <strong>Supabase</strong> ← SQL Editor ← نفّذ محتوى ملف <span dir="ltr" className="font-mono">download/supabase_telegram.sql</span> (وملف <span dir="ltr" className="font-mono">download/supabase_bot_config.sql</span> إن استعملت بطاقة التبديل أعلاه).</p>
+            <p>٥. أضف البوت «مشرفاً» في كل قناة تريد استيرادها (تكفي صلاحية قراءة المنشورات).</p>
+            <p>٦. هنا: «ربط قناة» ← أدخل <span dir="ltr" className="font-mono">@اسم_القناة</span> ← «تفعيل الربط» ← «اختبار الاستيراد». ويمكن لأي طالب مراسلة البوت خاصاً: يجيب عن أسئلته ويصنّف الملفات التي يرسلها.</p>
+            <p className="text-xs pt-1 border-t border-border/60">تُستورد المنشورات <strong>الجديدة فقط</strong> بعد الربط (اتفاقنا) — والمنشورات القديمة تبقى في تيليجرام كمرجع. الروابط المحفوظة تفتح الأصل مباشرة.</p>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </Card>
   );
 }
@@ -2684,7 +2719,7 @@ function TgBotSwapCard() {
   const showServiceKeyHint = !!cfg?.isVercel && !cfg.serviceKeyConfigured;
 
   return (
-    <Card className="p-4 space-y-3">
+    <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
       <div className="flex items-start justify-between gap-2">
         <div>
           <h3 className="font-bold text-sm flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />تغيير البوت — بدون Vercel</h3>
@@ -2741,7 +2776,7 @@ function TgBotSwapCard() {
       <p className="text-xs text-muted-foreground leading-relaxed">
         يُتحقق من التوكن لدى تيليجرام قبل الحفظ، ويُخزَّن في جدول خاص لا يمكن قراءته من المتصفح (مفتاح الخدمة فقط) — لذلك لن يظهر التوكن مرة أخرى بعد الحفظ. بعد التبديل أضف البوت «مشرفاً» في كل قناة مربوطة، واخبر الطلبة بمراسلته خاصاً: يجيب عن أسئلتهم ويصنّف الملفات التي يرسلونها.
       </p>
-    </Card>
+    </div>
   );
 }
 

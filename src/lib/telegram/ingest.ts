@@ -27,7 +27,7 @@ import { classifyItem, isGeminiConfigured } from "./classify";
 import { buildSearchText, firstLineTitle, fileNameToTitle } from "./normalize";
 import { resolveBotCredentials } from "./bot-config";
 import { telegramApi, getMeWith, activateWebhookWith, downloadFileBase64With } from "./bot-api";
-import { handlePrivateMessage, type PrivateChatOutcome } from "./bot-chat";
+import { handlePrivateMessage, handleGroupMessage, isBotAddressed, type PrivateChatOutcome, type GroupChatOutcome } from "./bot-chat";
 import type { TgItemKind, TgMessage, TgUpdate, TgChatInfo } from "./types";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -155,12 +155,43 @@ export function parseMessageContent(msg: TgMessage): ParsedContent {
   return base; // رسالة خدمة (انضمام عضو…) — تُتجاهل
 }
 
-/** يبني رابط t.me المباشر للمنشور الأصلي */
-export function buildDeepLink(source: { tgChannelId: string; tgUsername: string }, messageId: number): string {
+/** يبني رابط t.me المباشر للمنشور الأصلي — وفي المنتديات يشمل الموضوع (topic) */
+export function buildDeepLink(
+  source: { tgChannelId: string; tgUsername: string },
+  messageId: number,
+  threadId?: number
+): string {
   const uname = source.tgUsername.replace(/^@/, "").trim();
-  if (uname) return `https://t.me/${uname}/${messageId}`;
+  const topic = threadId && threadId > 0 ? `/${threadId}` : "";
+  if (uname) return `https://t.me/${uname}${topic}/${messageId}`;
   const raw = source.tgChannelId.replace(/^-100/, "");
-  return `https://t.me/c/${raw}/${messageId}`;
+  return `https://t.me/c/${raw}${topic}/${messageId}`;
+}
+
+// ------------------------------------------------------------
+// الجولة 63 — وعي المنتديات (topics): أسماء المواضيع من أحداث الإنشاء،
+// بذاكرة مثيل (best-effort) لأن خادم Vercel بلا حالة. الاسم يحسّن سياق
+// التصنيف فقط ولا يُخزَّن أبداً وحده.
+// ------------------------------------------------------------
+const topicNames = new Map<string, string>(); // "<chatId>:<threadId>" → name
+
+function rememberTopicName(msg: TgMessage): void {
+  const chatId = String(msg.chat?.id ?? "");
+  const threadId = msg.message_thread_id ?? msg.message_id;
+  const name = msg.forum_topic_created?.name ?? msg.forum_topic_edited?.name ?? "";
+  if (chatId && name) topicNames.set(`${chatId}:${threadId}`, name.trim());
+}
+
+function topicNameFor(chatId: string, threadId: number | undefined): string {
+  if (!threadId) return "";
+  return topicNames.get(`${chatId}:${threadId}`) ?? "";
+}
+
+/** هل هذه الرسالة جديرة بالاستيراد من مصدر «مجموعة/منتدى»؟
+ * النقاش العام (General) هراء بالتعريف — لا نستورد منه إلا ما يحمل ملفاً/وسائط. */
+function isGroupContentWorthy(msg: TgMessage, hasMedia: boolean): boolean {
+  if (hasMedia) return true; // ملف/صورة/فيديو في أي مكان = محتوى
+  return !!msg.is_topic_message; // نص داخل موضوع (غير العام) = محتوى بالعادة
 }
 
 /** يقبل @name أو t.me/name أو t.me/c/123 أو معرّفاً رقمياً خام */
@@ -328,13 +359,35 @@ async function getModuleName(moduleId: number | null): Promise<string> {
   }
 }
 
-/** حالة معالجة تحديث تيليجرام — تشمل الآن مخرجات عقل البوت للمحادثات الخاصة */
-export type UpdateStatus = "inserted" | "updated" | "ignored" | PrivateChatOutcome;
+/** حالة معالجة تحديث تيليجرام — تشمل الآن مخرجات عقل البوت (خاص + مجموعات) */
+export type UpdateStatus = "inserted" | "updated" | "ignored" | PrivateChatOutcome | GroupChatOutcome;
+
+/** اسم مستخدم البوت الفعّال — للكشف عن المنشن داخل المجموعات (تخزين مؤقت) */
+let cachedBotUsername: { value: string; at: number } | null = null;
+async function activeBotUsername(token: string): Promise<string> {
+  const now = Date.now();
+  if (cachedBotUsername && now - cachedBotUsername.at < 10 * 60_000 && cachedBotUsername.value) {
+    return cachedBotUsername.value;
+  }
+  let username = "";
+  if (token) {
+    const me = await getMeWith(token);
+    username = me?.username ?? "";
+  }
+  if (username) cachedBotUsername = { value: username, at: now };
+  return username;
+}
+
+/** التوكن المستعمل للردود في هذا التحديث: الصريح (?b=) أو الفعّال (قاعدة/بيئة) */
+async function replyTokenFor(explicitToken?: string): Promise<string> {
+  if (explicitToken) return explicitToken;
+  return (await resolveBotCredentials()).token;
+}
 
 /**
  * يعالج تحديثاً واحداً من تيليجرام. يعيد الحالة دائماً ولا يرمي استثناءً.
  */
-export async function processTelegramUpdate(update: TgUpdate): Promise<UpdateStatus> {
+export async function processTelegramUpdate(update: TgUpdate, explicitToken?: string): Promise<UpdateStatus> {
   try {
     const msg = update.channel_post ?? update.message ?? update.edited_channel_post ?? update.edited_message;
     if (!msg?.chat?.id) return "ignored";
@@ -345,8 +398,23 @@ export async function processTelegramUpdate(update: TgUpdate): Promise<UpdateSta
     // r62: محادثة خاصة مع البوت ← العقل (أوامر/أجوبة ذكية/ترتيب الملفات) —
     // ليست مصدر استيراد، ولا يُخزَّن منها شيء في telegram_items أبداً.
     if (msg.chat.type === "private") {
-      const { token } = await resolveBotCredentials();
+      const token = await replyTokenFor(explicitToken);
       return await handlePrivateMessage(msg, token);
+    }
+
+    // r63: تذكّر أسماء مواضيع المنتدى من أحداث الإنشاء (سياق التصنيف فقط)
+    rememberTopicName(msg);
+
+    // r63: المجموعات/المنتديات — إذا خوطب البوت صراحة (منشن/ردّ/أمر) أجاب
+    // بعقله داخل الموضوع نفسه؛ وإلا يبقى صامتاً كلياً (لا سبام في النقاش).
+    if (msg.chat.type === "group" || msg.chat.type === "supergroup") {
+      const token = await replyTokenFor(explicitToken);
+      if (token) {
+        const botUsername = await activeBotUsername(token);
+        if (botUsername && isBotAddressed(msg, botUsername)) {
+          return await handleGroupMessage(msg, token, botUsername);
+        }
+      }
     }
 
     const source = await loadSourceByChatId(String(msg.chat.id));
@@ -355,23 +423,35 @@ export async function processTelegramUpdate(update: TgUpdate): Promise<UpdateSta
     const content = parseMessageContent(msg);
     if (!content.kind) return "ignored";
 
-    const link = buildDeepLink(source, msg.message_id);
+    // r63: مصادر المجموعات/المنتديات — نقاش «العام» لا يُستورد (إلا وسائط)،
+    // أما مواضيع المنتدى فمحتوى بالعادة (مصادر، دروس، امتحانات…)
+    const hasMedia = !!(msg.photo?.length || msg.document || msg.video || msg.audio);
+    if (source.sourceType === "group" && !isGroupContentWorthy(msg, hasMedia)) {
+      return "ignored";
+    }
+
+    // تنزيل الصور يحتاج توكن بوت — الصريح (?b=) أولاً ثم الفعّال
+    const downloadToken = explicitToken || (await resolveBotCredentials()).token;
+
+    const threadId = msg.message_thread_id;
+    const link = buildDeepLink(source, msg.message_id, msg.is_topic_message ? threadId : undefined);
     const postedAt = new Date(msg.date * 1000).toISOString();
     const postedBy = msg.from ? (msg.from.first_name || msg.from.username || "") : "";
 
     // --- التصنيف (Gemini ثم fallback محلي) ---
     const wantsVision =
-      content.kind === "image" && !!content.fileId && isGeminiConfigured() && (await isBotConfigured()) && content.sizeBytes <= MAX_VISION_BYTES;
+      content.kind === "image" && !!content.fileId && isGeminiConfigured() && !!downloadToken && content.sizeBytes <= MAX_VISION_BYTES;
     let imageBase64: string | undefined;
     let imageMime: string | undefined;
     if (wantsVision) {
-      const dl = await downloadFileBase64(content.fileId);
+      const dl = await downloadFileBase64With(downloadToken, content.fileId);
       if (dl) {
         imageBase64 = dl.base64;
         imageMime = dl.mime;
       }
     }
-    const context = `القناة: ${source.titleAr}${source.moduleId ? ` — المقياس: ${await getModuleName(source.moduleId)}` : ""}`;
+    const topicName = topicNameFor(String(msg.chat.id), threadId);
+    const context = `القناة: ${source.titleAr}${source.moduleId ? ` — المقياس: ${await getModuleName(source.moduleId)}` : ""}${topicName ? ` — الموضوع (Topic): ${topicName}` : ""}${msg.is_topic_message ? " — منشور داخل موضوع منتدى" : ""}`;
     const classifyInput = {
       kind: content.kind, caption: content.caption, fileName: content.fileName,
       ...(imageBase64 ? { imageBase64, imageMimeType: imageMime } : {}),

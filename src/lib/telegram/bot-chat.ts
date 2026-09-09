@@ -23,7 +23,7 @@
 
 import { classifyItem } from "./classify";
 import { isAiConfigured, chatComplete, type ChatMessage } from "@/lib/ai/providers";
-import { sendMessageText, sendTyping, downloadFileBase64With } from "./bot-api";
+import { sendMessageText, sendMessageReply, sendTyping, downloadFileBase64With } from "./bot-api";
 import type { TgMessage } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -199,6 +199,124 @@ function kindFromFile(mime: string, fileName: string): string {
   if (m.includes("presentation") || /\.(ppt|pptx|odp)$/.test(name)) return "ppt";
   if (m.includes("word") || m.includes("document") || /\.(doc|docx|odt|rtf|txt)$/.test(name)) return "doc";
   return "other";
+}
+
+// ---------------------------------------------------------------------------
+// Group/forum brain (round 63) — «البوت الذكي داخل مجموعة ENS»
+//
+// المجموعات والمنتديات صاخبة: البوت لا يتدخل إلا إذا خُوطب صراحة —
+//   • منشن صريح (@gu_mo_bot …)
+//   • ردّ على رسالة كتبها البوت نفسه
+//   • أمر /ask أو /اسأل
+// وبخلاف ذلك يبقى صامتاً كلياً (لا سبام، لا استنزاف). الردّ يسقط في
+// الموضوع (topic) نفسه الذي طُرح فيه السؤال، ويحترم نفس حدود الاستخدام
+// والمهلات الخاصة — بلا أي تخزين، تماماً كالمحادثات الخاصة.
+// ---------------------------------------------------------------------------
+
+const GROUP_SYSTEM_ROLE = [
+  "أنت «بوت طالب (Talib)» داخل مجموعة طلابية جامعية جزائرية على تيليجرام، وخوطبتَ صراحة.",
+  "أجب بالعربية الفصحى المبسطة بإيجاز حاسم: جملة أو جملتان إلى ثلاث كحد أقصى — النقاش داخل المجموعات سريع ولا يحتمل المقالات.",
+  "لا مقدمات ولا تحيات ولا إيموجي: ادخل في صلب الجواب مباشرة. وإن احتاج السؤال تفصيلاً أطول فأجب بالخلاصة ثم اقترح مراسلتك خاصاً للتفصيل.",
+  "واجهة تيليجرام لا تعرض LaTeX: اكتب الرياضيات نصاً عادياً واضحاً (مثل F = m × a).",
+  "إن لم تعرف الجواب بدقة فقل ذلك بصراحة ولا تخترع معلومات.",
+].join(" ");
+
+const GROUP_PING_BACK =
+  "أنا هنا — اكتب سؤالك بجوار اسمي وسأجيبك فوراً، أو راسلني خاصاً لتفصيل أوسع.";
+
+/** هل خوطب البوت في هذه الرسالة الجماعية؟ (منشن / ردّ على البوت / أمر) */
+export function isBotAddressed(msg: TgMessage, botUsername: string): boolean {
+  const rawText = (msg.text ?? msg.caption ?? "").trim();
+  const uname = (botUsername || "").replace(/^@/, "").toLowerCase();
+  if (!rawText) return false;
+
+  // 1) ردّ على رسالة كتبها البوت نفسه
+  if (msg.reply_to_message?.from?.is_bot) return true;
+
+  // 2) أمر موجَّه للبوت
+  const firstWord = rawText.split(/\s+/, 1)[0]?.replace(/@.+$/, "") ?? "";
+  if (firstWord === "/ask" || firstWord === "/اسأل" || firstWord === "/سؤال") return true;
+
+  // 3) منشن صريح في النص أو في كيانات الرسالة
+  if (uname && rawText.toLowerCase().includes(`@${uname}`)) return true;
+  if (msg.entities?.some((e) => e.type === "mention")) {
+    // كيان mention موجود — تأكد أنه يخصنا لا بوتاً آخر
+    if (uname) {
+      for (const e of msg.entities) {
+        if (e.type !== "mention" || e.offset == null || e.length == null) continue;
+        const mentioned = rawText.substr(e.offset, e.length).toLowerCase();
+        if (mentioned === `@${uname}`) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** يستخرج نص السؤال بعد إزالة المنشن وأوامر الاستدعاء */
+function groupQuestionText(msg: TgMessage, botUsername: string): string {
+  const uname = (botUsername || "").replace(/^@/, "");
+  let text = (msg.text ?? msg.caption ?? "").trim();
+  if (uname) text = text.replace(new RegExp(`@${uname}\\b`, "gi"), "").trim();
+  text = text.replace(/^\/(ask|اسأل|سؤال)(@\S+)?\s*/i, "").trim();
+  return text.slice(0, 6000);
+}
+
+export type GroupChatOutcome = "handled-group-ai" | "handled-group-ping" | "group-rate-limited" | "ignored";
+
+/**
+ * يعالج رسالة جماعية خوطب فيها البوت. يُستدعى فقط إذا كان isBotAddressed
+ * صحيحاً. لا يرمي استثناءً أبداً ولا يخزّن شيئاً.
+ */
+export async function handleGroupMessage(
+  msg: TgMessage,
+  token: string,
+  botUsername: string
+): Promise<GroupChatOutcome> {
+  try {
+    const chatId = msg.chat.id;
+    const threadId = msg.message_thread_id ?? 0;
+    const replyTo = msg.message_id;
+    const question = groupQuestionText(msg, botUsername);
+
+    // حدود الاستخدام نفسها الخاصة — الفرد الذي يستنزف في المجموعة يُوقف مثله تماماً
+    if (msg.from?.id) {
+      const limited = rateLimitCheck(msg.from.id);
+      if (limited !== null) {
+        if (limited) {
+          await sendMessageReply(token, chatId, limited, { replyToMessageId: replyTo, messageThreadId: threadId });
+        }
+        return "group-rate-limited";
+      }
+    }
+
+    // منشن مجرد بلا سؤال — ردّ قصير يدعو لصياغة السؤال
+    if (!question) {
+      await sendMessageReply(token, chatId, GROUP_PING_BACK, { replyToMessageId: replyTo, messageThreadId: threadId });
+      return "handled-group-ping";
+    }
+
+    if (!isAiConfigured()) {
+      await sendMessageReply(token, chatId, AI_FALLBACK_TEXT, { replyToMessageId: replyTo, messageThreadId: threadId });
+      return "ignored";
+    }
+
+    await sendTyping(token, chatId);
+    // ذاكرة المجموعة: سياق قصير جداً (آخر ٤ أدوار) — يكفي لسؤال متابعة دون تضخيم
+    const history = conversationFor(chatId).slice(-4);
+    const messages: ChatMessage[] = [...history, { role: "user", content: question }];
+    try {
+      const { answer } = await chatComplete(GROUP_SYSTEM_ROLE, messages);
+      const sent = await sendMessageReply(token, chatId, answer, { replyToMessageId: replyTo, messageThreadId: threadId });
+      rememberTurn(chatId, "user", question);
+      if (sent) rememberTurn(chatId, "assistant", answer);
+      return sent ? "handled-group-ai" : "ignored";
+    } catch {
+      await sendMessageReply(token, chatId, AI_FALLBACK_TEXT, { replyToMessageId: replyTo, messageThreadId: threadId });
+      return "ignored";
+    }
+  } catch {
+    return "ignored"; // البوت لا يرمي استثناءً أبداً — الويبهوك يبقى 200
+  }
 }
 
 // ---------------------------------------------------------------------------

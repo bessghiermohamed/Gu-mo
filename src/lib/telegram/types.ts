@@ -133,6 +133,23 @@ export interface TgMessage {
   audio?: { file_id: string; file_unique_id: string; file_name?: string; mime_type?: string; file_size?: number };
   voice?: { file_id: string; file_unique_id: string; mime_type?: string; file_size?: number };
   document?: { file_id: string; file_unique_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  // ---- الجولة 63: مجموعات المنتدى (topics) والردّ على البوت ----
+  /** موضوع المنتدى الذي نُشرت فيه الرسالة (1 = العام/General) */
+  message_thread_id?: number;
+  /** true فقط في مواضيع المنتدى غير العامة */
+  is_topic_message?: boolean;
+  /** إنشاء/تعديل موضوع — يحمل اسم الموضوع */
+  forum_topic_created?: { name?: string };
+  forum_topic_edited?: { name?: string };
+  /** الرسالة التي يُرَدّ عليها (يكشف الردّ على البوت) */
+  reply_to_message?: {
+    message_id?: number;
+    from?: TgUser;
+    chat?: TgChat;
+    text?: string;
+  };
+  /** كيانات الرسالة (تُستخدم لاكتشاف @mention) */
+  entities?: Array<{ type?: string; offset?: number; length?: number }>;
 }
 
 export interface TgUpdate {

@@ -101,6 +101,35 @@ export async function sendMessageText(token: string, chatId: number, text: strin
   return true;
 }
 
+/**
+ * ردّ داخل مجموعة/منتدى (الجولة 63): يردّ على رسالة بعينها، ويحافظ على
+ * موضوع المنتدى الذي طُرح فيه السؤال (message_thread_id) حتى لا يسقط
+ * الردّ في «العام» بينما السؤال في موضوع آخر.
+ */
+export async function sendMessageReply(
+  token: string,
+  chatId: number,
+  text: string,
+  opts: { replyToMessageId?: number; messageThreadId?: number } = {}
+): Promise<boolean> {
+  const clean = (text ?? "").trim();
+  if (!clean) return false;
+  for (const chunk of splitForTelegram(clean)) {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text: chunk,
+      disable_web_page_preview: true,
+    };
+    if (opts.replyToMessageId) body.reply_to_message_id = opts.replyToMessageId;
+    if (opts.messageThreadId && opts.messageThreadId > 0) {
+      body.message_thread_id = opts.messageThreadId;
+    }
+    const r = await telegramApi<unknown>(token, "sendMessage", body);
+    if (!r.ok) return false;
+  }
+  return true;
+}
+
 /** يقسّم النص الطويل على حدود الأسطر (لا في منتصف كلمة/جملة) */
 export function splitForTelegram(text: string): string[] {
   if (text.length <= TG_MESSAGE_LIMIT) return [text];
@@ -160,4 +189,37 @@ export async function activateWebhookWith(
   });
   if (!r.ok) return { ok: false, message: `فشل تفعيل الربط: ${r.description ?? "خطأ غير معروف"}`, url };
   return { ok: true, message: "تم تفعيل الربط — سيتم استيراد المنشورات الجديدة والرد على الرسائل تلقائياً", url };
+}
+
+/**
+ * تفعيل ذاتي (الجولة 63): يربط الويبهوك على رابط يحمل التوكن (?b=…)
+ * مع سرّ مشتق منه — فيستعيد التطبيق التوكن من الرابط نفسه مع كل تحديث،
+ * بلا Vercel ولا قاعدة بيانات. لا يُسقط التحديثات المعلّقة (drop=false)
+ * حتى تُعالج منشورات الاختبار المنتظرة فور التفعيل.
+ */
+export async function activateAutoWebhook(
+  token: string,
+  origin: string,
+  deriveSecret: (token: string) => string
+): Promise<{ ok: boolean; message: string; url: string }> {
+  const url = `${origin}/api/telegram/webhook?b=${encodeURIComponent(token)}`;
+  if (!token) return { ok: false, message: "لا يوجد توكن بوت لتفعيله", url };
+  const r = await telegramApi<unknown>(token, "setWebhook", {
+    url,
+    secret_token: deriveSecret(token),
+    allowed_updates: ["channel_post", "edited_channel_post", "message", "edited_message"],
+    drop_pending_updates: false,
+  });
+  if (!r.ok) {
+    return {
+      ok: false,
+      message: `فشل تفعيل الربط: ${r.description ?? "خطأ غير معروف"} (يتطلب نطاق HTTPS عاماً — جرّب على الإنتاج)`,
+      url,
+    };
+  }
+  return {
+    ok: true,
+    message: "تم تفعيل الربط الذاتي — التحديثات المعلّقة ستُعالج خلال لحظات",
+    url,
+  };
 }
