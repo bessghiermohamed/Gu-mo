@@ -23,8 +23,11 @@ import { canUploadContent } from "@/lib/auth/permissions";
 import { TG_ITEM_TYPES } from "@/lib/telegram/types";
 import { buildSearchText } from "@/lib/telegram/normalize";
 import { kindFromDocument } from "@/lib/telegram/ingest";
-import { isBotConfigured, downloadFileBase64 } from "@/lib/telegram/ingest";
+import { isBotConfigured, downloadFileBase64, loadSourceById } from "@/lib/telegram/ingest";
 import { classifyItem, isGeminiConfigured } from "@/lib/telegram/classify";
+import { loadModuleCandidates, moduleById } from "@/lib/telegram/module-match";
+
+export const maxDuration = 60;
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -425,6 +428,155 @@ export async function PATCH(req: NextRequest) {
   }
   try {
     const body = await req.json();
+
+    // ---------- r64: إعادة تصنيف جماعية لمصدر — شفاء منشوراته بلا مقياس ----------
+    if (body.action === "reclassify-source") {
+      const sourceId = Number(body.sourceId);
+      if (!sourceId) return NextResponse.json({ error: "حدد المصدر" }, { status: 400 });
+      const source = await loadSourceById(sourceId);
+      if (!source) return NextResponse.json({ error: "المصدر غير موجود" }, { status: 404 });
+      if (user.role !== "OWNER" && Number(source.specialtyId) !== Number(user.assignedSpecialtyId)) {
+        return NextResponse.json({ error: "هذا المصدر خارج نطاقك" }, { status: 403 });
+      }
+
+      const batchSize = Math.min(Math.max(Number(body.limit ?? 20) || 20, 1), 40);
+      // المنشورات بلا مقياس (المخفية منها أيضاً) — الأحدث أولاً
+      let rows: ItemRow[] = [];
+      if (isVercel) {
+        const supabase = await createSupabaseServerClient();
+        const { data } = await supabase
+          .from("telegram_items")
+          .select("*")
+          .eq("source_id", source.id)
+          .is("module_id", null)
+          .order("posted_at", { ascending: false, nullsFirst: false })
+          .limit(batchSize);
+        rows = (data ?? []).map((r: Record<string, unknown>) => ({
+          id: Number(r.id), sourceId: r.source_id == null ? null : Number(r.source_id),
+          tgMessageId: Number(r.tg_message_id ?? 0), mediaGroupId: String(r.media_group_id ?? ""),
+          kind: String(r.kind ?? "text"), titleAr: String(r.title_ar ?? ""), captionText: String(r.caption_text ?? ""),
+          fileName: String(r.file_name ?? ""), mimeType: String(r.mime_type ?? ""), fileId: String(r.file_id ?? ""),
+          sizeBytes: Number(r.size_bytes ?? 0), link: String(r.link ?? ""), specialtyId: Number(r.specialty_id ?? 1),
+          moduleId: r.module_id == null ? null : Number(r.module_id), itemType: String(r.item_type ?? "عام"),
+          origin: String(r.origin ?? "telegram"), postedBy: String(r.posted_by ?? ""),
+          cohortId: r.cohort_id == null ? null : Number(r.cohort_id), isHidden: !!r.is_hidden, isFeatured: !!r.is_featured,
+          aiClassified: !!r.ai_classified, postedAt: (r.posted_at as string | null) ?? null,
+        }));
+      } else {
+        rows = (await db.telegramItem.findMany({
+          where: { sourceId: source.id, moduleId: null },
+          orderBy: { postedAt: "desc" },
+          take: batchSize,
+        })) as unknown as ItemRow[];
+      }
+
+      if (rows.length === 0) {
+        return NextResponse.json({
+          ok: true, processed: 0, moduleAssigned: 0, remaining: 0,
+          message: "لا توجد منشورات بلا مقياس في هذا المصدر — كل شيء مربوط أو فارغ.",
+        });
+      }
+
+      const candidates = await loadModuleCandidates(source.specialtyId, source.yearId);
+      const botReady = await isBotConfigured();
+      const deadline = Date.now() + 40_000; // نافذة أمان تحت maxDuration=60
+      let processed = 0, updated = 0, moduleAssigned = 0, aiCount = 0;
+
+      const classifyOne = async (item: ItemRow) => {
+        let imageBase64: string | undefined;
+        let imageMime: string | undefined;
+        if (item.kind === "image" && item.fileId && botReady) {
+          const dl = await downloadFileBase64(item.fileId);
+          if (dl) { imageBase64 = dl.base64; imageMime = dl.mime; }
+        }
+        return classifyItem({
+          kind: item.kind,
+          caption: item.captionText,
+          fileName: item.fileName,
+          ...(imageBase64 ? { imageBase64, imageMimeType: imageMime } : {}),
+          ...(candidates.length ? { moduleCandidates: candidates } : {}),
+          context: `القناة: ${source.titleAr}`,
+        });
+      };
+
+      // معالجة متوازية محدودة (٤ معاً) مع احترام النافذة الزمنية
+      const CONCURRENCY = 4;
+      for (let i = 0; i < rows.length; i += CONCURRENCY) {
+        if (Date.now() > deadline && processed > 0) break;
+        const batch = rows.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(async (item) => {
+            try {
+              const cls = await classifyOne(item);
+              return { item, cls };
+            } catch {
+              return { item, cls: null };
+            }
+          })
+        );
+        for (const { item, cls } of results) {
+          processed += 1;
+          if (!cls) continue;
+          if (cls.aiClassified) aiCount += 1;
+          const newTitle = cls.title.trim() || item.titleAr;
+          const newSearch = buildSearchText(newTitle, cls.extractedText || item.captionText, item.fileName);
+          const newModule = cls.moduleMatch?.id ?? null;
+          if (newModule != null) moduleAssigned += 1;
+          try {
+            if (isVercel) {
+              const supabase = await createSupabaseServerClient();
+              const { error } = await supabase
+                .from("telegram_items")
+                .update({
+                  title_ar: newTitle, item_type: cls.itemType, search_text: newSearch,
+                  ai_classified: cls.aiClassified, module_id: newModule,
+                })
+                .eq("id", item.id);
+              if (error) continue;
+            } else {
+              await db.telegramItem.update({
+                where: { id: item.id },
+                data: {
+                  titleAr: newTitle, itemType: cls.itemType, searchText: newSearch,
+                  aiClassified: cls.aiClassified, moduleId: newModule,
+                } as never,
+              });
+            }
+            updated += 1;
+          } catch {
+            // فشل كتابة عنصر واحد لا يوقف الدفعة
+          }
+        }
+      }
+
+      // بقيّة المنشورات بلا مقياس — إن بقيت أعد التشغيل
+      let remaining = 0;
+      try {
+        if (isVercel) {
+          const supabase = await createSupabaseServerClient();
+          const { count } = await supabase
+            .from("telegram_items")
+            .select("id", { count: "exact", head: true })
+            .eq("source_id", source.id)
+            .is("module_id", null);
+          remaining = count ?? 0;
+        } else {
+          remaining = await db.telegramItem.count({ where: { sourceId: source.id, moduleId: null } });
+        }
+      } catch { /* تحسيني */ }
+
+      return NextResponse.json({
+        ok: true,
+        processed,
+        updated,
+        moduleAssigned,
+        aiClassified: aiCount,
+        remaining,
+        message:
+          `أُعيد تصنيف ${processed} منشوراً: رُبط ${moduleAssigned} بمقياس${remaining > 0 ? ` — بقي ${remaining} منشوراً بلا مقياس، أعد التشغيل لمعالجة البقية` : " — كل المنشورات صارت مربوطة"}.`,
+      });
+    }
+
     const id = Number(body.id);
     if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
     const item = await loadItem(id);
@@ -448,11 +600,14 @@ export async function PATCH(req: NextRequest) {
         const dl = await downloadFileBase64(item.fileId);
         if (dl) { imageBase64 = dl.base64; imageMime = dl.mime; }
       }
+      // r64: مقاييس تخصص المنشور — ليستنتج الذكاء الاصطناعي المقياس أيضاً
+      const candidates = await loadModuleCandidates(item.specialtyId);
       const cls = await classifyItem({
         kind: item.kind,
         caption: item.captionText,
         fileName: item.fileName,
         ...(imageBase64 ? { imageBase64, imageMimeType: imageMime } : {}),
+        ...(candidates.length ? { moduleCandidates: candidates } : {}),
       });
       if (!cls.aiClassified) {
         return NextResponse.json(
@@ -462,26 +617,36 @@ export async function PATCH(req: NextRequest) {
       }
       const newTitle = cls.title.trim() || item.titleAr;
       const newSearch = buildSearchText(newTitle, cls.extractedText || item.captionText, item.fileName);
+      // r64: الربط بالمقياس حين يكون المنشور بلا مقياس — المضبوط يدوياً لا يُمسّ
+      const setModule = item.moduleId == null && cls.moduleMatch ? cls.moduleMatch.id : undefined;
       if (isVercel) {
         const supabase = await createSupabaseServerClient();
         const { error } = await supabase
           .from("telegram_items")
-          .update({ title_ar: newTitle, item_type: cls.itemType, search_text: newSearch, ai_classified: true })
+          .update({
+            title_ar: newTitle, item_type: cls.itemType, search_text: newSearch, ai_classified: true,
+            ...(setModule !== undefined ? { module_id: setModule } : {}),
+          })
           .eq("id", id);
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       } else {
         await db.telegramItem.update({
           where: { id },
-          data: { titleAr: newTitle, itemType: cls.itemType, searchText: newSearch, aiClassified: true },
+          data: {
+            titleAr: newTitle, itemType: cls.itemType, searchText: newSearch, aiClassified: true,
+            ...(setModule !== undefined ? { moduleId: setModule } : {}),
+          } as never,
         });
       }
+      const modInfo = setModule != null ? (await moduleById(setModule))?.name : null;
       return NextResponse.json({
         ok: true,
         reclassified: true,
         aiClassified: true,
         itemType: cls.itemType,
         title: newTitle,
-        message: `أُعيد التصنيف عبر Gemini: النوع «${cls.itemType}»${cls.extractedText ? " — واستُخرج نص الصورة للبحث" : ""}`,
+        ...(modInfo ? { moduleName: modInfo } : {}),
+        message: `أُعيد التصنيف عبر Gemini: النوع «${cls.itemType}»${modInfo ? ` — ورُبط بالمقياس «${modInfo}» فيظهر تحت تصفيته` : ""}${cls.extractedText ? " — واستُخرج نص الصورة للبحث" : ""}`,
       });
     }
 

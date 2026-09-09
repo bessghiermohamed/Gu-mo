@@ -73,3 +73,4 @@ tsconfig.tsbuildinfo
 
 # npm lockfile — the repo is bun-locked (bun.lock)
 package-lock.json
+build.log

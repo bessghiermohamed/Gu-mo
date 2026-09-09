@@ -25,6 +25,7 @@ import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { classifyItem, isGeminiConfigured } from "./classify";
 import { buildSearchText, firstLineTitle, fileNameToTitle } from "./normalize";
+import { loadModuleCandidates } from "./module-match";
 import { resolveBotCredentials } from "./bot-config";
 import { telegramApi, getMeWith, activateWebhookWith, downloadFileBase64With } from "./bot-api";
 import { handlePrivateMessage, handleGroupMessage, isBotAddressed, type PrivateChatOutcome, type GroupChatOutcome } from "./bot-chat";
@@ -237,6 +238,8 @@ export interface TelegramItemProbe {
   captionText: string;
   link: string;
   origin: string;
+  /** r64: المقياس المرتبط — لعرضه في نتيجة فحص الاستيراد */
+  moduleId: number | null;
 }
 
 /** يقرأ عنصراً مستورداً (لعرض نتيجة فحص الاستيراد) */
@@ -246,7 +249,7 @@ export async function findTelegramItem(sourceId: number, tgMessageId: number): P
       const supabase = await createSupabaseServerClient();
       const { data } = await supabase
         .from("telegram_items")
-        .select("id, title_ar, item_type, kind, ai_classified, caption_text, link, origin")
+        .select("id, title_ar, item_type, kind, ai_classified, caption_text, link, origin, module_id")
         .eq("source_id", sourceId)
         .eq("tg_message_id", tgMessageId)
         .maybeSingle();
@@ -255,6 +258,7 @@ export async function findTelegramItem(sourceId: number, tgMessageId: number): P
         id: Number(data.id), titleAr: String(data.title_ar ?? ""), itemType: String(data.item_type ?? ""),
         kind: String(data.kind ?? ""), aiClassified: !!data.ai_classified,
         captionText: String(data.caption_text ?? ""), link: String(data.link ?? ""), origin: String(data.origin ?? "telegram"),
+        moduleId: data.module_id == null ? null : Number(data.module_id),
       };
     }
     const it = await db.telegramItem.findUnique({
@@ -263,7 +267,7 @@ export async function findTelegramItem(sourceId: number, tgMessageId: number): P
     if (!it) return null;
     return {
       id: it.id, titleAr: it.titleAr, itemType: it.itemType, kind: it.kind, aiClassified: it.aiClassified,
-      captionText: it.captionText, link: it.link, origin: it.origin,
+      captionText: it.captionText, link: it.link, origin: it.origin, moduleId: it.moduleId,
     };
   } catch {
     return null;
@@ -452,9 +456,15 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
     }
     const topicName = topicNameFor(String(msg.chat.id), threadId);
     const context = `القناة: ${source.titleAr}${source.moduleId ? ` — المقياس: ${await getModuleName(source.moduleId)}` : ""}${topicName ? ` — الموضوع (Topic): ${topicName}` : ""}${msg.is_topic_message ? " — منشور داخل موضوع منتدى" : ""}`;
+    // r64: مقاييس التخصص المرشحة للربط الذكي — يختار النموذج المقياس المطابق
+    // لكل منشور. المصدر المربوط بمقياس واحد (قرار إداري) يفوز دائماً.
+    const moduleCandidates = source.moduleId == null
+      ? await loadModuleCandidates(source.specialtyId, source.yearId)
+      : [];
     const classifyInput = {
       kind: content.kind, caption: content.caption, fileName: content.fileName,
       ...(imageBase64 ? { imageBase64, imageMimeType: imageMime } : {}),
+      ...(moduleCandidates.length ? { moduleCandidates } : {}),
       context,
     };
     const cls = await classifyItem(classifyInput);
@@ -465,7 +475,7 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
       const supabase = await createSupabaseServerClient();
       const { data: existing } = await supabase
         .from("telegram_items")
-        .select("id, title_ar")
+        .select("id, title_ar, module_id")
         .eq("source_id", source.id)
         .eq("tg_message_id", msg.message_id)
         .maybeSingle();
@@ -486,7 +496,7 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
           size_bytes: content.sizeBytes,
           link,
           specialty_id: source.specialtyId,
-          module_id: source.moduleId,
+          module_id: source.moduleId ?? cls.moduleMatch?.id ?? null,
           item_type: cls.itemType,
           origin: "telegram",
           posted_by: postedBy,
@@ -514,6 +524,8 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
           ai_classified: cls.aiClassified,
         };
         if (!String(existing.title_ar ?? "").trim()) patch.title_ar = cls.title;
+        // r64: املأ المقياس حين يكون فارغاً فقط — الربط الإداري اليدوي محمي
+        if (existing.module_id == null && cls.moduleMatch) patch.module_id = cls.moduleMatch.id;
         await supabase.from("telegram_items").update(patch).eq("id", Number(existing.id));
       }
       if (update.update_id > source.lastUpdateId) {
@@ -525,7 +537,7 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
     // --- Prisma (محلي) ---
     const existing = await db.telegramItem.findUnique({
       where: { sourceId_tgMessageId: { sourceId: source.id, tgMessageId: msg.message_id } },
-      select: { id: true, titleAr: true },
+      select: { id: true, titleAr: true, moduleId: true },
     });
     if (!existing) {
       await db.telegramItem.create({
@@ -535,7 +547,7 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
           searchText: buildSearchText(cls.title, captionPlusOcr, content.fileName),
           fileName: content.fileName, mimeType: content.mimeType, fileId: content.fileId,
           fileUniqueId: content.fileUniqueId, sizeBytes: content.sizeBytes, link,
-          specialtyId: source.specialtyId, moduleId: source.moduleId, itemType: cls.itemType,
+          specialtyId: source.specialtyId, moduleId: source.moduleId ?? cls.moduleMatch?.id ?? null, itemType: cls.itemType,
           origin: "telegram", postedBy, cohortId: source.cohortId,
           isHidden: false, isFeatured: false, aiClassified: cls.aiClassified,
           postedAt: new Date(postedAt),
@@ -552,6 +564,8 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
           mediaGroupId: content.mediaGroupId, link, postedAt: new Date(postedAt),
           aiClassified: cls.aiClassified,
           ...(existing.titleAr ? {} : { titleAr: cls.title }),
+          // r64: املأ المقياس الفارغ فقط — الربط الإداري اليدوي محمي
+          ...(existing.moduleId == null && cls.moduleMatch ? { moduleId: cls.moduleMatch.id } : {}),
         },
       });
     }

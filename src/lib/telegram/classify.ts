@@ -20,6 +20,7 @@
 
 import { TG_ITEM_TYPES } from "./types";
 import { firstLineTitle, fileNameToTitle } from "./normalize";
+import { resolveModuleByName, inferModuleFromText, type ModuleCandidate } from "./module-match";
 
 export interface ClassifyInput {
   kind: string; // pdf | doc | ppt | image | video | audio | text | link | other
@@ -30,6 +31,11 @@ export interface ClassifyInput {
   imageMimeType?: string;
   /** سياق يساعد التصنيف: اسم القناة + اسم المقياس إن وُجد */
   context?: string;
+  /**
+   * r64: مقاييس التخصص المرشحة — حين يمررها المستدعي يطلب من النموذج
+   * اختيار المقياس المطابق بالاسم، فترتبط المادة بمقياس تظهر تحت فلترته.
+   */
+  moduleCandidates?: ModuleCandidate[];
 }
 
 export interface ClassifyResult {
@@ -37,6 +43,8 @@ export interface ClassifyResult {
   title: string;
   extractedText: string;
   aiClassified: boolean;
+  /** r64: المقياس المطابق (مُعاد معرّفه من القائمة) أو null */
+  moduleMatch: ModuleCandidate | null;
 }
 
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -140,7 +148,11 @@ export function heuristicClassify(input: ClassifyInput): ClassifyResult {
     firstLineTitle(input.caption, 60) ||
     fileNameToTitle(input.fileName, 60) ||
     (input.kind === "image" ? "صورة" : "منشور");
-  return { itemType, title, extractedText: "", aiClassified: false };
+  // r64: مطابقة محلية بلا ذكاء اصطناعي — اسم مقياس كامل داخل النص/السياق
+  const moduleMatch = input.moduleCandidates?.length
+    ? inferModuleFromText(input.moduleCandidates, `${input.caption} ${input.fileName} ${input.context ?? ""}`)
+    : null;
+  return { itemType, title, extractedText: "", aiClassified: false, moduleMatch };
 }
 
 // ------------------------------------------------------------
@@ -151,12 +163,19 @@ function buildPrompt(input: ClassifyInput): string {
   const ctx = input.context ? `\nالسياق: ${input.context}` : "";
   const fileName = input.fileName ? `\nاسم الملف: ${input.fileName}` : "";
   const caption = input.caption ? `\nنص المنشور:\n${input.caption.slice(0, 3000)}` : "";
+  // r64: قائمة المقاييس المرشحة داخل البرومبت — ليختار النموذج المقياس المطابق
+  const modules = input.moduleCandidates?.length
+    ? `\nالمقاييس المتاحة في هذا التخصص (إن كان المنشور يخص مقياساً منها فأعد اسمه حرفياً كما هو في القائمة، وإلا أعد نصاً فارغاً):\n${input.moduleCandidates
+        .map((c) => (c.yearName ? `${c.name} (${c.yearName})` : c.name))
+        .slice(0, 40)
+        .join("، ")}`
+    : "";
   return `أنت مساعد أكاديمي في تطبيق جامعي جزائري. صنّف المحتوى التالي القادم من تيليجرام إلى واحد من هذه الأنواع بالضبط:
 "محاضرة" أو "أعمال موجهة TD" أو "تمارين" أو "امتحان" أو "ملخص" أو "كتاب" أو "إعلان" أو "عام"
-— الوصف/النص يظهر ${input.imageBase64 ? "داخل الصورة المرفقة (اقرأه بالضبط)" : "أدناه"}${ctx}${fileName}${caption}
+— الوصف/النص يظهر ${input.imageBase64 ? "داخل الصورة المرفقة (اقرأه بالضبط)" : "أدناه"}${ctx}${fileName}${caption}${modules}
 
 أعد JSON فقط بهذه الصيغة (بدون أي نص إضافي):
-{"item_type": "<النوع من القائمة>", "title": "<عنوان قصير واضح بالعربية، 6 كلمات كحد أقصى، من محتوى المنشور نفسه>", "text": "${input.imageBase64 ? "<انقل كل النص الظاهر في الصورة كما هو>" : "<نص فارغ>"}"}`;
+{"item_type": "<النوع من القائمة>", "title": "<عنوان قصير واضح بالعربية، 6 كلمات كحد أقصى، من محتوى المنشور نفسه>", "module_name": "${input.moduleCandidates?.length ? "<اسم المقياس المطابق من القائمة حرفياً، أو نص فارغ إن لم يطابق شيء" : "<نص فارغ>"}", "text": "${input.imageBase64 ? "<انقل كل النص الظاهر في الصورة كما هو>" : "<نص فارغ>"}"}`;
 }
 
 interface GeminiPart {
@@ -210,15 +229,20 @@ async function callGeminiModel(
     };
     const raw = data.candidates?.[0]?.content?.parts?.find((p) => p.text)?.text ?? "";
     const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-    const parsed = JSON.parse(cleaned) as { item_type?: string; title?: string; text?: string };
+    const parsed = JSON.parse(cleaned) as { item_type?: string; title?: string; text?: string; module_name?: string };
     const itemType = TG_ITEM_TYPES.includes(parsed.item_type as never) ? parsed.item_type! : "";
     if (!itemType) return null;
     const title = (parsed.title ?? "").trim().slice(0, 120);
+    // r64: ربط المقياس — مطابقة الاسم المعاد على قائمة المرشحين (تطبيق مطبَّع)
+    const moduleMatch = input.moduleCandidates?.length
+      ? resolveModuleByName(input.moduleCandidates, parsed.module_name ?? "", `${input.caption} ${input.context ?? ""}`)
+      : null;
     return {
       itemType,
       title: title || firstLineTitle(input.caption, 60) || fileNameToTitle(input.fileName, 60) || "منشور",
       extractedText: (parsed.text ?? "").trim().slice(0, 4000),
       aiClassified: true,
+      moduleMatch,
     };
   } catch {
     return null; // انقطاع/مهلة/JSON تالف → التالي في السلسلة أو الكلمات المفتاحية

@@ -32,6 +32,7 @@ import {
   processTelegramUpdate,
 } from "@/lib/telegram/ingest";
 import { classifyItem, isGeminiConfigured, geminiModel, probeGeminiRaw } from "@/lib/telegram/classify";
+import { moduleById } from "@/lib/telegram/module-match";
 import type { TgUpdate } from "@/lib/telegram/types";
 
 export const maxDuration = 60; // فحص Gemini قد يستغرق بضع ثوانٍ
@@ -249,6 +250,9 @@ async function simulateIngest(body: Record<string, unknown>, user: { role: strin
         title: source.titleAr,
       },
       date: Math.floor(Date.now() / 1000),
+      // r64: مصدر المجموعات/المنتديات — الرسائل داخل موضوع فقط هي المحتوى
+      // المستورد (isGroupContentWorthy)، فيُحاكى الفحص كمنشور موضوع حقيقي.
+      ...(source.sourceType === "group" ? { is_topic_message: true, message_thread_id: 1 } : {}),
       text,
     },
   };
@@ -269,6 +273,9 @@ async function simulateIngest(body: Record<string, unknown>, user: { role: strin
   let cleaned = true;
   if (item) cleaned = await deleteTelegramItemById(item.id);
 
+  // r64: المقياس الذي رُبط به المنشور — يريه الفحص للمشرف مباشرة
+  const modName = item?.moduleId != null ? ((await moduleById(item.moduleId))?.name ?? null) : null;
+
   return NextResponse.json({
     ok: true,
     status,
@@ -280,6 +287,7 @@ async function simulateIngest(body: Record<string, unknown>, user: { role: strin
           kind: item.kind,
           caption: item.captionText.slice(0, 200),
           link: item.link,
+          ...(modName ? { moduleName: modName } : {}),
         }
       : null,
     cleaned,

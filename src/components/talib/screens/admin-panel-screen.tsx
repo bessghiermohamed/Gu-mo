@@ -2821,7 +2821,14 @@ function TgSourcesManager() {
     ok: boolean;
     message: string;
     aiClassified?: boolean;
-    item?: { title: string; itemType: string; kind: string; caption: string; link: string } | null;
+    item?: { title: string; itemType: string; kind: string; caption: string; link: string; moduleName?: string } | null;
+  } | null>(null);
+
+  // r64 — الربط الذكي بالمقاييس: شفاء منشورات المصدر بلا مقياس (دفعات)
+  const [healSource, setHealSource] = React.useState<TgSourceRow | null>(null);
+  const [healRunning, setHealRunning] = React.useState(false);
+  const [healResult, setHealResult] = React.useState<{
+    ok: boolean; processed: number; moduleAssigned: number; remaining: number; message: string;
   } | null>(null);
 
   // cascade data
@@ -2936,6 +2943,36 @@ function TgSourcesManager() {
     finally { setDeleting(false); }
   }
 
+  // r64 — دفعة ربط ذكي: يعيد تصنيف منشورات المصدر بلا مقياس (حتى ٤٠ دفعة واحدة)
+  async function runSmartLink(s: TgSourceRow) {
+    setHealRunning(true);
+    setHealResult(null);
+    setHealSource(s);
+    try {
+      const res = await fetch("/api/telegram/items", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reclassify-source", sourceId: s.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "تعذّر الربط الذكي"); setHealSource(null); return; }
+      setHealResult({
+        ok: true,
+        processed: Number(data.processed ?? 0),
+        moduleAssigned: Number(data.moduleAssigned ?? 0),
+        remaining: Number(data.remaining ?? 0),
+        message: String(data.message ?? ""),
+      });
+      if (data.remaining > 0) toast.info("بقيت منشورات بلا مقياس — أعد التشغيل لمعالجتها");
+      else toast.success("اكتمل الربط الذكي");
+      fetchSources();
+    } catch {
+      toast.error("فشل الاتصال — حاول مجدداً");
+      setHealSource(null);
+    } finally {
+      setHealRunning(false);
+    }
+  }
+
   async function handleRunTest() {
     if (!testSource) return;
     setTestRunning(true);
@@ -2972,7 +3009,8 @@ function TgSourcesManager() {
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-xs text-muted-foreground">
-            كل قناة مرتبطة بمقياس (أو فوج للمساحة المشتركة) — منشوراتها الجديدة تُستورد وتُصنّف تلقائياً
+            كل قناة مرتبطة بمقياس (أو فوج للمساحة المشتركة) — منشوراتها الجديدة تُستورد وتُصنّف تلقائياً.
+            المصادر بلا مقياس (منتديات متعددة المواضيع مثل ENS) يربط البوت كل منشور فيها بالمقياس المطابق من عنوانه — والزر ✨ يربط المنشورات القديمة.
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
@@ -3094,6 +3132,51 @@ function TgSourcesManager() {
         </Dialog>
       )}
 
+      {/* r64 — نتيجة الربط الذكي الجماعي */}
+      {healSource && healResult && (
+        <Dialog open onOpenChange={() => { setHealSource(null); setHealResult(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><Sparkles className="w-5 h-5 text-violet-500" />الربط الذكي — {healSource.titleAr}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <p className="text-sm leading-relaxed">{healResult.message}</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-muted/60 p-2">
+                  <p className="text-lg font-black">{healResult.processed}</p>
+                  <p className="text-xs text-muted-foreground">فُحصت</p>
+                </div>
+                <div className="rounded-lg bg-violet-500/10 p-2">
+                  <p className="text-lg font-black text-violet-600 dark:text-violet-300">{healResult.moduleAssigned}</p>
+                  <p className="text-xs text-muted-foreground">رُبطت بمقياس</p>
+                </div>
+                <div className="rounded-lg bg-amber-500/10 p-2">
+                  <p className="text-lg font-black text-amber-600 dark:text-amber-300">{healResult.remaining}</p>
+                  <p className="text-xs text-muted-foreground">بقيت بلا مقياس</p>
+                </div>
+              </div>
+              {healResult.remaining > 0 ? (
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  تُعالج الدفعات حتى ٤٠ منشوراً في المرة لتجنّب المهلة — أعد التشغيل لمعالجة البقية.
+                  المنشور الذي لا يطابق أي مقياس (نقاش عام، ترحيب…) يبقى بلا مقياس وهو سلوك صحيح.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">كل منشورات هذا المصدر صارت مربوطة أو لا تستحق الربط.</p>
+              )}
+            </div>
+            <DialogFooter>
+              {healResult.remaining > 0 ? (
+                <Button onClick={() => runSmartLink(healSource)} disabled={healRunning}>
+                  {healRunning ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Sparkles className="w-4 h-4 ml-1" />}
+                  معالجة الدفعة التالية
+                </Button>
+              ) : null}
+              <Button variant="outline" onClick={() => { setHealSource(null); setHealResult(null); }}>إغلاق</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* import test dialog — محاكاة منشور جديد كامل الخط دون نشر حقيقي */}
       {testSource && (
         <Dialog open onOpenChange={() => setTestSource(null)}>
@@ -3129,6 +3212,14 @@ function TgSourcesManager() {
                         النوع: <strong>{testResult.item.itemType}</strong> — التصنيف:{" "}
                         <strong>{testResult.aiClassified ? "Gemini (ذكاء اصطناعي)" : "محلي بالكلمات المفتاحية"}</strong>
                       </p>
+                      {testResult.item.moduleName ? (
+                        <p className="flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-violet-500" />
+                          المقياس المربوط: <strong>{testResult.item.moduleName}</strong> — يظهر تحت تصفيته في المكتبة
+                        </p>
+                      ) : (
+                        <p className="text-muted-foreground">بلا مقياس مطابق — لن يظهر تحت تصفية مقياس محدد</p>
+                      )}
                       <p className="text-xs break-all" dir="ltr">{testResult.item.link}</p>
                     </div>
                   ) : null}
@@ -3174,6 +3265,11 @@ function TgSourcesManager() {
                   </div>
                 </div>
                 <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => runSmartLink(s)}
+                    disabled={healRunning}
+                    aria-label="الربط الذكي بالمقاييس" title="الربط الذكي — يربط منشورات هذا المصدر بلا مقياس بمقاييس التخصص (يعيد فحصها بالذكاء الاصطناعي)">
+                    {healRunning && healSource?.id === s.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-violet-500" />}
+                  </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setTestSource(s); setTestText(""); setTestResult(null); }}
                     aria-label="اختبار الاستيراد" title="اختبار الاستيراد — محاكاة منشور جديد">
                     <Zap className="w-3.5 h-3.5 text-amber-600" />
