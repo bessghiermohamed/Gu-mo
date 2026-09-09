@@ -195,7 +195,8 @@ async function main() {
 
   // A5: رابط القناة كاملة (بلا رقم قسم) يبقى 409 مع توجيه للأقسام
   const a5 = await postSources(admin, { handle: `https://t.me/c/${FORUM_INTERNAL}`, sourceType: "channel" });
-  check("A5 تكرار القناة كاملة → 409 مع توجيه للأقسام", a5.status === 409 && String(a5.data.error ?? "").includes("رابط القسم"), JSON.stringify(a5.data));
+  // r68: نفس القواعد ترفض بذات 409 لكن التوجيه صار للربط المتعدد (غيّر قاعدة) بدل الأقسام
+  check("A5 تكرار القناة كاملة → 409 مع توجيه لتغيير قاعدة (r68)", a5.status === 409 && String(a5.data.error ?? "").includes("غيّر قاعدة"), JSON.stringify(a5.data));
 
   // A6: قسم في قناة جديدة → تُنشأ القناة والقسم معاً
   const a6 = await postSources(owner, { handle: `https://t.me/c/${NEW_INTERNAL}/5`, yearId: y1, title: "سنة أولى", sourceType: "channel" });

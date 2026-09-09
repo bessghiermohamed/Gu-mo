@@ -29,6 +29,8 @@ import {
   loadSourceById,
   findTelegramItem,
   deleteTelegramItemById,
+  loadSourcesByChatId,
+  deleteTelegramItemsByMessage,
   processTelegramUpdate,
 } from "@/lib/telegram/ingest";
 import { classifyItem, isGeminiConfigured, geminiModel, probeGeminiRaw } from "@/lib/telegram/classify";
@@ -248,7 +250,9 @@ async function simulateIngest(body: Record<string, unknown>, user: { role: strin
       message_id: messageId,
       from: { id: 999_999, is_bot: false, first_name: "فحص تلقائي" },
       chat: {
-        id: Number(source.tgChannelId) || 0,
+        // r68: القناة قد تكون ربطاً متعدداً (chatId#N) أو قسماً (chat:thread) —
+        // المحاكاة تُرسل دائماً إلى معرّف القناة الأساسي كي تجد كل روابطها
+        id: Number(source.tgChannelId.replace(/[:#][^#:]*/, "")) || 0,
         type: source.sourceType === "group" ? "supergroup" : "channel",
         title: source.titleAr,
       },
@@ -287,8 +291,17 @@ async function simulateIngest(body: Record<string, unknown>, user: { role: strin
   }
 
   const item = await findTelegramItem(source.id, messageId);
+  // r68: المحاكاة متعددة الروابط تنشئ نسخة لكل ربط — تُنظَّف كلها
+  // (روابط القناة الأساسية + صف المصدر نفسه إن كان قسماً مستقلاً)
+  const baseChatId = source.tgChannelId.replace(/[:#][^#:]*/, "");
+  const bindingRows = await loadSourcesByChatId(baseChatId);
+  const allSourceIds = Array.from(new Set([...bindingRows.map((s) => s.id), source.id]));
   let cleaned = true;
-  if (item) cleaned = await deleteTelegramItemById(item.id);
+  if (allSourceIds.length > 0) {
+    cleaned = (await deleteTelegramItemsByMessage(allSourceIds, messageId)) > 0;
+  } else if (item) {
+    cleaned = await deleteTelegramItemById(item.id);
+  }
 
   // r64: المقياس الذي رُبط به المنشور — يريه الفحص للمشرف مباشرة
   const modName = item?.moduleId != null ? ((await moduleById(item.moduleId))?.name ?? null) : null;

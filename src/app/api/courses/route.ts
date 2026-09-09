@@ -33,20 +33,31 @@ import { canCreateModules } from "@/lib/auth/permissions";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ courses: [] });
     // Year scope: students get it from onboarding. Supervisors without a year
     // scope (e.g. OWNER who never onboarded) see the whole specialty.
-    const yearId = user.scopeAcademicYearId ?? null;
+    let yearId = user.scopeAcademicYearId ?? null;
+    let specialtyId = user.assignedSpecialtyId;
+    // r68: المالك يستعرض مقاييس تخصص آخر — ربط القنوات متعدد التخصصات
+    if (user.role === "OWNER") {
+      const url = new URL(req.url);
+      const sp = url.searchParams.get("specialtyId");
+      if (sp && Number(sp) > 0) {
+        specialtyId = Number(sp);
+        const yr = url.searchParams.get("yearId");
+        yearId = yr && Number(yr) > 0 ? Number(yr) : null;
+      }
+    }
 
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       let query = supabase
         .from("module_courses")
         .select("*")
-        .eq("specialty_id", user.assignedSpecialtyId);
+        .eq("specialty_id", specialtyId);
       if (yearId) query = query.eq("academic_year_id", yearId);
       const { data, error } = await query.order("id", { ascending: true });
       if (error) return NextResponse.json({ courses: [] });
@@ -60,7 +71,7 @@ export async function GET() {
     }
     const items = await db.moduleCourse.findMany({
       where: {
-        specialtyId: user.assignedSpecialtyId,
+        specialtyId,
         ...(yearId ? { academicYearId: yearId } : {}),
       },
       orderBy: { id: "asc" },

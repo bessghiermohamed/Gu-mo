@@ -191,6 +191,13 @@ export function TalibTelegramScreen() {
       ? { yearId: user.scopeAcademicYearId, yearName: "" }
       : null
   );
+  // r68: عزل الممح — ممح الطالب يُشتق داخلياً كالسنة (نطاقه أو فوجه)،
+  // والمصدر المربط بملمح معين يظهر لطلبة ذلك الممح فقط.
+  const [trackLock, setTrackLock] = React.useState<{ trackId: number; trackName: string } | null>(
+    user != null && user.scopeTrackId != null && (user.role === "STUDENT" || user.role === "REPRESENTATIVE")
+      ? { trackId: user.scopeTrackId, trackName: "" }
+      : null
+  );
   const yearLocked = yearLock != null;
   const myYearName =
     (yearLock?.yearName || "").trim() ||
@@ -235,6 +242,7 @@ export function TalibTelegramScreen() {
       setMyCohortId(data.myCohortId ?? null);
       setSetup(data.setup ?? null);
       setYearLock(data.yearLock ?? null);
+      setTrackLock(data.trackLock ?? null);
       if (data.tablesReady === false) setTablesReady(false);
     } catch {
       setItems([]);
@@ -327,13 +335,19 @@ export function TalibTelegramScreen() {
 
         <TabsContent value="library" className="mt-4 space-y-3">
           {/* r66: عزل السنوات التلقائي — سنة الطالب مقفلة داخلياً (لا اختيار) */}
-          {yearLocked && (
+          {(yearLocked || trackLock) && (
             <Card className="p-2.5 bg-primary/5 border-primary/20">
               <p className="text-xs text-foreground/80 flex items-center gap-2">
                 <Lock className="w-3.5 h-3.5 text-primary shrink-0" aria-hidden />
                 <span>
-                  تعرض مكتبة <strong>{myYearName ?? "سنتك الدراسية"}</strong> فقط تلقائياً — مواد سنتك الدراسية،
-                  وما يُصنّف لسنة أخرى لا يظهر لك ولا ترى أنت موادّها.
+                  تعرض مكتبة <strong>{yearLocked ? (myYearName ?? "سنتك الدراسية") : "تخصصك"}</strong>
+                  {trackLock?.trackName ? (
+                    <>
+                      {" "}وممح <strong>{trackLock.trackName}</strong>
+                    </>
+                  ) : null}{" "}
+                  فقط تلقائياً — محتوى سنتك{trackLock?.trackName ? " وملمحك" : ""} يظهر لك،
+                  وما يُصنّف لسنة أخرى{trackLock?.trackName ? " أو ملمح آخر" : ""} لا يظهر لك.
                 </span>
               </p>
             </Card>

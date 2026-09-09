@@ -168,7 +168,9 @@ export function buildDeepLink(
   const uname = source.tgUsername.replace(/^@/, "").trim();
   const topic = threadId && threadId > 0 ? `/${threadId}` : "";
   if (uname) return `https://t.me/${uname}${topic}/${messageId}`;
-  const raw = source.tgChannelId.replace(/^-100/, "").replace(/:\\d+$/, "");
+  // r68: تُجرَّد لواحق الأقسام (:thread) والتنويعات (#N) — الرابط
+  // يبقى للمنشور الأصلي في القناة الفعلية دائماً.
+  const raw = source.tgChannelId.replace(/^-100/, "").replace(/:\d+$/, "").replace(/#\d+$/, "");
   return `https://t.me/c/${raw}${topic}/${messageId}`;
 }
 
@@ -292,6 +294,30 @@ export async function deleteTelegramItemById(id: number): Promise<boolean> {
   }
 }
 
+/** r68: يحذف كل نسخ منشورٍ عبر كل روابط القناة — يستعمله «فحص
+ * الاستيراد» لأن المحاكاة متعددة الروابط تنشئ نسخة لكل ربط. */
+export async function deleteTelegramItemsByMessage(sourceIds: number[], tgMessageId: number): Promise<number> {
+  if (sourceIds.length === 0) return 0;
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { error } = await supabase
+        .from("telegram_items")
+        .delete()
+        .in("source_id", sourceIds)
+        .eq("tg_message_id", tgMessageId);
+      if (error) return 0;
+      return sourceIds.length;
+    }
+    const r = await db.telegramItem.deleteMany({
+      where: { sourceId: { in: sourceIds }, tgMessageId },
+    });
+    return r.count;
+  } catch {
+    return 0;
+  }
+}
+
 /** يقرأ مصدراً بمعرّفه الداخلي (للفحص والاختبار) */
 export async function loadSourceById(id: number): Promise<SourceLite | null> {
   try {
@@ -349,6 +375,51 @@ async function loadSourceByChatId(chatId: string): Promise<SourceLite | null> {
     sourceType: s.sourceType, specialtyId: s.specialtyId, yearId: s.yearId, semester: s.semester,
     moduleId: s.moduleId, cohortId: s.cohortId, isActive: s.isActive, lastUpdateId: s.lastUpdateId,
   };
+}
+
+/** r68: كل صفوف الربط لهذه القناة — الأساسي وتنويعاته «chatId#N» (ربط
+ * متعدد بقواعد مختلفة). الأقسام المستقلة «chatId:threadId» تُستبعد (تُعالج
+ * بمفتاحها الكامل). الترتيب: الأساسي أولاً ثم التنويعات بترتيب الإنشاء. */
+export async function loadSourcesByChatId(chatId: string): Promise<SourceLite[]> {
+  const rows: SourceLite[] = [];
+  const isBinding = (id: string) => id === chatId || id.startsWith(`${chatId}#`);
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      const { data } = await supabase
+        .from("telegram_sources")
+        .select("id, tg_channel_id, tg_username, title_ar, source_type, specialty_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
+        .like("tg_channel_id", `${chatId}%`);
+      for (const r of (data ?? []) as unknown[]) {
+        const m = r as Record<string, unknown>;
+        if (!isBinding(String(m.tg_channel_id ?? ""))) continue;
+        rows.push({
+          id: Number(m.id), tgChannelId: String(m.tg_channel_id), tgUsername: String(m.tg_username ?? ""),
+          titleAr: String(m.title_ar ?? ""), sourceType: String(m.source_type ?? "channel"),
+          specialtyId: Number(m.specialty_id ?? 1), yearId: m.year_id == null ? null : Number(m.year_id),
+          semester: m.semester == null ? null : Number(m.semester), moduleId: m.module_id == null ? null : Number(m.module_id),
+          cohortId: m.cohort_id == null ? null : Number(m.cohort_id),
+          isActive: !!m.is_active, lastUpdateId: Number(m.last_update_id ?? 0),
+        });
+      }
+    } else {
+      const found = await db.telegramSource.findMany({ where: { tgChannelId: { startsWith: chatId } } });
+      for (const s of found) {
+        if (!isBinding(s.tgChannelId)) continue;
+        rows.push({
+          id: s.id, tgChannelId: s.tgChannelId, tgUsername: s.tgUsername, titleAr: s.titleAr,
+          sourceType: s.sourceType, specialtyId: s.specialtyId, yearId: s.yearId, semester: s.semester,
+          moduleId: s.moduleId, cohortId: s.cohortId, isActive: s.isActive, lastUpdateId: s.lastUpdateId,
+        });
+      }
+    }
+  } catch {
+    return [];
+  }
+  rows.sort((a, b) =>
+    a.tgChannelId === chatId ? -1 : b.tgChannelId === chatId ? 1 : a.id - b.id
+  );
+  return rows;
 }
 
 async function getModuleName(moduleId: number | null): Promise<string> {
@@ -424,21 +495,65 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
       }
     }
 
-    // r66: الأقسام المستقلة (المسار البديل بلا جدول مواضيع) — منشور داخل
-    // موضوع يُبحث عنه أولاً بمُعرّفه المركّب "chat:thread"؛ إن وُجد قسم
-    // مربوط فربطه (مقياس/سنة) يحكم منشوراته حتمياً، وإلا يُستوى مستوى
-    // القناة كما كان. نفس منطق روابط المواضيع تماماً (r65).
+    // r66/r68: القسم المستقل (chat:thread) يحكم موضوعه حصراً متى وُجد؛
+    // وإلا فالقناة قد تكون مربوطة عدة مرات بقواعد مختلفة (r68 — الربط
+    // المتعدد: تخصص/ملمح/سنة/مقياس/فوج): يُستورد المنشور لكل ربط على
+    // حدة، فتظهر لكل نطاقٍ نسخته الخاصة وفق قواعده.
     const sectionKey =
       msg.is_topic_message && msg.message_thread_id != null
         ? `${msg.chat.id}:${msg.message_thread_id}`
         : null;
-    const source =
-      (sectionKey ? await loadSourceByChatId(sectionKey) : null) ??
-      await loadSourceByChatId(String(msg.chat.id));
-    if (!source || !source.isActive) return "ignored";
+    const sectionSource = sectionKey ? await loadSourceByChatId(sectionKey) : null;
+    const channelSources = await loadSourcesByChatId(String(msg.chat.id));
+    const targets = (sectionSource ? [sectionSource] : channelSources).filter((s) => s.isActive);
+    if (targets.length === 0) return "ignored";
 
     const content = parseMessageContent(msg);
     if (!content.kind) return "ignored";
+
+    // تنزيل الصور يحتاج توكن بوت — الصريح (?b=) أولاً ثم الفعّال.
+    // r68: تنزيل واحد يشاركه كل ربط (التحليل يعتمد المحتوى وحده).
+    const downloadToken = explicitToken || (await resolveBotCredentials()).token;
+    const threadId = msg.is_topic_message ? msg.message_thread_id : undefined;
+
+    const wantsVision =
+      content.kind === "image" && !!content.fileId && isGeminiConfigured() && !!downloadToken && content.sizeBytes <= MAX_VISION_BYTES;
+    let vision: { base64: string; mime: string } | null = null;
+    if (wantsVision) {
+      const dl = await downloadFileBase64With(downloadToken, content.fileId);
+      if (dl) vision = { base64: dl.base64, mime: dl.mime };
+    }
+
+    // r68: دمج حالات الروابط — إدراج أي ربط يفوز، ثم تحديث، ثم تخطٍّ
+    let outcome: UpdateStatus = "ignored";
+    for (const source of targets) {
+      const st = await ingestForBinding(source, { msg, update, content, threadId, vision });
+      if (st === "inserted") outcome = "inserted";
+      else if (st === "updated" && outcome !== "inserted") outcome = "updated";
+      else if (st === "skipped" && outcome === "ignored") outcome = "skipped";
+    }
+    return outcome;
+  } catch {
+    return "ignored";
+  }
+}
+
+/** r68: استيراد المنشور وفق قواعد ربط واحد — جسم processTelegramUpdate
+ * القديم نفسه (روابط مواضيع هذا الربط + بوابة المحتوى + upsert محمي
+ * التنقيح)، يُنفَّذ مرة لكل صف ربط للقناة. */
+async function ingestForBinding(
+  source: SourceLite,
+  ctx: {
+    msg: TgMessage;
+    update: TgUpdate;
+    content: ParsedContent;
+    threadId: number | undefined;
+    vision: { base64: string; mime: string } | null;
+  }
+): Promise<"inserted" | "updated" | "skipped" | "ignored"> {
+  try {
+    const { msg, update, content, threadId, vision } = ctx;
+    if (!content.kind) return "ignored"; // حماية نوعية — تحقق الأصل في الخارج
 
     // r63: مصادر المجموعات/المنتديات — نقاش «العام» لا يُستورد (إلا وسائط)،
     // أما مواضيع المنتدى فمحتوى بالعادة (مصادر، دروس، امتحانات…)
@@ -450,10 +565,6 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
       return "ignored";
     }
 
-    // تنزيل الصور يحتاج توكن بوت — الصريح (?b=) أولاً ثم الفعّال
-    const downloadToken = explicitToken || (await resolveBotCredentials()).token;
-
-    const threadId = msg.is_topic_message ? msg.message_thread_id : undefined;
     const link = buildDeepLink(source, msg.message_id, threadId);
     const postedAt = new Date(msg.date * 1000).toISOString();
     const postedBy = msg.from ? (msg.from.first_name || msg.from.username || "") : "";
@@ -497,17 +608,8 @@ export async function processTelegramUpdate(update: TgUpdate, explicitToken?: st
     }
 
     // --- التصنيف (Gemini ثم fallback محلي) ---
-    const wantsVision =
-      content.kind === "image" && !!content.fileId && isGeminiConfigured() && !!downloadToken && content.sizeBytes <= MAX_VISION_BYTES;
-    let imageBase64: string | undefined;
-    let imageMime: string | undefined;
-    if (wantsVision) {
-      const dl = await downloadFileBase64With(downloadToken, content.fileId);
-      if (dl) {
-        imageBase64 = dl.base64;
-        imageMime = dl.mime;
-      }
-    }
+    const imageBase64 = vision?.base64;
+    const imageMime = vision?.mime;
     const topicName = binding?.titleAr || topicNameFor(String(msg.chat.id), threadId);
     const context = `القناة: ${source.titleAr}${source.moduleId ? ` — المقياس: ${await getModuleName(source.moduleId)}` : ""}${bindingModuleId ? ` — المقياس (ربط الموضوع): ${await getModuleName(bindingModuleId)}` : ""}${topicName ? ` — الموضوع (Topic): ${topicName}` : ""}${msg.is_topic_message ? " — منشور داخل موضوع منتدى" : ""}`;
     // r64: مقاييس التخصص المرشحة للربط الذكي — يختار النموذج المقياس

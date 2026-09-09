@@ -2335,6 +2335,12 @@ interface TgSourceRow {
   itemCount: number;
   topicCount?: number;
   isSection?: boolean;
+  // r68: الربط متعدد القواعد
+  specialtyId?: number;
+  trackId?: number | null;
+  specialtyName?: string | null;
+  trackName?: string | null;
+  linkCount?: number;
 }
 
 interface TgItemAdminRow {
@@ -2818,6 +2824,9 @@ function TgSourcesManager() {
   const [editModuleId, setEditModuleId] = React.useState("");
   // r67: تعديل ربط الفوج (تحويل قناة إلى مساحة فوج والعكس)
   const [editCohortId, setEditCohortId] = React.useState("");
+  // r68: الممح — تحرير قاعدة ملمح الربط
+  const [editTrackId, setEditTrackId] = React.useState("");
+  const [editTracks, setEditTracks] = React.useState<Array<{ id: number; trackNameAr: string }>>([]);
   const [editIsActive, setEditIsActive] = React.useState(true);
   const [editApply, setEditApply] = React.useState(false);
   const [editSaving, setEditSaving] = React.useState(false);
@@ -2855,20 +2864,47 @@ function TgSourcesManager() {
   const [years, setYears] = React.useState<Year[]>([]);
   const [courses, setCourses] = React.useState<TgCourseRow[]>([]);
   const [cohorts, setCohorts] = React.useState<TgCohortRow[]>([]);
+  // r68: الربط متعدد القواعد — التخصص (المالك فقط) والملمح لكل ربط
+  const [specialtyChoice, setSpecialtyChoice] = React.useState("");
+  const [trackChoice, setTrackChoice] = React.useState("");
+  const [specialties, setSpecialties] = React.useState<Array<{ id: number; nameAr: string }>>([]);
+  const [tracks, setTracks] = React.useState<Array<{ id: number; trackNameAr: string }>>([]);
+  // التخصص المستهدف في نافذة الربط — المختار أو تخصص الرابط نفسه
+  const dialogSpecialtyId = specialtyChoice || String(user?.assignedSpecialtyId ?? 1);
+  const isOwnerLinker = user?.role === "OWNER";
 
   React.useEffect(() => {
-    fetch(`/api/onboarding/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
+    if (!isOwnerLinker) return;
+    fetch("/api/specialties", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => setSpecialties(
+        (data.specialties ?? []).map((sp: { id: number; nameAr: string }) => ({ id: Number(sp.id), nameAr: String(sp.nameAr ?? "") }))
+      ))
+      .catch(() => setSpecialties([]));
+  }, [isOwnerLinker]);
+
+  React.useEffect(() => {
+    fetch(`/api/onboarding/years?specialtyId=${dialogSpecialtyId}`)
       .then((r) => r.json()).then((data) => setYears(data.years ?? [])).catch(() => setYears([]));
-    fetch("/api/courses", { cache: "no-store" })
+    // r68: مقاييس التخصص المختار — المالك قد يربط القناة لتخصص آخر
+    const coursesUrl = isOwnerLinker && specialtyChoice
+      ? `/api/courses?specialtyId=${specialtyChoice}`
+      : "/api/courses";
+    fetch(coursesUrl, { cache: "no-store" })
       .then((r) => r.json()).then((data) => setCourses(data.courses ?? [])).catch(() => setCourses([]));
-  }, [user]);
+    // r68: ملامح التخصص المستهدف — الربط متعدد القواعد
+    fetch(`/api/onboarding/tracks?specialtyId=${dialogSpecialtyId}`)
+      .then((r) => r.json()).then((data) => setTracks(data.tracks ?? [])).catch(() => setTracks([]));
+    // تغيير التخصص يصفّر الممح (خيارات الملامح تتبع التخصص)
+    setTrackChoice("");
+  }, [dialogSpecialtyId, user?.role]);
 
   React.useEffect(() => {
     // r67: تُحمَّل الأفواج دوماً (بدون سنة) — قناة مساحة الفوج تُربط بفوج
     // مباشرة دون المرور بالسنة؛ اختيار سنة يضيّق القائمة فقط
-    fetch(`/api/cohort?specialtyId=${user?.assignedSpecialtyId ?? 1}${yearId ? `&academicYearId=${yearId}` : ""}`)
+    fetch(`/api/cohort?specialtyId=${dialogSpecialtyId}${yearId ? `&academicYearId=${yearId}` : ""}`)
       .then((r) => r.json()).then((data) => setCohorts(data.cohorts ?? [])).catch(() => setCohorts([]));
-  }, [yearId, user]);
+  }, [yearId, dialogSpecialtyId]);
 
   const fetchSources = React.useCallback(async () => {
     setLoading(true);
@@ -2911,6 +2947,9 @@ function TgSourcesManager() {
           ...(semester ? { semester: parseInt(semester) } : {}),
           ...(sourceType === "channel" && moduleId ? { moduleId: parseInt(moduleId) } : {}),
           ...(cohortId ? { cohortId: parseInt(cohortId) } : {}),
+          // r68: الربط متعدد القواعد — التخصص (الملك) والملمح
+          ...(user?.role === "OWNER" && specialtyChoice ? { specialtyId: parseInt(specialtyChoice) } : {}),
+          ...(trackChoice && !cohortId ? { trackId: parseInt(trackChoice) } : {}),
         }),
       });
       const data = await res.json();
@@ -2918,6 +2957,9 @@ function TgSourcesManager() {
       // r66: قسم منفصل تحت قناة موجودة/جديدة
       if (data.topicAdded) {
         toast.success(data.message ?? "أُضيف القسم منفصلاً — منشوراته ستُصنَّف تلقائياً إلى نطاقه");
+      } else if ((data.linkedVariations ?? 1) > 1) {
+        // r68: تنويعة إضافية لنفس القناة بقواعد مختلفة
+        toast.success(data.message ?? "رُبطت القناة بتنويعة إضافية — منشوراتها ستظهر وفق قواعد هذا الربط");
       } else if (cohortId) {
         // r67: مجموعة أو قناة مربوطة بمساحة فوج — كل ما يُنشر فيها يظهر بها تلقائياً
         toast.success("تم الربط — كل ما يُنشر فيها سيظهر في مساحة الفوج المشتركة تلقائياً (تأكد أن البوت مشرف)");
@@ -2925,7 +2967,7 @@ function TgSourcesManager() {
         toast.success("تم ربط القناة — منشوراتها الجديدة ستُستورد وتُصنّف تلقائياً (البوت مشرف فيها)");
         if (data.warning) toast.info(`القناة رُبطت — لكن: ${data.warning}`);
       }
-      setOpen(false); setHandle(""); setTitle(""); setModuleId(""); setCohortId(""); setSemester(""); setYearId("");
+      setOpen(false); setHandle(""); setTitle(""); setModuleId(""); setCohortId(""); setSemester(""); setYearId(""); setTrackChoice(""); setSpecialtyChoice("");
       fetchSources();
     } catch { toast.error("فشل الاتصال"); }
     finally { setSaving(false); }
@@ -2935,6 +2977,10 @@ function TgSourcesManager() {
     setEditTitle(s.titleAr);
     setEditModuleId(s.moduleId ? String(s.moduleId) : "");
     setEditCohortId(s.cohortId ? String(s.cohortId) : "");
+    // r68: ملامح تخصص المصدر — لتحرير قاعدة الممح
+    setEditTrackId(s.trackId ? String(s.trackId) : "");
+    fetch(`/api/onboarding/tracks?specialtyId=${s.specialtyId ?? user?.assignedSpecialtyId ?? 1}`)
+      .then((r) => r.json()).then((data) => setEditTracks(data.tracks ?? [])).catch(() => setEditTracks([]));
     setEditIsActive(s.isActive);
     setEditApply(false);
     setEditSource(s);
@@ -2955,6 +3001,8 @@ function TgSourcesManager() {
           ...(editSource.moduleId != null || editModuleId ? { moduleId: editModuleId ? parseInt(editModuleId) : null } : {}),
           // r67: ربط الفوج قابل للتعديل — تحويل القناة إلى مساحة فوج والعكس
           cohortId: editCohortId ? parseInt(editCohortId) : null,
+          // r68: الممح — يُرسل دائماً فيُحدَّث أو يبقى كما هو
+          trackId: editTrackId ? parseInt(editTrackId) : null,
           isActive: editIsActive,
           applyToItems: editApply,
         }),
@@ -3088,6 +3136,33 @@ function TgSourcesManager() {
                   <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isTopicLinkHint ? "مثال: سنة أولى، سنة ثانية، نحو…" : "يُقرأ تلقائياً من تيليجرام"} />
                 </div>
               </div>
+              {isOwnerLinker && specialties.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>التخصص</Label>
+                  <select
+                    value={specialtyChoice}
+                    onChange={(e) => {
+                      setSpecialtyChoice(e.target.value);
+                      setYearId(""); setModuleId(""); setCohortId(""); setTrackChoice("");
+                    }}
+                    className={selectCls}
+                  >
+                    <option value="">— تخصصي —</option>
+                    {specialties.filter((sp) => String(sp.id) !== String(user?.assignedSpecialtyId)).map((sp) => (
+                      <option key={sp.id} value={sp.id}>{sp.nameAr}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {!cohortId && tracks.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>الملمح (اختياري — لطلبة هذا الممح فقط)</Label>
+                  <select value={trackChoice} onChange={(e) => setTrackChoice(e.target.value)} className={selectCls}>
+                    <option value="">— كل الملامح —</option>
+                    {tracks.map((t) => <option key={t.id} value={t.id}>{t.trackNameAr}</option>)}
+                  </select>
+                </div>
+              )}
               {(sourceType === "group" || !cohortId) && (
                 <div className="space-y-1.5">
                   <Label>السنة الدراسية</Label>
@@ -3177,6 +3252,19 @@ function TgSourcesManager() {
                 </select>
               </div>
               {/* r67: ربط الفوج — تحويل المصدر إلى مساحة فوج مشتركة أو فكّه منها */}
+              {/* r68: الممح — تحرير قاعدة ملمح الربط */}
+              {editTracks.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>الملمح (اختياري)</Label>
+                  <select value={editTrackId} onChange={(e) => setEditTrackId(e.target.value)} className={selectCls}>
+                    <option value="">— كل الملامح —</option>
+                    {editSource.trackId != null && !editTracks.some((t) => String(t.id) === String(editSource.trackId)) ? (
+                      <option value={String(editSource.trackId)}>{editSource.trackName ?? `ملمح #${editSource.trackId}`}</option>
+                    ) : null}
+                    {editTracks.map((t) => <option key={t.id} value={t.id}>{t.trackNameAr}</option>)}
+                  </select>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label>الفوج — مساحة مشتركة</Label>
                 <select
@@ -3378,6 +3466,13 @@ function TgSourcesManager() {
                     {(s.topicCount ?? 0) > 0 && <span>• {s.topicCount} {(s.topicCount ?? 0) === 1 ? "قسم" : "أقسام"} مرتبطة</span>}
                     {s.moduleName ? <span>• المقياس: {s.moduleName}</span> : null}
                     {s.cohortName ? <span>• {s.cohortName}</span> : null}
+                    {s.trackName ? <span>• الممح: {s.trackName}</span> : null}
+                    {s.specialtyName && new Set(sources.map((x) => x.specialtyId ?? 0)).size > 1 ? (
+                      <span>• {s.specialtyName}</span>
+                    ) : null}
+                    {(s.linkCount ?? 1) > 1 ? (
+                      <span>• مربوطة {s.linkCount} {(s.linkCount ?? 1) === 2 ? "مرتين" : "مرات"}</span>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex gap-1 shrink-0">
@@ -3632,6 +3727,11 @@ function TgItemsManager() {
   const [deleteItem, setDeleteItem] = React.useState<TgItemAdminRow | null>(null);
   const [deleting, setDeleting] = React.useState(false);
 
+  // r68: الحذف الجماعي — تحديد متعدد لتنظيف المنشورات المصنّفة خطأ
+  const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set());
+  const [bulkConfirm, setBulkConfirm] = React.useState(false);
+  const [bulkDeleting, setBulkDeleting] = React.useState(false);
+
   React.useEffect(() => {
     fetch("/api/telegram/sources", { cache: "no-store" }).then((r) => r.json()).then((d) => setSources(d.sources ?? [])).catch(() => setSources([]));
     fetch("/api/courses", { cache: "no-store" }).then((r) => r.json()).then((d) => setCourses(d.courses ?? [])).catch(() => setCourses([]));
@@ -3641,6 +3741,7 @@ function TgItemsManager() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ mode: "admin" });
+      params.set("limit", "500"); // r68: أوسع نافذة للتنقيح الجماعي
       if (q.trim()) params.set("q", q.trim());
       if (sourceId) params.set("sourceId", sourceId);
       if (itemType) params.set("itemType", itemType);
@@ -3652,6 +3753,9 @@ function TgItemsManager() {
     finally { setLoading(false); }
   }, [q, sourceId, itemType]);
   React.useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  // r68: تغيير الفلاتر يبدأ تحديداً نظيفاً
+  React.useEffect(() => { setSelectedIds(new Set()); }, [q, sourceId, itemType]);
 
   async function patchItem(id: number, patch: Record<string, unknown>, successMsg: string) {
     setBusyId(id);
@@ -3680,6 +3784,36 @@ function TgItemsManager() {
       fetchItems();
     } catch { toast.error("فشل الحذف"); }
     finally { setDeleting(false); }
+  }
+
+  // r68: الحذف الجماعي — تحديد متعدد ودفعة واحدة
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  const allVisibleSelected = items.length > 0 && items.every((i) => selectedIds.has(i.id));
+  function toggleSelectAll() {
+    setSelectedIds((prev) => (prev.size >= items.length ? new Set() : new Set(items.map((i) => i.id))));
+  }
+
+  async function handleBulkDelete() {
+    const ids = items.filter((i) => selectedIds.has(i.id)).map((i) => i.id);
+    if (ids.length === 0) { setBulkConfirm(false); return; }
+    setBulkDeleting(true);
+    try {
+      const res = await fetch(`/api/telegram/items?ids=${ids.join(",")}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحذف الجماعي"); return; }
+      toast.success(data.message ?? `حُذف ${data.deleted} منشوراً`);
+      setBulkConfirm(false);
+      setSelectedIds(new Set());
+      fetchItems();
+    } catch { toast.error("فشل الحذف الجماعي"); }
+    finally { setBulkDeleting(false); }
   }
 
   async function handleReclassify(id: number) {
@@ -3737,6 +3871,25 @@ function TgItemsManager() {
         {items.length} منشوراً{hiddenCount > 0 ? ` — ${hiddenCount} مخفي` : ""} — المصنّف آلياً يعلّمه ✦
       </p>
 
+      {/* r68: شريط التحديد والحذف الجماعي */}
+      {items.length > 0 && (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+            <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} className="accent-primary" />
+            تحديد الكل ({items.length})
+          </label>
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-destructive">{selectedIds.size} محدد</span>
+              <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>إلغاء التحديد</Button>
+              <Button variant="destructive" size="sm" onClick={() => setBulkConfirm(true)}>
+                <Trash2 className="w-4 h-4 ml-1" />حذف المحدد
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {editItem && (
         <Dialog open onOpenChange={() => setEditItem(null)}>
           <DialogContent>
@@ -3786,6 +3939,28 @@ function TgItemsManager() {
         </Dialog>
       )}
 
+      {/* r68: تأكيد الحذف الجماعي */}
+      {bulkConfirm && (
+        <Dialog open onOpenChange={() => setBulkConfirm(false)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><Trash2 className="w-5 h-5" />حذف جماعي</DialogTitle></DialogHeader>
+            <p className="text-sm">
+              حذف <strong>{items.filter((i) => selectedIds.has(i.id)).length}</strong> منشوراً محدداً نهائياً من المكتبة؟
+              يبقى الأصل في تيليجرام — ويمكن استيراده مجدداً بإعادة نشره.
+            </p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              نصيحة: فعّل الفلاتر أعلاه (قناة/نوع/بحث) ثم «تحديد الكل» لتنظيف دفعة كاملة من المنشورات المصنّفة خطأ.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setBulkConfirm(false)}>إلغاء</Button>
+              <Button variant="destructive" onClick={handleBulkDelete} disabled={bulkDeleting}>
+                {bulkDeleting && <Loader2 className="w-4 h-4 ml-1 animate-spin" />}حذف نهائياً
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {loading ? (
         <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div>
       ) : items.length === 0 ? (
@@ -3797,6 +3972,13 @@ function TgItemsManager() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(i.id)}
+                      onChange={() => toggleSelect(i.id)}
+                      className="accent-primary shrink-0"
+                      aria-label="تحديد المنشور"
+                    />
                     {i.isFeatured && <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />}
                     <span className="font-bold text-sm">{i.titleAr || i.link}</span>
                     <Badge variant="outline" className="text-xs">{i.itemType}</Badge>
