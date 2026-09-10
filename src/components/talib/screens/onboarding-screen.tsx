@@ -12,6 +12,7 @@ import {
   Layers,
   Calendar,
   PartyPopper,
+  Users,
   Info,
   Loader2,
   AlertTriangle,
@@ -59,6 +60,19 @@ interface AcademicTrack {
   code: string;
 }
 
+interface StudyGroup {
+  id: number;
+  groupName: string;
+  description?: string;
+}
+// cohort_groups row — its display-name column is (confusingly) group_name
+interface Cohort {
+  id: number;
+  groupName: string;
+  groupId?: number | null;
+  subGroup?: string;
+}
+
 export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }: Props) {
   const { t } = useI18n();
   const { user, signOut } = useAuth();
@@ -66,9 +80,12 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
   const isChange = mode === "change";
 
   const [step, setStep] = React.useState(0);
-  // 6 steps: identity, institution, specialty, track, year, summary
+  // 6 steps (initial): identity, institution, specialty, track, year, summary
   // (cohort selection removed — students get assigned later by representative)
-  const totalSteps = 6;
+  // r76: change mode (OWNER) inserts a 7th step — المجموعة والفوج —
+  // between year and summary, so the owner can reselect their cohort
+  // (and automatically its group) or explicitly stay unassigned.
+  const totalSteps = isChange ? 7 : 6;
 
   const [institutions, setInstitutions] = React.useState<Institution[]>([]);
   const [specialties, setSpecialties] = React.useState<Specialty[]>([]);
@@ -95,6 +112,30 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
   const [email, setEmail] = React.useState(user?.email ?? "");
 
   const [saving, setSaving] = React.useState(false);
+
+  // ═══ r76 — المجموعة والفوج في وضع تغيير المسار (OWNER) ═══
+  // الإلحاق لم يكن جزءاً من التهيئة (يُلحق الطالب لاحقاً من ممثل الفوج)،
+  // وهذا كان يُقصي المالك من خطوة تغيير مساره: يُبدّل التخصص ويُترك
+  // بعنق فوج قديم لا يطابق مساره الجديد. الخطوة الجديدة تعطيه قراراً
+  // صريحاً: «بلا فوج»، أو مجموعة ← فوج داخلها (المجموعة تُشتق تلقائياً
+  // من الفوج عند الحفظ). وضع التهيئة الأولية لا يرى هذه الخطوة إطلاقاً.
+  const [groups, setGroups] = React.useState<StudyGroup[]>([]);
+  const [cohorts, setCohorts] = React.useState<Cohort[]>([]);
+  const [groupState, setGroupState] = React.useState<"loading" | "ok" | "error">("ok");
+  const [groupTick, setGroupTick] = React.useState(0);
+  const [cohState, setCohState] = React.useState<"loading" | "ok" | "error">("ok");
+  const [cohTick, setCohTick] = React.useState(0);
+  const [selectedGroup, setSelectedGroup] = React.useState<number | null>(null);
+  const [selectedCohort, setSelectedCohort] = React.useState<number | null>(null);
+  const [noCohort, setNoCohort] = React.useState(true);
+  // preselect ONCE: the owner's current membership, only while it still
+  // appears in the new path's lists (same restore-once rule as the
+  // institution/specialty/track/year preselects above)
+  const preselectScopeRef = React.useRef<{ groupId: number | null; cohortId: number | null } | null>(
+    mode === "change"
+      ? { groupId: user?.scopeGroupId ?? null, cohortId: user?.scopeCohortGroupId ?? null }
+      : null
+  );
 
   // round 36 (change mode): pre-select the user's CURRENT path so the flow
   // starts from where they are — every selection stays explicitly visible
@@ -254,6 +295,78 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
     return () => { alive = false; };
   }, [selectedSpecialty, selectedTrack, yearTrackTick]);
 
+  // r76 — مجموعات المسار المختار (وضع التغيير فقط): تُجلب بمفاتيح المسار
+  // الجديد نفسها (تخصص/سنة/ملمح)، والمالك يتصفح بحرية وفق قواعد الـ API.
+  React.useEffect(() => {
+    if (!isChange || !selectedSpecialty || !selectedYear) return;
+    let alive = true;
+    setGroupState("loading");
+    setSelectedGroup(null);
+    setSelectedCohort(null);
+    setNoCohort(true);
+    const trackParam = selectedTrack != null ? `&trackId=${selectedTrack}` : "";
+    fetch(`/api/groups?specialtyId=${selectedSpecialty}&academicYearId=${selectedYear}${trackParam}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (!alive) return;
+        setGroups(data.groups ?? []);
+        // restore the current group once (change mode)
+        const wanted = preselectScopeRef.current?.groupId ?? null;
+        if (wanted != null && (data.groups ?? []).some((g: StudyGroup) => g.id === wanted)) {
+          setSelectedGroup(wanted);
+          setNoCohort(false);
+        }
+        setGroupState("ok");
+      })
+      .catch(() => {
+        if (!alive) return;
+        setGroups([]);
+        setGroupState("error");
+      });
+    return () => { alive = false; };
+  }, [isChange, selectedSpecialty, selectedYear, selectedTrack, groupTick]);
+
+  // r76 — أفواج المجموعة المختارة (وضع التغيير فقط)
+  React.useEffect(() => {
+    if (!isChange || selectedGroup == null) return;
+    let alive = true;
+    setCohState("loading");
+    setSelectedCohort(null);
+    fetch(`/api/groups/${selectedGroup}/cohorts`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (!alive) return;
+        setCohorts(data.cohorts ?? []);
+        // restore the current cohort once — only inside its own group;
+        // otherwise the membership cannot survive the new path: fall
+        // back to the explicit «بلا فوج» state and consume the preselect.
+        const wanted = preselectScopeRef.current?.cohortId ?? null;
+        if (wanted != null) {
+          const found = (data.cohorts ?? []).some((c: Cohort) => c.id === wanted);
+          if (found) {
+            setSelectedCohort(wanted);
+          } else {
+            setSelectedGroup(null);
+            setNoCohort(true);
+          }
+          preselectScopeRef.current = null;
+        }
+        setCohState("ok");
+      })
+      .catch(() => {
+        if (!alive) return;
+        setCohorts([]);
+        setCohState("error");
+      });
+    return () => { alive = false; };
+  }, [isChange, selectedGroup, cohTick]);
+
   function canProceed() {
     switch (step) {
       case 0:
@@ -270,6 +383,13 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
       case 4:
         return selectedYear !== null;
       case 5:
+        // initial mode: the summary (always passable) — change mode: the
+        // group/cohort step, explicit «بلا فوج» OR a full group+cohort pick
+        return isChange
+          ? noCohort || (selectedGroup !== null && selectedCohort !== null)
+          : true;
+      case 6:
+        // change mode: the summary
         return true;
       default:
         return false;
@@ -298,7 +418,16 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
           // mode="change" from any other role (initial onboarding is
           // unaffected and stays open to everyone).
           mode: isChange ? "change" : "initial",
-          // No cohortId — student gets assigned later by representative (matches new Android behavior)
+          // r76 (owner path change): the group/cohort decision travels
+          // EXPLICITLY — a validated pick, or null/null to clear. Initial
+          // onboarding sends neither key: membership is preserved (round 9)
+          // and assignment stays with the representative.
+          ...(isChange
+            ? {
+                groupId: noCohort ? null : selectedGroup,
+                cohortId: noCohort ? null : selectedCohort,
+              }
+            : {}),
         }),
       });
 
@@ -638,6 +767,15 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
                       </button>
                     ))}
                   </div>
+                  {isChange ? (
+                    <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 text-xs text-primary dark:text-primary-foreground flex items-start gap-2">
+                      <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <p>
+                        الخطوة التالية تتيح لك اختيار مجموعتك وفوجك اختيارياً —
+                        أو ترك حسابك بلا فوج في المسار الجديد.
+                      </p>
+                    </div>
+                  ) : (
                   <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
                     <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                     <p>
@@ -646,13 +784,156 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
                       لفوجه يدوياً.
                     </p>
                   </div>
+                  )}
                     </>
                   )}
                 </div>
               </StepCard>
             )}
 
-            {step === 5 && (
+            {isChange && step === 5 && (
+              <StepCard
+                icon={<Users className="w-8 h-8 text-primary" />}
+                title="المجموعة والفوج"
+                subtitle="اختياري — أدرج نفسك في فوج مسارك الجديد أو اتركه فارغاً"
+              >
+                <div className="space-y-2">
+                  {/* خيار الصفر الصريح: بلا فوج — يُلغي أي إلحاق قديم عند الحفظ */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNoCohort(true);
+                      setSelectedGroup(null);
+                      setSelectedCohort(null);
+                    }}
+                    className={`w-full text-right p-4 rounded-xl border-2 transition-all ${
+                      noCohort
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-bold text-sm">بلا فوج</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          يبقى حسابك دون فوج في المسار الجديد — يمكنك الإلحاق لاحقاً
+                        </div>
+                      </div>
+                      {noCohort && (
+                        <Check className="w-4 h-4 text-primary shrink-0" aria-label="مُحدد" />
+                      )}
+                    </div>
+                  </button>
+
+                  {groupState === "loading" && (
+                    <p className="text-sm text-muted-foreground text-center py-6 flex items-center justify-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {t("common.loading")}
+                    </p>
+                  )}
+                  {groupState === "error" && (
+                    <div className="text-center py-6">
+                      <AlertTriangle className="w-8 h-8 mx-auto text-red-500 mb-2" />
+                      <p className="text-sm font-bold mb-1">تعذّر تحميل المجموعات</p>
+                      <Button variant="outline" size="sm" className="mt-2" onClick={() => setGroupTick((n) => n + 1)}>
+                        <RefreshCw className="w-3.5 h-3.5 ml-1" />إعادة المحاولة
+                      </Button>
+                    </div>
+                  )}
+                  {groupState === "ok" && groups.length === 0 && (
+                    <div className="rounded-lg bg-muted/40 border border-dashed p-4 text-center">
+                      <p className="text-sm font-bold">لا توجد مجموعات في هذا المسار بعد</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        اختر «بلا فوج» — ويمكنك الإلحاق لاحقاً بعد إنشاء المجموعات.
+                      </p>
+                    </div>
+                  )}
+                  {groupState === "ok" && groups.length > 0 && (
+                    <>
+                      <p className="text-[11px] font-bold text-muted-foreground pt-1">المجموعة</p>
+                      {groups.map((g) => (
+                        <button
+                          key={g.id}
+                          type="button"
+                          onClick={() => {
+                            setNoCohort(false);
+                            setSelectedGroup(g.id);
+                          }}
+                          className={`w-full text-right p-4 rounded-xl border-2 transition-all ${
+                            selectedGroup === g.id
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="font-bold text-sm">{g.groupName}</div>
+                              {g.description && (
+                                <div className="text-xs text-muted-foreground mt-1 truncate">
+                                  {g.description}
+                                </div>
+                              )}
+                            </div>
+                            {selectedGroup === g.id && (
+                              <Check className="w-4 h-4 text-primary shrink-0" aria-label="مُحدد" />
+                            )}
+                          </div>
+                        </button>
+                      ))}
+
+                      {selectedGroup != null && (
+                        <div className="pt-2 space-y-2">
+                          <p className="text-[11px] font-bold text-muted-foreground">الفوج داخل المجموعة</p>
+                          {cohState === "loading" && (
+                            <p className="text-sm text-muted-foreground text-center py-4 flex items-center justify-center gap-2">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              {t("common.loading")}
+                            </p>
+                          )}
+                          {cohState === "error" && (
+                            <div className="text-center py-4">
+                              <p className="text-sm font-bold mb-1">تعذّر تحميل الأفواج</p>
+                              <Button variant="outline" size="sm" className="mt-2" onClick={() => setCohTick((n) => n + 1)}>
+                                <RefreshCw className="w-3.5 h-3.5 ml-1" />إعادة المحاولة
+                              </Button>
+                            </div>
+                          )}
+                          {cohState === "ok" && cohorts.length === 0 && (
+                            <p className="text-xs text-muted-foreground text-center py-2">
+                              هذه المجموعة بلا أفواج بعد — اختر مجموعة أخرى أو «بلا فوج».
+                            </p>
+                          )}
+                          {cohState === "ok" && cohorts.length > 0 && (
+                            <div className="grid grid-cols-2 gap-2">
+                              {cohorts.map((c) => (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  onClick={() => setSelectedCohort(c.id)}
+                                  className={`p-3 rounded-xl border-2 transition-all text-sm font-bold flex items-center justify-between gap-2 ${
+                                    selectedCohort === c.id
+                                      ? "border-primary bg-primary/5 text-primary"
+                                      : "border-border hover:border-primary/50"
+                                  }`}
+                                >
+                                  <span className="truncate">{c.groupName}</span>
+                                  {selectedCohort === c.id && (
+                                    <Check className="w-4 h-4 shrink-0" aria-label="مُحدد" />
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </StepCard>
+            )}
+
+
+            {((!isChange && step === 5) || (isChange && step === 6)) && (
               <StepCard
                 icon={<PartyPopper className="w-8 h-8 text-primary" />}
                 title={t("onboarding.step6Title")}
@@ -688,14 +969,39 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
                       years.find((y) => y.id === selectedYear)?.yearName ?? "—"
                     }
                   />
-                  <SummaryRow
-                    label="الفوج"
-                    value={
-                      <span className="text-amber-600 dark:text-amber-400 font-bold">
-                        بلا فوج (قيد الإلحاق من المشرف)
-                      </span>
-                    }
-                  />
+                  {!isChange ? (
+                    <SummaryRow
+                      label="الفوج"
+                      value={
+                        <span className="text-amber-600 dark:text-amber-400 font-bold">
+                          بلا فوج (قيد الإلحاق من المشرف)
+                        </span>
+                      }
+                    />
+                  ) : (
+                    <>
+                      <SummaryRow
+                        label="المجموعة"
+                        value={
+                          noCohort
+                            ? "—"
+                            : groups.find((g) => g.id === selectedGroup)?.groupName ?? "—"
+                        }
+                      />
+                      <SummaryRow
+                        label="الفوج"
+                        value={
+                          noCohort ? (
+                            <span className="text-amber-600 dark:text-amber-400 font-bold">
+                              بلا فوج — قرارك في هذه الجولة
+                            </span>
+                          ) : (
+                            cohorts.find((c) => c.id === selectedCohort)?.groupName ?? "—"
+                          )
+                        }
+                      />
+                    </>
+                  )}
                 </div>
               </StepCard>
             )}

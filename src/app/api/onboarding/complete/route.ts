@@ -29,9 +29,14 @@ export async function POST(req: NextRequest) {
       specialtyId,
       academicYearId,
       cohortId,
+      groupId,
       trackId,
       mode,
     } = body;
+    // r76: the group/cohort decision travels EXPLICITLY in change mode —
+    // keys PRESENT (possibly null = clear) mean a decision was made; keys
+    // ABSENT (old client / initial mode) keep the round-9 preserve rule.
+    const hasScopeDecision = "cohortId" in body || "groupId" in body;
 
     if (!fullName?.trim() || !email?.trim()) {
       return NextResponse.json(
@@ -53,6 +58,46 @@ export async function POST(req: NextRequest) {
 
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
+
+      // r76 — change mode (OWNER): validate the destination cohort against
+      // the NEW path (same compatibility rule as direct assignment §2) and
+      // derive its parent study group automatically — الفوج داخل المجموعة.
+      let explicitScopeGroupId: number | null = null;
+      let explicitScopeCohortId: number | null = null;
+      let explicitGroupNumber = "";
+      let explicitScope = false;
+      if (mode === "change" && hasScopeDecision) {
+        explicitScope = true;
+        if (cohortId) {
+          const { data: destCohort } = await supabase
+            .from("cohort_groups")
+            .select("id, group_id, group_name, specialty_id, academic_year_id, track_id")
+            .eq("id", cohortId)
+            .maybeSingle();
+          if (!destCohort) {
+            return NextResponse.json({ error: "الفوج المختار غير موجود" }, { status: 404 });
+          }
+          if (groupId && Number(destCohort.group_id) !== Number(groupId)) {
+            return NextResponse.json(
+              { error: "الفوج المختار لا يتبع المجموعة المحددة" },
+              { status: 409 }
+            );
+          }
+          const sameSpecialty = !specialtyId || Number(destCohort.specialty_id) === Number(specialtyId);
+          const sameYear = !academicYearId || Number(destCohort.academic_year_id) === Number(academicYearId);
+          const sameTrack =
+            !trackId || destCohort.track_id == null || Number(destCohort.track_id) === Number(trackId);
+          if (!sameSpecialty || !sameYear || !sameTrack) {
+            return NextResponse.json(
+              { error: "هذا الفوج لا يطابق المسار الأكاديمي الجديد (التخصص/السنة/الملمح) — اختر فوجاً من المسار الجديد" },
+              { status: 409 }
+            );
+          }
+          explicitScopeGroupId = Number(destCohort.group_id); // المجموعة تُشتق تلقائياً من الفوج
+          explicitScopeCohortId = Number(destCohort.id);
+          explicitGroupNumber = String(destCohort.group_name ?? "");
+        }
+      }
 
       // Fetch related records for denormalized fields
       const [
@@ -84,22 +129,32 @@ export async function POST(req: NextRequest) {
       // localStorage) must NOT silently drop an existing sub-group
       // membership — the join-request assignment survives; cohort
       // selection isn't part of onboarding anymore.
+      // r76: change mode overrides this with the owner's EXPLICIT decision
+      // (a validated pick, or null/null to clear a membership that no
+      // longer matches the new path).
+      const userUpdate: Record<string, unknown> = {
+        full_name: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        assigned_specialty_id: specialtyId ?? user.assignedSpecialtyId,
+        scope_institution_id: institutionId ?? null,
+        scope_specialty_id: specialtyId ?? null,
+        scope_academic_year_id: academicYearId ?? null,
+        scope_track_id: trackId ?? null,
+        specialty_name: specialty?.name_ar ?? "",
+        year_name: year?.year_name ?? "",
+      };
+      if (explicitScope) {
+        userUpdate.scope_group_id = explicitScopeGroupId;
+        userUpdate.scope_cohort_group_id = explicitScopeCohortId;
+        userUpdate.group_number = explicitGroupNumber;
+      } else {
+        userUpdate.scope_cohort_group_id = cohortId ?? user.scopeCohortGroupId ?? null;
+        // keep the existing group label when membership is preserved
+        userUpdate.group_number = cohort ? String(cohort.group_name) : (user.scopeCohortGroupId != null ? undefined : "");
+      }
       const { error: userError } = await supabase
         .from("app_users")
-        .update({
-          full_name: fullName.trim(),
-          email: email.trim().toLowerCase(),
-          assigned_specialty_id: specialtyId ?? user.assignedSpecialtyId,
-          scope_institution_id: institutionId ?? null,
-          scope_specialty_id: specialtyId ?? null,
-          scope_academic_year_id: academicYearId ?? null,
-          scope_cohort_group_id: cohortId ?? user.scopeCohortGroupId ?? null,
-          scope_track_id: trackId ?? null,
-          specialty_name: specialty?.name_ar ?? "",
-          year_name: year?.year_name ?? "",
-          // keep the existing group label when membership is preserved
-          group_number: cohort ? String(cohort.group_name) : (user.scopeCohortGroupId != null ? undefined : ""),
-        })
+        .update(userUpdate)
         .eq("id", user.id);
 
       if (userError) {
@@ -125,9 +180,9 @@ export async function POST(req: NextRequest) {
           track_id: trackId ?? null,
           selected_specialty_id: specialtyId ?? 1,
           selected_year_id: academicYearId ?? 1,
-          selected_cohort_id: cohortId ?? user.scopeCohortGroupId ?? null,
+          selected_cohort_id: explicitScope ? explicitScopeCohortId : (cohortId ?? user.scopeCohortGroupId ?? null),
           academic_year_name: year?.year_name ?? "",
-          group_number: cohort?.group_name ?? "",
+          group_number: explicitScope ? explicitGroupNumber : (cohort?.group_name ?? ""),
           is_configured: true,
         });
 
@@ -155,23 +210,65 @@ export async function POST(req: NextRequest) {
       ? await db.academicTrack.findUnique({ where: { id: trackId } })
       : null;
 
+    // r76 — change mode (OWNER): explicit group/cohort decision, validated
+    // against the NEW path (mirror of the Supabase branch above).
+    let explicitScopeGroupId: number | null = null;
+    let explicitScopeCohortId: number | null = null;
+    let explicitGroupNumber = "";
+    let explicitScope = false;
+    if (mode === "change" && hasScopeDecision) {
+      explicitScope = true;
+      if (cohortId) {
+        const destCohort = await db.cohortGroup.findUnique({ where: { id: Number(cohortId) } });
+        if (!destCohort) {
+          return NextResponse.json({ error: "الفوج المختار غير موجود" }, { status: 404 });
+        }
+        if (groupId && Number(destCohort.groupId) !== Number(groupId)) {
+          return NextResponse.json(
+            { error: "الفوج المختار لا يتبع المجموعة المحددة" },
+            { status: 409 }
+          );
+        }
+        const sameSpecialty = !specialtyId || Number(destCohort.specialtyId) === Number(specialtyId);
+        const sameYear = !academicYearId || Number(destCohort.academicYearId) === Number(academicYearId);
+        const sameTrack =
+          !trackId || destCohort.trackId == null || Number(destCohort.trackId) === Number(trackId);
+        if (!sameSpecialty || !sameYear || !sameTrack) {
+          return NextResponse.json(
+            { error: "هذا الفوج لا يطابق المسار الأكاديمي الجديد (التخصص/السنة/الملمح) — اختر فوجاً من المسار الجديد" },
+            { status: 409 }
+          );
+        }
+        explicitScopeGroupId = Number(destCohort.groupId);
+        explicitScopeCohortId = Number(destCohort.id);
+        explicitGroupNumber = String(destCohort.groupName ?? "");
+      }
+    }
+
+    const userData: Record<string, unknown> = {
+      fullName: fullName.trim(),
+      email: email.trim().toLowerCase(),
+      assignedSpecialtyId: specialtyId ?? user.assignedSpecialtyId,
+      scopeInstitutionId: institutionId ?? null,
+      scopeSpecialtyId: specialtyId ?? null,
+      scopeAcademicYearId: academicYearId ?? null,
+      scopeTrackId: trackId ?? null,
+      specialtyName: specialty?.nameAr ?? "",
+      yearName: year?.yearName ?? "",
+    };
+    if (explicitScope) {
+      userData.scopeGroupId = explicitScopeGroupId;
+      userData.scopeCohortGroupId = explicitScopeCohortId;
+      userData.groupNumber = explicitGroupNumber;
+    } else {
+      // round 9: re-onboarding preserves an existing membership
+      userData.scopeCohortGroupId = cohortId ?? user.scopeCohortGroupId ?? null;
+      userData.groupNumber = cohort ? cohort.groupName : (user.scopeCohortGroupId != null ? undefined : "");
+    }
+
     await db.appUser.update({
       where: { id: user.id },
-      data: {
-        fullName: fullName.trim(),
-        email: email.trim().toLowerCase(),
-        assignedSpecialtyId: specialtyId ?? user.assignedSpecialtyId,
-        scopeInstitutionId: institutionId ?? null,
-        scopeSpecialtyId: specialtyId ?? null,
-        scopeAcademicYearId: academicYearId ?? null,
-        // round 9: preserve an existing membership on re-onboarding
-        scopeCohortGroupId: cohortId ?? user.scopeCohortGroupId ?? null,
-        scopeTrackId: trackId ?? null,
-        specialtyName: specialty?.nameAr ?? "",
-        yearName: year?.yearName ?? "",
-        // keep the existing group label when membership is preserved
-        groupNumber: cohort ? cohort.groupName : (user.scopeCohortGroupId != null ? undefined : ""),
-      },
+      data: userData as never,
     });
 
     // PER-USER profile (id = user.id)
@@ -187,9 +284,9 @@ export async function POST(req: NextRequest) {
       trackId: trackId ?? null,
       selectedSpecialtyId: specialtyId ?? 1,
       selectedYearId: academicYearId ?? 1,
-      selectedCohortId: cohortId ?? user.scopeCohortGroupId ?? null,
+      selectedCohortId: explicitScope ? explicitScopeCohortId : (cohortId ?? user.scopeCohortGroupId ?? null),
       academicYearName: year?.yearName ?? "",
-      groupNumber: cohort?.groupName ?? "",
+      groupNumber: explicitScope ? explicitGroupNumber : (cohort?.groupName ?? ""),
       isConfigured: true,
     };
 
