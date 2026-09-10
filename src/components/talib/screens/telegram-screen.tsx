@@ -256,7 +256,8 @@ export function TalibTelegramScreen() {
       setSetup(data.setup ?? null);
       setYearLock(data.yearLock ?? null);
       setTrackLock(data.trackLock ?? null);
-      if (data.tablesReady === false) setTablesReady(false);
+      // r72: يُصفّر كل جلب — لا يعلق تحذير خطأ عابر بعد تعافٍ لاحق
+      setTablesReady(data.tablesReady !== false);
     } catch {
       setItems([]);
     } finally {

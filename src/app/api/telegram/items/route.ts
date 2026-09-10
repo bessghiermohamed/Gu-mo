@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { tableStateFromError } from "@/lib/supabase/table-state";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canUploadContent } from "@/lib/auth/permissions";
 import { TG_ITEM_TYPES } from "@/lib/telegram/types";
@@ -436,7 +437,9 @@ export async function GET(req: NextRequest) {
         .order("posted_at", { ascending: false, nullsFirst: false })
         .limit(limit);
       if (error) {
-        return NextResponse.json({ items: [], myCohortId, tablesReady: false, error: "جدول تيليجرام غير منشأ — نفّذ supabase_telegram.sql" });
+        // r72: تمييز «الجدول غير منشأ» عن الخطأ العابر — رسالة صادقة
+        const state = tableStateFromError(error.message, "supabase_telegram.sql");
+        return NextResponse.json({ items: [], myCohortId, tablesReady: false, tableMissing: state.tableMissing, error: state.message });
       }
       rows = (data ?? []).map((r: Record<string, unknown>) => toItemRow(r));
     } else {

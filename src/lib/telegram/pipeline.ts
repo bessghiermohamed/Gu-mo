@@ -427,20 +427,24 @@ export function isMeaningfulTitle(title: string): boolean {
 }
 
 // ============================================================
-// ذاكرة أعمدة r71 (بلا DDL — استكشاف مرة لكل مثيل)
+// ذاكرة أعمدة r71 (بلا DDL — استكشاف بمدة صلاحية)
 // ============================================================
 
 /**
  * هل أعمدة الذكاء (class_confidence/class_status/class_meta) موجودة؟
- * يُستكشف مرة واحدة لكل مثيل خادم (وعد مخزَّن)؛ الفشل (42703) يعني أن
- * ملف supabase_telegram_intelligence.sql لم يُنفَّذ بعد — فتعمل البنية
- * بسلوك ما قبل r71 (نشر كل ما يجتاز البوابة) بلا كسر أي شيء.
+ * يُستكشاف مع كاش قصير (60 ثانية — r72) بدل التخزين الدائم لكل عمر
+ * المثيل: الفشل (42703) يعني أن ملف supabase_telegram_intelligence.sql
+ * لم يُنفَّذ بعد فتعمل البنية بسلوك ما قبل r71 (نشر كل ما يجتاز
+ * البوابة) بلا كسر أي شيء — لكن بعد أن ينفّذ المالك الملف تلتقط
+ * الجولة التالية الجاهزية خلال دقيقة بدل انتظار إعادة تدوير المثيل.
+ * كذلك لا يعلّق «خطأ عابر» الحالة على «غير جاهز» إلى الأبد.
  */
-let columnsReadyCache: Promise<boolean> | null = null;
+const COLUMNS_PROBE_TTL_MS = 60_000;
+let columnsReadyCache: { at: number; promise: Promise<boolean> } | null = null;
 export function intelligenceColumnsReady(): Promise<boolean> {
-  if (!columnsReadyCache) {
-    columnsReadyCache = (async () => {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return true; // Prisma محلي: المخطط محدَّث دائماً
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return Promise.resolve(true); // Prisma محلي: المخطط محدَّث دائماً
+  if (!columnsReadyCache || Date.now() - columnsReadyCache.at > COLUMNS_PROBE_TTL_MS) {
+    const promise = (async () => {
       try {
         const { createSupabaseServerClient } = await import("@/lib/supabase/server");
         const supabase = await createSupabaseServerClient();
@@ -451,9 +455,10 @@ export function intelligenceColumnsReady(): Promise<boolean> {
       }
     })();
     // لا ندع رفضاً غير معالَج يبقى معلقاً في الذاكرة
-    columnsReadyCache.catch(() => {});
+    promise.catch(() => {});
+    columnsReadyCache = { at: Date.now(), promise };
   }
-  return columnsReadyCache;
+  return columnsReadyCache.promise;
 }
 
 /** يسجل حدث ذكاء (مراقبة التنسيق بين النماذج) — بلا أسرار أبداً.

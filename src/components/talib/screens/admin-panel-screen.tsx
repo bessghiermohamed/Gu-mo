@@ -3126,7 +3126,8 @@ function TgSourcesManager() {
       const res = await fetch("/api/telegram/sources", { cache: "no-store" });
       const data = await res.json();
       setSources(data.sources ?? []);
-      if (data.tablesReady === false) setTablesReady(false);
+      // r72: يُصفّر كل جلب — لا يعلق تحذير خطأ عابر بعد تعافٍ لاحق
+      setTablesReady(data.tablesReady !== false);
     } catch { setSources([]); }
     finally { setLoading(false); }
   }, []);
@@ -3750,6 +3751,9 @@ function TgTopicsDialog({ source, onClose }: { source: TgSourceRow; onClose: () 
   const [topics, setTopics] = React.useState<TgTopicRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [tablesReady, setTablesReady] = React.useState(true);
+  // r72: هل الغياب حقيقي (جدول غير منشأ) أم خطأ عابر؟ — رسالة صادقة
+  // بدل اتهام SQL منفّذ (حادثة 2026-09-10: المالك نفّذ الملف فعلًا)
+  const [tableMissing, setTableMissing] = React.useState(true);
 
   // add form
   const [handle, setHandle] = React.useState("");
@@ -3789,7 +3793,9 @@ function TgTopicsDialog({ source, onClose }: { source: TgSourceRow; onClose: () 
       const res = await fetch(`/api/telegram/topics?sourceId=${source.id}`, { cache: "no-store" });
       const data = await res.json();
       setTopics(data.topics ?? []);
-      if (data.tablesReady === false) setTablesReady(false);
+      // r72: يُصفّر كل جلب — لا يعلق تحذير خطأ عابر بعد تعافٍ لاحق
+      setTablesReady(data.tablesReady !== false);
+      if (data.tablesReady === false) setTableMissing(data.tableMissing !== false);
     } catch { setTopics([]); }
     finally { setLoading(false); }
   }, [source.id]);
@@ -3854,7 +3860,11 @@ function TgTopicsDialog({ source, onClose }: { source: TgSourceRow; onClose: () 
 
           {!tablesReady ? (
             <div className="rounded-lg bg-amber-500/10 text-amber-700 text-xs p-3 leading-relaxed">
-              جدول المواضيع غير منشأ — نفّذ <span className="font-mono" dir="ltr">supabase_telegram_topics.sql</span> في محرر SQL داخل Supabase ثم أعد فتح هذه النافذة.
+              {tableMissing ? (
+                <>جدول المواضيع غير منشأ — نفّذ <span className="font-mono" dir="ltr">supabase_telegram_topics.sql</span> في محرر SQL داخل Supabase ثم أعد فتح هذه النافذة.</>
+              ) : (
+                <>تعذّر قراءة روابط المواضيع — خطأ عابر في الاتصال وليس غياب الجدول: إن كنت نفّذت الملف سابقاً فهو منفّذ ولا يلزم إعادة تنفيذه.{" "}<button type="button" className="underline font-bold" onClick={() => fetchTopics()}>إعادة المحاولة</button></>
+              )}
             </div>
           ) : loading ? (
             <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div>
@@ -3983,6 +3993,8 @@ const AI_EVENT_STAGES: Record<string, string> = {
 function TgAiLogCard() {
   const [events, setEvents] = React.useState<AiEventRow[]>([]);
   const [ready, setReady] = React.useState<boolean | null>(null);
+  // r72: هل الغياب حقيقي (جدول غير منشأ) أم خطأ عابر؟
+  const [tableMissing, setTableMissing] = React.useState(true);
   const [loading, setLoading] = React.useState(true);
   const [stageFilter, setStageFilter] = React.useState("");
 
@@ -3994,6 +4006,7 @@ function TgAiLogCard() {
       const data = await res.json();
       setEvents(data.events ?? []);
       setReady(data.ready !== false);
+      if (data.ready === false) setTableMissing(data.tableMissing !== false);
     } catch {
       setEvents([]);
       setReady(false);
@@ -4014,9 +4027,20 @@ function TgAiLogCard() {
     return (
       <Card className="p-3 border-amber-500/40 bg-amber-500/10">
         <p className="text-xs text-amber-700 leading-relaxed">
-          سجل الذكاء يحتاج جدول <span dir="ltr" className="font-mono">ai_events</span> — نفّذ ملف{" "}
-          <span dir="ltr" className="font-mono">download/supabase_telegram_intelligence.sql</span>{" "}
-          مرة واحدة في محرر SQL داخل Supabase ثم أعد التحميل. حتى ذلك يواصل التصنيف العمل — لكن بلا أثر مرئي.
+          {tableMissing ? (
+            <>
+              سجل الذكاء يحتاج جدول <span dir="ltr" className="font-mono">ai_events</span> — نفّذ ملف{" "}
+              <span dir="ltr" className="font-mono">download/supabase_telegram_intelligence.sql</span>{" "}
+              مرة واحدة في محرر SQL داخل Supabase ثم أعد التحميل. حتى ذلك يواصل التصنيف العمل — لكن بلا أثر مرئي.
+            </>
+          ) : (
+            <>
+              تعذّر قراءة سجل الذكاء — خطأ عابر في الاتصال وليس غياب الجدول: إن كنت نفّذت ملف{" "}
+              <span dir="ltr" className="font-mono">supabase_telegram_intelligence.sql</span>{" "}
+              سابقاً فهو منفّذ ولا يلزم إعادة تنفيذه.{" "}
+              <button type="button" className="underline font-bold" onClick={() => fetchEvents()} disabled={loading}>إعادة المحاولة</button>
+            </>
+          )}
         </p>
       </Card>
     );

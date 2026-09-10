@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { tableStateFromError } from "@/lib/supabase/table-state";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canUploadContent } from "@/lib/auth/permissions";
 
@@ -42,8 +43,10 @@ export async function GET(req: NextRequest) {
       if (sourceId != null) q = q.eq("source_id", sourceId);
       const { data, error } = await q;
       if (error) {
-        // الجدول غير منشأ (PGRST205) — الحالة الطبيعية قبل تنفيذ SQL
-        return NextResponse.json({ events: [], ready: false });
+        // r72: تمييز «الجدول غير منشأ» (PGRST205) عن الخطأ العابر —
+        // رسالة صادقة لا تُقنع المالك بإعادة تنفيذ SQL منفّذ
+        const state = tableStateFromError(error.message, "supabase_telegram_intelligence.sql");
+        return NextResponse.json({ events: [], ready: false, tableMissing: state.tableMissing, error: state.message });
       }
       const events = (data ?? []).map((r: Record<string, unknown>) => ({
         id: Number(r.id ?? 0),

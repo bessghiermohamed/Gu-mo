@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { tableStateFromError } from "@/lib/supabase/table-state";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canUploadContent } from "@/lib/auth/permissions";
 import { loadSourceById } from "@/lib/telegram/ingest";
@@ -151,8 +152,11 @@ export async function GET(req: NextRequest) {
         .eq("source_id", sourceId)
         .order("tg_thread_id", { ascending: true });
       if (error) {
+        // r72: تمييز «الجدول غير منشأ» عن الخطأ العابر — رسالة صادقة
+        // لا تُقنع المالك بإعادة تنفيذ SQL منفّذ (حادثة 2026-09-10)
+        const state = tableStateFromError(error.message, "supabase_telegram_topics.sql");
         return NextResponse.json(
-          { topics: [], tablesReady: false, error: "جدول المواضيع غير منشأ — نفّذ supabase_telegram_topics.sql في محرر SQL داخل Supabase" },
+          { topics: [], tablesReady: false, tableMissing: state.tableMissing, error: state.message },
           { status: 200 }
         );
       }
