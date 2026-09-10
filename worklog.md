@@ -842,3 +842,19 @@ Work Log:
 
 Stage Summary:
 - The owner's reported bug is fixed and PROVEN live on production with real students: posts now appear for the RIGHT students under the RIGHT modules with clean titles; ambiguous/conflicting content routes to an admin moderation queue instead of silent misfiling; the AI's reasoning is fully observable (confidence components + reasons + engine/model per decision).
+
+---
+Task ID: r72
+Agent: main (Super Z)
+Task: «نفّذت supabase_telegram_topics.sql والتطبيق يقول إنه لم يُنفَّذ» — تشخيص حي + إصلاح صدق الرسائل.
+
+Work Log:
+- Live diagnosis with owner-supplied keys: telegram_topics EXISTS in prod (PostgREST OpenAPI: 47 tables incl. it, all 10 columns); ai_events + r71 intelligence columns exist and are being written (items 176-183 with class_confidence/class_meta, incl. review-queue captures at 15:45Z). The exact app query (same columns+filter+order) returns 200 via the app itself (owner session probe, temp row in device_sessions, deleted after). App env points to the correct project (api/dev/env). Conclusion: BOTH pending SQL files were executed correctly; the «not executed» message was a transient error (schema-cache reload window / network) misclassified as «table missing».
+- Root cause family (3 sites): (1) topics GET returned the «نفّذ الملف» message for ANY error; (2) pipeline.ts intelligenceColumnsReady cached even transient failures FOREVER per server instance; (3) admin UIs latched tablesReady=false for the dialog's lifetime.
+- Fix r72 (commit 2f5bc3a): new src/lib/supabase/table-state.ts (isMissingTableError + tableStateFromError, convention already proven in sources route); topics/ai-events/items GETs now return tableMissing + honest message («خطأ عابر … لا يلزم إعادة تنفيذ»); intelligenceColumnsReady TTL cache 60s; admin-panel topics dialog + AI-log card distinguish the two messages with a retry button; all tablesReady states reset on every fetch (no latching).
+- Tests: r72-check.ts 16/16 (10 error-classification cases + 6 message cases), regressions r65 30/30 and r71 61/61, tsc 0, eslint 0, next build ✓. Deployed (Vercel READY), live-verified: topics 200 {topics:[]}, ai-events {events:[],ready:true}, items intelligence.ready=true, homepage 200. Diagnostic session deleted (204 + verified empty).
+- Report: download/تقرير-الجولة-72.md. Noted for owner: bot_config (r62) is still uncreated and OPTIONAL (bot works via env); all our SQL files are idempotent so the owner's repeated executions did no harm.
+
+Stage Summary:
+- The owner's SQL was executed and IS live — the app's message was lying; now it tells the truth: real absence (PGRST205/204/42703/does-not-exist/schema-cache) → «run the file»; anything else → «transient error, retry; your executed file is fine».
+- Staleness eliminated: no more per-instance forever-caches or latched UI states; recovery within 60s / one retry.
