@@ -60,6 +60,8 @@ const db = new Database("/home/z/my-project/db/custom.db");
 db.run("PRAGMA foreign_keys = OFF");
 
 db.run("DELETE FROM AiEvent");
+// بقايا أجنحة الانحدار r66-r69 في نفس القاعدة المحلية — تصفير قائمة المراجعة قبل الفحص
+db.run("DELETE FROM TelegramItem WHERE classStatus = 'review'");
 db.run("DELETE FROM TelegramItem WHERE sourceId IN (SELECT id FROM TelegramSource WHERE tgChannelId LIKE '-100999%')");
 db.run("DELETE FROM TelegramSource WHERE tgChannelId LIKE '-100999%'");
 db.run("DELETE FROM DeviceSession");

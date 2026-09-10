@@ -827,7 +827,11 @@ export async function PATCH(req: NextRequest) {
                 sourceTrackCode: scope.trackCode,
               })
             : null;
-          const newModule = match?.module?.id ?? cls.moduleMatch?.id ?? null;
+          let newModule = match?.module?.id ?? cls.moduleMatch?.id ?? null;
+          // r71 متانة: فشل عابر للنموذج (مهلة/حصة) لا يمحو مقياساً معلوماً —
+          // نحتفظ بمقياس المنشور الحالي بدل تصفيره (شوهد حياً: جولة أعادت
+          // معالجة منشور مصحح فمسح مقياسه لأن Gemini تعطل لحظياً)
+          if (newModule == null && item.moduleId != null) newModule = item.moduleId;
           const confidence = scoreConfidence({
             moduleFromBinding: false,
             match: match ?? { module: null, yearAgreement: "unknown", trackAgreement: "unknown", ambiguous: false, reason: "لا مطابقة" },
