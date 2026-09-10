@@ -17,7 +17,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase/server";
+import { tableStateFromError } from "@/lib/supabase/table-state";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canUploadContent } from "@/lib/auth/permissions";
 import { parseChannelHandle, resolveChat, isBotConfigured } from "@/lib/telegram/ingest";
@@ -357,18 +358,28 @@ async function upsertTopicBinding(
       return { ok: false, created: false, error: msg };
     }
     if (data) {
-      const { error } = await supabase
+      // r73: الكتابة بعميل service role عند توفر المفتاح (يتجاوز RLS)،
+      // وإلا anon (يعمل بعد تنفيذ supabase_topics_write_policies.sql)
+      let write = supabase;
+      if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+        try { write = createSupabaseAdminClient(); } catch { /* anon بديل آمن */ }
+      }
+      const { error } = await write
         .from("telegram_topics")
         .update({ title_ar: finalTitle, link: finalLink, year_id: yearId, module_id: moduleId, is_general: false })
         .eq("id", Number(data.id));
-      if (error) return { ok: false, created: false, error: error.message };
+      if (error) return { ok: false, created: false, error: tableStateFromError(error.message, "supabase_telegram_topics.sql").message };
       invalidateTopicCache(sourceId);
       return { ok: true, created: false };
     }
-    const { error } = await supabase
+    let writeIns = supabase;
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+      try { writeIns = createSupabaseAdminClient(); } catch { /* anon بديل آمن */ }
+    }
+    const { error } = await writeIns
       .from("telegram_topics")
       .insert({ source_id: sourceId, tg_thread_id: threadId, title_ar: finalTitle, link: finalLink, year_id: yearId, module_id: moduleId, is_general: false });
-    if (error) return { ok: false, created: false, error: error.message };
+    if (error) return { ok: false, created: false, error: tableStateFromError(error.message, "supabase_telegram_topics.sql").message };
     invalidateTopicCache(sourceId);
     return { ok: true, created: true };
   }

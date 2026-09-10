@@ -18,7 +18,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase/server";
 import { tableStateFromError } from "@/lib/supabase/table-state";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canUploadContent } from "@/lib/auth/permissions";
@@ -27,6 +27,26 @@ import { parseTopicHandle, invalidateTopicCache } from "@/lib/telegram/topic-bin
 import { moduleById } from "@/lib/telegram/module-match";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+/**
+ * r73: عميل الكتابة لجدول telegram_topics.
+ * الجذر (تشخيص 2026-09-11): ملف r65 منح anon صلاحية SELECT فقط، بينما
+ * الكتابة كانت تمر بمفتاح anon العام فتُرفض 42501 (RLS)، وكانت رسالة
+ * المسار تظهر خطأً «الجدول غير منشأ».
+ * التفضيل: عميل service role (يتجاوز RLS) عند توفر SUPABASE_SERVICE_ROLE_KEY،
+ * وإلا anon (يعمل بعد تنفيذ supabase_topics_write_policies.sql).
+ * لا يُرمي عند غياب المفتاح — يعود إلى anon بصمت.
+ */
+async function getTopicsWriteClient() {
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+    try {
+      return createSupabaseAdminClient();
+    } catch {
+      // مفتاح الخدمة مضبوط لكن إنشاء العميل فشل — anon آمن بديل
+    }
+  }
+  return await createSupabaseServerClient();
+}
 
 interface TopicRow {
   id: number;
@@ -245,6 +265,7 @@ export async function POST(req: NextRequest) {
 
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
+      const supabaseWrite = await getTopicsWriteClient();
       const { data: dup } = await supabase
         .from("telegram_topics")
         .select("id")
@@ -252,7 +273,7 @@ export async function POST(req: NextRequest) {
         .eq("tg_thread_id", tgThreadId)
         .maybeSingle();
       if (dup) return NextResponse.json({ error: "هذا الموضوع مربوط مسبقاً — عدّله بدل إضافته" }, { status: 409 });
-      const { data, error } = await supabase
+      const { data, error } = await supabaseWrite
         .from("telegram_topics")
         .insert({
           source_id: sourceId, tg_thread_id: tgThreadId, title_ar: titleAr, link,
@@ -261,8 +282,10 @@ export async function POST(req: NextRequest) {
         .select()
         .single();
       if (error) {
+        // r73: تصنيف صادق — رفض RLS (أذونات) ≠ جدول غائب ≠ خطأ عابر
+        const state = tableStateFromError(error.message, "supabase_telegram_topics.sql");
         return NextResponse.json(
-          { error: error.message.includes("telegram_topics") ? "جدول المواضيع غير منشأ — نفّذ supabase_telegram_topics.sql" : error.message },
+          { error: state.message, tableMissing: state.tableMissing, permissionDenied: state.permissionDenied ?? false },
           { status: 500 }
         );
       }
@@ -310,7 +333,7 @@ export async function PATCH(req: NextRequest) {
     if (targetError) return NextResponse.json({ error: targetError }, { status: 403 });
 
     if (isVercel) {
-      const supabase = await createSupabaseServerClient();
+      const supabaseWrite = await getTopicsWriteClient();
       const patch: Record<string, unknown> = {};
       if (body.titleAr !== undefined) patch.title_ar = String(body.titleAr).trim().slice(0, 120);
       if (body.link !== undefined) patch.link = /^https?:\/\//i.test(String(body.link)) ? String(body.link).trim() : "";
@@ -318,8 +341,12 @@ export async function PATCH(req: NextRequest) {
       if (body.moduleId !== undefined) patch.module_id = isGeneral ? null : moduleId;
       if (body.yearId !== undefined) patch.year_id = isGeneral ? null : yearId;
       if (Object.keys(patch).length === 0) return NextResponse.json({ error: "لا توجد تغييرات" }, { status: 400 });
-      const { error } = await supabase.from("telegram_topics").update(patch).eq("id", id);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      const { error } = await supabaseWrite.from("telegram_topics").update(patch).eq("id", id);
+      if (error) {
+        // r73: تصنيف صادق — رفض RLS (أذونات) ≠ جدول غائب ≠ خطأ عابر
+        const state = tableStateFromError(error.message, "supabase_telegram_topics.sql");
+        return NextResponse.json({ error: state.message, tableMissing: state.tableMissing, permissionDenied: state.permissionDenied ?? false }, { status: 500 });
+      }
     } else {
       await db.telegramTopic.update({
         where: { id },
@@ -356,9 +383,13 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "هذا المصدر خارج نطاقك" }, { status: 403 });
     }
     if (isVercel) {
-      const supabase = await createSupabaseServerClient();
-      const { error } = await supabase.from("telegram_topics").delete().eq("id", id);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      const supabaseWrite = await getTopicsWriteClient();
+      const { error } = await supabaseWrite.from("telegram_topics").delete().eq("id", id);
+      if (error) {
+        // r73: تصنيف صادق — رفض RLS (أذونات) ≠ جدول غائب ≠ خطأ عابر
+        const state = tableStateFromError(error.message, "supabase_telegram_topics.sql");
+        return NextResponse.json({ error: state.message, tableMissing: state.tableMissing, permissionDenied: state.permissionDenied ?? false }, { status: 500 });
+      }
     } else {
       await db.telegramTopic.delete({ where: { id } });
     }

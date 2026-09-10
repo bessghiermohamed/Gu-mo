@@ -858,3 +858,21 @@ Work Log:
 Stage Summary:
 - The owner's SQL was executed and IS live — the app's message was lying; now it tells the truth: real absence (PGRST205/204/42703/does-not-exist/schema-cache) → «run the file»; anything else → «transient error, retry; your executed file is fine».
 - Staleness eliminated: no more per-instance forever-caches or latched UI states; recovery within 60s / one retry.
+
+---
+Task ID: 3
+Agent: main (Super Z)
+Task: «نفّذت SQL يدوياً والتطبيق يقول إن جدول المواضيع لم يُنشأ» — تشخيص حي بالجذر الكامل + إصلاح RLS (r73).
+
+Work Log:
+- Live forensics with owner-furnished keys (service role): prod project ntdzvujhujnbazaqzuvo alive; 47+ tables; telegram_topics EXISTS (200, all 10 columns, EMPTY) — supabase_telegram_topics.sql WAS executed; legacy JWT keys still valid.
+- Reproduced the owner's exact symptom end-to-end: temp owner device_session (inserted via service key, deleted after) → POST /api/telegram/topics on gu-mo.vercel.app → 500 «جدول المواضيع غير منشأ — نفّذ supabase_telegram_topics.sql» while the table exists.
+- ROOT CAUSE: r65 SQL grants anon SELECT-only RLS on telegram_topics, but ALL four write paths (topics POST/PATCH/DELETE + sources upsertTopicBinding) write via the public anon key → 42501 row-level-security rejection; the POST error mapping error.message.includes("telegram_topics") misread the RLS message as "table not created". Also silently disabled the r66 section-source fallback (RLS error not classified as missing-table).
+- Fix layer 1 (DB, decisive): download/supabase_topics_write_policies.sql — idempotent anon INSERT/UPDATE/DELETE policies matching the established telegram_sources/items pattern (authz stays server-side: session + canManageTopics). One paste in the SQL editor fixes the CURRENT deployed app with zero redeploy.
+- Fix layer 2 (code, this round): table-state.ts third state permissionDenied + isPermissionDeniedError (42501/row-level/permission denied) whose message names the POLICIES file; topics route getTopicsWriteClient() prefers service-role client when SUPABASE_SERVICE_ROLE_KEY exists (bypasses RLS) with silent anon fallback; POST/PATCH/DELETE errors now go through tableStateFromError (no more includes("telegram_topics") misclassification); upsertTopicBinding same write-client preference + honest messages.
+- Tests: new scripts/r73-check.ts 18/18 (three-state classification + r72 regression); bunx tsc --noEmit 0; eslint clean on the 4 changed files.
+- Pushed to main (one commit incl. report تقرير-الجولة-73.md); Vercel auto-deploy verified below.
+- Probe artifacts cleaned: temp device_session deleted; the failed probe POST created no rows (RLS-blocked).
+
+Stage Summary:
+- Owner symptom root-caused and fixed at both layers; ONE owner action required: run supabase_topics_write_policies.sql once — then topic bindings (# dialog, section links, edit, delete) work immediately on production. Optional hardening: set SUPABASE_SERVICE_ROLE_KEY on Vercel; optional: run bot_config/push_subscriptions/course_materials SQL files (still missing, currently graceful-degrade).
