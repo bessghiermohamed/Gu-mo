@@ -337,7 +337,7 @@ export function TalibTelegramScreen() {
         </Card>
       )}
 
-      <Tabs value={tab} onValueChange={(v) => { setTab(v); setTypeFilter(""); }}>
+      <Tabs value={tab} onValueChange={(v) => { setTab(v); setTypeFilter(""); setQuery(""); }}>
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="library" className="data-[state=active]:font-bold text-xs">
             <FolderOpen className="w-4 h-4 ml-1" /> المكتبة
@@ -598,7 +598,7 @@ function LibraryList({ items, loading, setup, canManage, onRefresh }: {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">{items.length} عنصراً — مرتبة حسب الأحدث، مجمّعة حسب المقياس/القناة</p>
-      <LibraryGroups groups={groups} onRefresh={onRefresh} />
+      <GroupedSections groups={groups} onRefresh={onRefresh} />
     </div>
   );
 }
@@ -608,9 +608,11 @@ function LibraryList({ items, loading, setup, canManage, onRefresh }: {
  * وإلا اسم القناة/المجموعة المصدر. أول قسم (الأحدث نشاطاً) مفتوح افتراضياً،
  * والبقية مطوية — قائمة طويلة تصبح قابلة للتصفح بلمسة واحدة.
  */
-function LibraryGroups({ groups, onRefresh }: {
+function GroupedSections({ groups, onRefresh, currentUserName }: {
   groups: Array<{ key: string; item: TgItem; images: TgItem[] }>;
   onRefresh: () => void;
+  /** r77: صاحب الإضافة اليدوية (مساحة الفوج) — يُمرَّر لكي يبقى حذف «إضافتك» متاحاً */
+  currentUserName?: string;
 }) {
   // تجميع: مفتاح القسم = اسم المقياس أو المصدر، مع الحفاظ على ترتيب الأحدث
   const sections = React.useMemo(() => {
@@ -655,7 +657,7 @@ function LibraryGroups({ groups, onRefresh }: {
             <AccordionContent className="pb-3">
               <div className="space-y-3">
                 {section.entries.map(({ key, item, images }) => (
-                  <ItemCard key={key} item={item} images={images} showCourse onRefresh={onRefresh} />
+                  <ItemCard key={key} item={item} images={images} showCourse currentUserName={currentUserName} onRefresh={onRefresh} />
                 ))}
               </div>
             </AccordionContent>
@@ -860,6 +862,28 @@ function SharedList({ items, loading, myCohortId, myCohortName, courses, current
   onRefresh: () => void;
 }) {
   const [addOpen, setAddOpen] = React.useState(false);
+  // r77: كانت المساحة قائمة مسطحة بلا تنظيم (إصلاح بطلب المالك) — أصبحت
+  // مكتبة مصغّرة بلغة تبويب «المكتبة»: بحث فوري + تصفية بالنوع + تجميع
+  // الألبومات + أقسام قابلة للطي حسب المقياس/المصدر (وإلا «متنوع»)،
+  // وأول قسم مفتوح افتراضياً، والتصفية كلها محلية على محتوى الفوج.
+  const [query, setQuery] = React.useState("");
+  const [typeFilter, setTypeFilter] = React.useState("");
+
+  const filtered = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return items.filter((it) => {
+      if (typeFilter && it.itemType !== typeFilter) return false;
+      if (!q) return true;
+      return (
+        (it.titleAr ?? "").toLowerCase().includes(q) ||
+        (it.captionText ?? "").toLowerCase().includes(q) ||
+        (it.fileName ?? "").toLowerCase().includes(q) ||
+        (it.postedBy ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [items, query, typeFilter]);
+
+  const groups = React.useMemo(() => groupAlbums(filtered), [filtered]);
 
   if (loading) {
     return (
@@ -895,6 +919,35 @@ function SharedList({ items, loading, myCohortId, myCohortName, courses, current
         </div>
       </Card>
 
+      <div className="relative">
+        <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 right-3 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="ابحث في مساحة فوجك: عنوان، وصف، ناشر…"
+          className="pr-9"
+          aria-label="البحث في مساحة الفوج"
+        />
+      </div>
+
+      <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin" role="group" aria-label="تصفية حسب النوع">
+        {TYPE_FILTERS.map((f) => (
+          <button
+            key={f.value || "all"}
+            onClick={() => setTypeFilter(f.value)}
+            className={cn(
+              "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              typeFilter === f.value
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:border-primary/40"
+            )}
+            aria-pressed={typeFilter === f.value}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       <AddManualItemDialog open={addOpen} setOpen={setAddOpen} courses={courses} onCreated={onRefresh} />
 
       {items.length === 0 ? (
@@ -903,17 +956,17 @@ function SharedList({ items, loading, myCohortId, myCohortName, courses, current
           <h3 className="font-bold text-sm mb-1">المساحة فارغة حتى الآن</h3>
           <p className="text-xs text-muted-foreground">كن أول من يشارك زميلاءه درساً أو تمارين عبر زر «مشاركة محتوى».</p>
         </Card>
+      ) : filtered.length === 0 ? (
+        <Card className="p-8 text-center bg-muted/30 border-dashed">
+          <Search className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+          <h3 className="font-bold text-sm mb-1">لا توجد نتائج مطابقة</h3>
+          <p className="text-xs text-muted-foreground">جرّب كلمة بحث أخرى أو أزل تصفية النوع.</p>
+        </Card>
       ) : (
-        items.map((item) => (
-          <ItemCard
-            key={item.id}
-            item={item}
-            images={item.kind === "image" ? [item] : []}
-            showCourse
-            currentUserName={currentUserName}
-            onRefresh={onRefresh}
-          />
-        ))
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">{filtered.length} عنصراً — مجمّعة حسب المقياس/المصدر مثل المكتبة</p>
+          <GroupedSections groups={groups} onRefresh={onRefresh} currentUserName={currentUserName} />
+        </div>
       )}
     </div>
   );
