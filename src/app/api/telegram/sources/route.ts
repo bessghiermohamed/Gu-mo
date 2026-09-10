@@ -357,29 +357,38 @@ async function upsertTopicBinding(
       }
       return { ok: false, created: false, error: msg };
     }
+    // r73: كتابة بتفضيل service role (يتجاوز RLS) مع سقوط تلقائي إلى anon
+    // عند رفض المفتاح نفسه («Invalid API key» — قيمة غير صالحة على Vercel)،
+    // ورسائل صادقة عبر tableStateFromError لكل ما عدا ذلك.
+    const isBadKey = (m: string | null | undefined) => /invalid api key|jwt|api key|401/i.test(String(m ?? ""));
+    let write = supabase;
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+      try { write = createSupabaseAdminClient(); } catch { /* anon بديل آمن */ }
+    }
     if (data) {
-      // r73: الكتابة بعميل service role عند توفر المفتاح (يتجاوز RLS)،
-      // وإلا anon (يعمل بعد تنفيذ supabase_topics_write_policies.sql)
-      let write = supabase;
-      if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
-        try { write = createSupabaseAdminClient(); } catch { /* anon بديل آمن */ }
-      }
-      const { error } = await write
+      let up = await write
         .from("telegram_topics")
         .update({ title_ar: finalTitle, link: finalLink, year_id: yearId, module_id: moduleId, is_general: false })
         .eq("id", Number(data.id));
-      if (error) return { ok: false, created: false, error: tableStateFromError(error.message, "supabase_telegram_topics.sql").message };
+      if (up.error && isBadKey(up.error.message)) {
+        up = await supabase
+          .from("telegram_topics")
+          .update({ title_ar: finalTitle, link: finalLink, year_id: yearId, module_id: moduleId, is_general: false })
+          .eq("id", Number(data.id));
+      }
+      if (up.error) return { ok: false, created: false, error: tableStateFromError(up.error.message, "supabase_telegram_topics.sql").message };
       invalidateTopicCache(sourceId);
       return { ok: true, created: false };
     }
-    let writeIns = supabase;
-    if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
-      try { writeIns = createSupabaseAdminClient(); } catch { /* anon بديل آمن */ }
-    }
-    const { error } = await writeIns
+    let ins = await write
       .from("telegram_topics")
       .insert({ source_id: sourceId, tg_thread_id: threadId, title_ar: finalTitle, link: finalLink, year_id: yearId, module_id: moduleId, is_general: false });
-    if (error) return { ok: false, created: false, error: tableStateFromError(error.message, "supabase_telegram_topics.sql").message };
+    if (ins.error && isBadKey(ins.error.message)) {
+      ins = await supabase
+        .from("telegram_topics")
+        .insert({ source_id: sourceId, tg_thread_id: threadId, title_ar: finalTitle, link: finalLink, year_id: yearId, module_id: moduleId, is_general: false });
+    }
+    if (ins.error) return { ok: false, created: false, error: tableStateFromError(ins.error.message, "supabase_telegram_topics.sql").message };
     invalidateTopicCache(sourceId);
     return { ok: true, created: true };
   }

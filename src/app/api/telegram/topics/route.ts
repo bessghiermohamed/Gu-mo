@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase/server";
-import { tableStateFromError } from "@/lib/supabase/table-state";
+import { tableStateFromError, isInvalidKeyError } from "@/lib/supabase/table-state";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canUploadContent } from "@/lib/auth/permissions";
 import { loadSourceById } from "@/lib/telegram/ingest";
@@ -36,16 +36,54 @@ const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
  * التفضيل: عميل service role (يتجاوز RLS) عند توفر SUPABASE_SERVICE_ROLE_KEY،
  * وإلا anon (يعمل بعد تنفيذ supabase_topics_write_policies.sql).
  * لا يُرمي عند غياب المفتاح — يعود إلى anon بصمت.
+ *
+ * r73b (تشخيص حي): SUPABASE_SERVICE_ROLE_KEY مضبوط على Vercel لكن قيمته
+ * غير صالحة لهذا المشروع — كل كتابة عبره ردّت «Invalid API key» بشكل
+ * حتمي بينما قراءات anon سليمة 4/4. لذا كل كتابة تُنفَّذ عبر
+ * runTopicWrite: جرّب service role، وعند رفض المفتاح أعد المحاولة بـ anon.
  */
-async function getTopicsWriteClient() {
-  if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
-    try {
-      return createSupabaseAdminClient();
-    } catch {
-      // مفتاح الخدمة مضبوط لكن إنشاء العميل فشل — anon آمن بديل
-    }
+function hasServiceKey(): boolean {
+  return !!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+}
+
+function serviceClientOrNull() {
+  if (!hasServiceKey()) return null;
+  try {
+    return createSupabaseAdminClient();
+  } catch {
+    return null;
   }
-  return await createSupabaseServerClient();
+}
+
+interface WriteOutcome<T> {
+  data: T | null;
+  error: { message: string } | null;
+  /** أي عميل نجحت الكتابة عبره فعلاً (للتشخيص) */
+  via: "service" | "anon" | "anon-fallback";
+}
+
+/**
+ * ينفّذ عملية كتابة واحدة على telegram_topics مع سقوط تلقائي:
+ * service role (إن وُجد المفتاح) → وعند «Invalid API key» يعيد المحاولة
+ * بعميل anon العام. خطأ RLS (42501) لا يُفعّل السقوط — رسالته الصادقة
+ * تطلب تنفيذ ملف السياسات.
+ */
+async function runTopicWrite<T>(
+  op: (client: Awaited<ReturnType<typeof createSupabaseServerClient>>) => PromiseLike<{ data: T | null; error: { message: string } | null }>
+): Promise<WriteOutcome<T>> {
+  const svc = serviceClientOrNull();
+  if (svc) {
+    const first = await op(svc);
+    if (!first.error || !isInvalidKeyError(first.error.message)) {
+      return { ...first, via: "service" };
+    }
+    const anon = await createSupabaseServerClient();
+    const second = await op(anon);
+    return { ...second, via: "anon-fallback" };
+  }
+  const anon = await createSupabaseServerClient();
+  const res = await op(anon);
+  return { ...res, via: "anon" };
 }
 
 interface TopicRow {
@@ -265,7 +303,6 @@ export async function POST(req: NextRequest) {
 
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      const supabaseWrite = await getTopicsWriteClient();
       const { data: dup } = await supabase
         .from("telegram_topics")
         .select("id")
@@ -273,14 +310,16 @@ export async function POST(req: NextRequest) {
         .eq("tg_thread_id", tgThreadId)
         .maybeSingle();
       if (dup) return NextResponse.json({ error: "هذا الموضوع مربوط مسبقاً — عدّله بدل إضافته" }, { status: 409 });
-      const { data, error } = await supabaseWrite
-        .from("telegram_topics")
-        .insert({
-          source_id: sourceId, tg_thread_id: tgThreadId, title_ar: titleAr, link,
-          year_id: isGeneral ? null : yearId, module_id: isGeneral ? null : moduleId, is_general: isGeneral,
-        })
-        .select()
-        .single();
+      const { data, error } = await runTopicWrite((w) =>
+        w
+          .from("telegram_topics")
+          .insert({
+            source_id: sourceId, tg_thread_id: tgThreadId, title_ar: titleAr, link,
+            year_id: isGeneral ? null : yearId, module_id: isGeneral ? null : moduleId, is_general: isGeneral,
+          })
+          .select()
+          .single()
+      );
       if (error) {
         // r73: تصنيف صادق — رفض RLS (أذونات) ≠ جدول غائب ≠ خطأ عابر
         const state = tableStateFromError(error.message, "supabase_telegram_topics.sql");
@@ -333,7 +372,6 @@ export async function PATCH(req: NextRequest) {
     if (targetError) return NextResponse.json({ error: targetError }, { status: 403 });
 
     if (isVercel) {
-      const supabaseWrite = await getTopicsWriteClient();
       const patch: Record<string, unknown> = {};
       if (body.titleAr !== undefined) patch.title_ar = String(body.titleAr).trim().slice(0, 120);
       if (body.link !== undefined) patch.link = /^https?:\/\//i.test(String(body.link)) ? String(body.link).trim() : "";
@@ -341,7 +379,7 @@ export async function PATCH(req: NextRequest) {
       if (body.moduleId !== undefined) patch.module_id = isGeneral ? null : moduleId;
       if (body.yearId !== undefined) patch.year_id = isGeneral ? null : yearId;
       if (Object.keys(patch).length === 0) return NextResponse.json({ error: "لا توجد تغييرات" }, { status: 400 });
-      const { error } = await supabaseWrite.from("telegram_topics").update(patch).eq("id", id);
+      const { error } = await runTopicWrite((w) => w.from("telegram_topics").update(patch).eq("id", id));
       if (error) {
         // r73: تصنيف صادق — رفض RLS (أذونات) ≠ جدول غائب ≠ خطأ عابر
         const state = tableStateFromError(error.message, "supabase_telegram_topics.sql");
@@ -383,8 +421,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "هذا المصدر خارج نطاقك" }, { status: 403 });
     }
     if (isVercel) {
-      const supabaseWrite = await getTopicsWriteClient();
-      const { error } = await supabaseWrite.from("telegram_topics").delete().eq("id", id);
+      const { error } = await runTopicWrite((w) => w.from("telegram_topics").delete().eq("id", id));
       if (error) {
         // r73: تصنيف صادق — رفض RLS (أذونات) ≠ جدول غائب ≠ خطأ عابر
         const state = tableStateFromError(error.message, "supabase_telegram_topics.sql");

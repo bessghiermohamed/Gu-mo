@@ -3,7 +3,7 @@
  * + تغطية r72 السابقة (الجدول غير منشأ / الخطأ العابر) كتراجع.
  * Run: bun run scripts/r73-check.ts
  */
-import { isMissingTableError, isPermissionDeniedError, tableStateFromError } from "../src/lib/supabase/table-state";
+import { isMissingTableError, isPermissionDeniedError, isInvalidKeyError, tableStateFromError } from "../src/lib/supabase/table-state";
 
 let pass = 0, fail = 0;
 function check(name: string, actual: boolean, expected: boolean) {
@@ -20,6 +20,14 @@ check("permission denied → true", isPermissionDeniedError("permission denied f
 check("PGRST205 → false", isPermissionDeniedError("Could not find the table 'public.telegram_topics' in the schema cache"), false);
 check("network timeout → false", isPermissionDeniedError("fetch failed: Connect Timeout"), false);
 check("empty → false", isPermissionDeniedError(""), false);
+
+console.log("isInvalidKeyError (r73b):");
+check("Invalid API key → true", isInvalidKeyError("Invalid API key"), true);
+check("JWT could not be decoded → true", isInvalidKeyError("JWT could not be decoded"), true);
+check("401 → true", isInvalidKeyError("401 Unauthorized"), true);
+check("RLS 42501 → false (أذونات وليست مفتاحاً)", isInvalidKeyError(RLS_MSG), false);
+check("PGRST205 → false", isInvalidKeyError("Could not find the table 'public.telegram_topics' in the schema cache"), false);
+check("network timeout → false", isInvalidKeyError("fetch failed: Connect Timeout"), false);
 
 console.log("isMissingTableError regression (r72):");
 check("PGRST205 → true", isMissingTableError("Could not find the table 'public.telegram_topics' in the schema cache"), true);

@@ -52,6 +52,17 @@ export function isPermissionDeniedError(errorMessage: string | null | undefined)
 }
 
 /**
+ * r73b: هل الخطأ رفض المفتاح نفسه (قيمة غير صالحة / مشروع آخر)؟
+ * تشخيص حي 2026-09-11: SUPABASE_SERVICE_ROLE_KEY مضبوط على Vercel بقيمة
+ * غير صالحة — كل كتابة عبره ردّت «Invalid API key» حتمياً بينما قراءات
+ * anon سليمة. يختلف عن رفض RLS (الأذونات) — علاجه تصحيح/حذف المتغير
+ * أو السقوط التلقائي إلى anon في مسارات الكتابة.
+ */
+export function isInvalidKeyError(errorMessage: string | null | undefined): boolean {
+  return /invalid api key|jwt|api key|401/i.test(String(errorMessage ?? ""));
+}
+
+/**
  * رسالة حالة موحّدة من خطأ استعلام Supabase.
  * @param errorMessage نص الخطأ كما عاده PostgREST
  * @param sqlFile      اسم ملف SQL المسؤول عن إنشاء الجدول (بدون مسار)
