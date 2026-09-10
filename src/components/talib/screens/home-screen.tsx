@@ -200,13 +200,13 @@ export function TalibHomeScreen() {
             طبقتا العمق المحايدتان كما كانت (كلتاهما تعملان فوق أي لون هوية) */}
         {bannerAvatar ? (
           <div aria-hidden="true" className="absolute inset-0">
-            {/* صورة الطالب خلفيةً — تكبير طفيف + ضبابية خفيفة يخفيان حدود
-                الصورة المصغّرة (٢٥٦px) ويجعلانها تبدو كورق حائط مقصود */}
+            {/* صورة الطالب خلفيةً — تكبير طفيف + ضبابية شبه محسوسة
+                تُنأى حدود الصورة وتجعلها تبدو كورق حائط مقصود */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={bannerAvatar}
               alt=""
-              className="absolute inset-0 w-full h-full object-cover scale-110 blur-[2px]"
+              className="absolute inset-0 w-full h-full object-cover scale-105 blur-[1px]"
             />
             {/* تعتيم متدرج يُبقي المعلومات أمام الخلفية مقروءة كالمعتاد */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/40 to-black/30" />

@@ -125,11 +125,27 @@ export function TalibProfileScreen({ onSignOut }: Props) {
           والبريد ودور المستخدم فوق خلفية داكنة شفافة. البطاقة المعلوماتية
           أدناه تبقى بيضاء كالسجّل الأكاديمي. */}
       <Card className="relative overflow-hidden p-0 border-0 bg-primary text-primary-foreground shadow-md">
-        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/15" />
-        <IdCard
-          aria-hidden="true"
-          className="absolute -bottom-8 -left-6 w-36 h-36 text-white/10 -rotate-12 pointer-events-none"
-        />
+        {avatar ? (
+          <div aria-hidden="true" className="absolute inset-0">
+            {/* بنفس لغة بانر الرئيسية (round 75): الصورة خلفيةً بتكبير طفيف
+                وضبابية شبه محسوسة، وتحت تعتيم متدرج يُبقي المعلومات مقروءة */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={avatar}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover scale-105 blur-[1px]"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/40 to-black/30" />
+          </div>
+        ) : (
+          <>
+            <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/15" />
+            <IdCard
+              aria-hidden="true"
+              className="absolute -bottom-8 -left-6 w-36 h-36 text-white/10 -rotate-12 pointer-events-none"
+            />
+          </>
+        )}
         <div className="relative p-5 flex items-center gap-4">
           {/* الصندوق الآن عرضٌ فقط: الصورة أو الأحرف الأولى — بلا أيقونات
               فوقه، والإدارة كاملة من الإعدادات (بطلب المالك round 75) */}

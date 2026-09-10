@@ -13,8 +13,8 @@ import * as React from "react";
 
 export const AVATAR_CHANGED_EVENT = "talib:avatar-changed";
 
-const AVATAR_SIZE = 256;
-const AVATAR_JPEG_QUALITY = 0.82;
+const AVATAR_SIZE = 640;
+const AVATAR_JPEG_QUALITY = 0.85;
 
 export function avatarKeyFor(userId: string | number): string {
   return `talib:avatar:${userId}`;
@@ -55,7 +55,8 @@ export function notifyAvatarChanged(): void {
 }
 
 /**
- * رفع من الجهاز → قصّ مركزي مربع + تصغير (٢٥٦px / JPEG ≈ ٣٠KB).
+ * رفع من الجهاز → قصّ مركزي مربع + تصغير (٦٤٠px / JPEG — حِدّة تكفي
+ * خلفية البانر الممتدة ولا تُثقل التخزين المحلي ≈ ١٠٠KB).
  * يُعيد data URL جاهزاً للتخزين، أو يفشل برسالة:
  *   INVALID_TYPE / READ_FAILED / DECODE_FAILED
  */
