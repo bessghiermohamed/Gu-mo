@@ -23,6 +23,7 @@ import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type ScreenRoute } from "@/app/app/page";
 import { computeGpa } from "@/lib/grades";
+import { useAvatar } from "@/lib/avatar";
 
 interface QuickAction {
   title: string;
@@ -53,6 +54,12 @@ export function TalibHomeScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
   const { navigate } = useShell();
+
+  // الصورة الشخصية كخلفية للبانر (round 75 — بطلب المالك): تُقرأ من نفس
+  // مخزن الجهاز المشترك، وأي تغيير من الإعدادات يظهر هنا فوراً. المعلومات
+  // (التحية، الاسم، التاريخ، المؤشرات) تبقى أمامها كما هي — طبقة تعتيم
+  // متدرجة هي ما يضمن بقاءها مقروءة فوق أي صورة.
+  const bannerAvatar = useAvatar(user?.id);
 
   const greeting = user?.fullName || t("home.greetingGuest");
 
@@ -189,12 +196,30 @@ export function TalibHomeScreen() {
         className="relative overflow-hidden rounded-3xl bg-primary text-primary-foreground shadow-md"
         aria-label="لوحة الطالب"
       >
-        {/* طبقتا عمق محايدتان (تعملان فوق أي لون هوية) */}
-        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/15" />
-        <GraduationCap
-          aria-hidden="true"
-          className="absolute -bottom-9 -left-7 w-40 h-40 text-white/10 rotate-12 pointer-events-none"
-        />
+        {/* الخلفية: بصورة الطالب تصير صورته خلفية البانر، وبدونها تبقى
+            طبقتا العمق المحايدتان كما كانت (كلتاهما تعملان فوق أي لون هوية) */}
+        {bannerAvatar ? (
+          <div aria-hidden="true" className="absolute inset-0">
+            {/* صورة الطالب خلفيةً — تكبير طفيف + ضبابية خفيفة يخفيان حدود
+                الصورة المصغّرة (٢٥٦px) ويجعلانها تبدو كورق حائط مقصود */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={bannerAvatar}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover scale-110 blur-[2px]"
+            />
+            {/* تعتيم متدرج يُبقي المعلومات أمام الخلفية مقروءة كالمعتاد */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/40 to-black/30" />
+          </div>
+        ) : (
+          <>
+            <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/15" />
+            <GraduationCap
+              aria-hidden="true"
+              className="absolute -bottom-9 -left-7 w-40 h-40 text-white/10 rotate-12 pointer-events-none"
+            />
+          </>
+        )}
         <div className="relative p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">

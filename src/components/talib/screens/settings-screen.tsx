@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   Bell, VolumeX, Info, Loader2, Palette, Sparkles, Compass,
-  LogOut, BellRing, Type, Monitor, Trash2, CheckCheck,
+  LogOut, BellRing, Type, Monitor, Trash2, CheckCheck, Camera, ImagePlus,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,9 @@ import {
   FONT_SCALE_OPTIONS, loadFontScale, saveFontScale, type FontScale,
 } from "@/lib/font-scale";
 import { pushSupported, notificationPermission, activatePushWithPrompt } from "@/lib/push-client";
+import {
+  useAvatar, processAvatarFile, saveAvatar, removeAvatarKey, notifyAvatarChanged,
+} from "@/lib/avatar";
 
 // round 26 — the app-level settings screen. Opened from the header gear.
 //
@@ -71,6 +74,39 @@ export function TalibSettingsScreen() {
   const { navigate } = useShell();
   const { theme, setTheme } = useTheme();
   const { palette, setPalette } = usePalette();
+
+  // ═══ الصورة الشخصية (round 75 — بطلب المالك) ═══
+  // كانت أيقونتا الكاميرا والإزالة فوق صندوق الصورة في حسابي؛ نُقلتا
+  // إلى هنا تحت الترس كما طلب المالك: بطاقة واحدة تجمع المعاينة والرفع
+  // من الجهاز (قصّ مربع + ضغط محلي) والإزالة، والتخزين على جهاز الطالب
+  // بلا خادم. التغيير يبثّ حدثاً محلياً فتتحدّث حسابي وبانر الرئيسية فوراً.
+  const avatar = useAvatar(user?.id);
+  const photoInputRef = React.useRef<HTMLInputElement>(null);
+
+  async function handlePhotoFile(file: File | undefined) {
+    if (!file || !user) return;
+    try {
+      const dataUrl = await processAvatarFile(file);
+      if (!saveAvatar(user.id, dataUrl)) {
+        toast.error("تعذر حفظ الصورة — مساحة التخزين ممتلئة");
+        return;
+      }
+      notifyAvatarChanged();
+      toast.success("تم تحديث صورتك الشخصية");
+    } catch (e) {
+      const code = e instanceof Error ? e.message : "";
+      if (code === "INVALID_TYPE") toast.error("اختر ملف صورة صالح");
+      else if (code === "READ_FAILED") toast.error("تعذر قراءة الملف");
+      else toast.error("تعذر معالجة الصورة");
+    }
+  }
+
+  function handleRemovePhoto() {
+    if (!user) return;
+    removeAvatarKey(user.id);
+    notifyAvatarChanged();
+    toast.success("تمت إزالة الصورة");
+  }
 
   const [signingOut, setSigningOut] = React.useState(false);
   const [wipeOpen, setWipeOpen] = React.useState(false);
@@ -211,8 +247,13 @@ export function TalibSettingsScreen() {
           they were حسابي duplicates — the owner's exact complaint. */}
       <Card className="p-4">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-black text-lg shrink-0">
-            {user.fullName.trim().charAt(0)}
+          <div className="w-11 h-11 rounded-2xl overflow-hidden bg-primary/10 text-primary flex items-center justify-center font-black text-lg shrink-0 border border-border">
+            {avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatar} alt="" className="w-full h-full object-cover" />
+            ) : (
+              user.fullName.trim().charAt(0)
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="font-black text-sm truncate">{user.fullName}</h3>
@@ -223,6 +264,69 @@ export function TalibSettingsScreen() {
           <Badge variant="secondary" className="text-[10px] shrink-0">
             {t(`roles.${user.role}`)}
           </Badge>
+        </div>
+      </Card>
+
+      {/* ═══ الصورة الشخصية (round 75 — بطلب المالك) ═══
+          الإدارة الكاملة للصورة تحت الترس: معاينة + رفع من الجهاز + إزالة.
+          حسابي يكتفي بعرضها، والرئيسية تجعلها خلفية البانر. */}
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <Camera className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-sm">الصورة الشخصية</h3>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              تظهر في حسابي وتصبح خلفية بانر الرئيسية — تُخزَّن في جهازك فقط
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div
+            className="w-16 h-16 rounded-2xl overflow-hidden bg-primary/10 text-primary flex items-center justify-center font-black text-xl shrink-0 border border-border"
+            role="img"
+            aria-label={avatar ? "صورتك الشخصية" : "لا صورة بعد — يُعرض الحرف الأول من اسمك"}
+          >
+            {avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatar} alt="" className="w-full h-full object-cover" />
+            ) : (
+              user.fullName.trim().charAt(0)
+            )}
+          </div>
+          <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                handlePhotoFile(e.target.files?.[0]);
+                e.currentTarget.value = "";
+              }}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => photoInputRef.current?.click()}
+            >
+              <ImagePlus className="w-3.5 h-3.5 ml-1" />
+              {avatar ? "تغيير الصورة" : "إضافة صورة"}
+            </Button>
+            {avatar && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                onClick={handleRemovePhoto}
+              >
+                <Trash2 className="w-3.5 h-3.5 ml-1" />
+                إزالة الصورة
+              </Button>
+            )}
+          </div>
         </div>
       </Card>
 
