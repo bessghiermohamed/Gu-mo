@@ -97,16 +97,12 @@ export function TalibCoursesScreen() {
         <ChevronDown className="w-4 h-4 text-muted-foreground -rotate-90 shrink-0" />
       </Card>
 
-      <Tabs defaultValue="all">
-        <TabsList className="grid w-full grid-cols-3">
+      <Tabs defaultValue="s1">
+        <TabsList className="grid w-full grid-cols-2">
           {/* fix M-3 (round 4): stronger active-tab visual anchor */}
-          <TabsTrigger value="all" className="data-[state=active]:font-bold">الكل</TabsTrigger>
           <TabsTrigger value="s1" className="data-[state=active]:font-bold">{t("courses.semester1")}</TabsTrigger>
           <TabsTrigger value="s2" className="data-[state=active]:font-bold">{t("courses.semester2")}</TabsTrigger>
         </TabsList>
-        <TabsContent value="all" className="mt-4">
-          <CoursesList courses={courses} loading={loading} loadError={loadError} onRefresh={fetchCourses} />
-        </TabsContent>
         <TabsContent value="s1" className="mt-4">
           <CoursesList courses={s1Courses} loading={loading} loadError={loadError} onRefresh={fetchCourses} />
         </TabsContent>
