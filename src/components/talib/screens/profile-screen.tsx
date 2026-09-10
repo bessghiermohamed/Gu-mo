@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   Mail, IdCard, Building, BookOpen, Users, Shield, LogOut,
   ChevronLeft, Trash2, AlertTriangle, Loader2, UserPlus, Layers,
-  Calendar, FolderTree, Flag, Settings, Route, Megaphone,
+  Calendar, FolderTree, Flag, Settings, Route, Megaphone, Camera, X,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +61,86 @@ export function TalibProfileScreen({ onSignOut }: Props) {
       })
       .catch(() => {});
   }, [user]);
+
+  // ═══ صورة الملف الشخصي (round 74) ═══
+  // اختيارية: يعتمدها الطالب من معرض صور جهازه، تُقصّ مربعة وتُصغّر
+  // (٢٥٦px / JPEG ≈ ٣٠KB) ثم تُخزَّن محلياً في جهازه بمفتاح لكل
+  // مستخدم — بلا رفع ولا خادم، وتعمل بعد الانقطاع مثل بقية
+  // التجربة. الأحرف الأولى تبقى البديل الأنيق حين لا توجد صورة.
+  const avatarKey = user ? `talib:avatar:${user.id}` : null;
+  const [avatar, setAvatar] = React.useState<string | null>(null);
+  const avatarInputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (!avatarKey) {
+      setAvatar(null);
+      return;
+    }
+    try {
+      setAvatar(localStorage.getItem(avatarKey));
+    } catch {
+      setAvatar(null);
+    }
+  }, [avatarKey]);
+
+  function handleAvatarFile(file: File | undefined) {
+    if (!file || !avatarKey) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("اختر ملف صورة صالح");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => toast.error("تعذر قراءة الملف");
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => toast.error("تعذر معالجة الصورة");
+      img.onload = () => {
+        const SIZE = 256;
+        const canvas = document.createElement("canvas");
+        canvas.width = SIZE;
+        canvas.height = SIZE;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          toast.error("تعذر معالجة الصورة");
+          return;
+        }
+        // قصّ مركزي مربع ثم تصغير — حجم صغير يصلح للتخزين المحلي
+        const side = Math.min(img.width, img.height);
+        ctx.drawImage(
+          img,
+          (img.width - side) / 2,
+          (img.height - side) / 2,
+          side,
+          side,
+          0,
+          0,
+          SIZE,
+          SIZE,
+        );
+        try {
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+          localStorage.setItem(avatarKey, dataUrl);
+          setAvatar(dataUrl);
+          toast.success("تم تحديث صورتك الشخصية");
+        } catch {
+          toast.error("تعذر حفظ الصورة — مساحة التخزين ممتلئة");
+        }
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function removeAvatar() {
+    if (!avatarKey) return;
+    try {
+      localStorage.removeItem(avatarKey);
+    } catch {
+      // المفتاح غير موجود أصلاً — لا شيء يُفعل
+    }
+    setAvatar(null);
+    toast.success("تمت إزالة الصورة");
+  }
 
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [deleteConfirm, setDeleteConfirm] = React.useState("");
@@ -122,11 +202,49 @@ export function TalibProfileScreen({ onSignOut }: Props) {
           className="absolute -bottom-8 -left-6 w-36 h-36 text-white/10 -rotate-12 pointer-events-none"
         />
         <div className="relative p-5 flex items-center gap-4">
-          <div
-            className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm text-white flex items-center justify-center shrink-0 select-none border border-white/25"
-            aria-hidden="true"
-          >
-            <span className="text-2xl font-black leading-none">{initials}</span>
+          <div className="relative shrink-0">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                handleAvatarFile(e.target.files?.[0]);
+                e.currentTarget.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              aria-label={avatar ? "تغيير صورة الملف الشخصي" : "إضافة صورة الملف الشخصي"}
+              title={avatar ? "تغيير الصورة" : "إضافة صورة"}
+              className="w-16 h-16 rounded-2xl overflow-hidden bg-white/20 backdrop-blur-sm text-white flex items-center justify-center shrink-0 select-none border border-white/25 cursor-pointer transition-colors duration-150 hover:bg-white/25 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+            >
+              {avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatar} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-2xl font-black leading-none">{initials}</span>
+              )}
+            </button>
+            {/* شارة الكاميرا — تلميح دائم أن الصورة قابلة للإضافة والتغيير */}
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-1 -left-1 w-6 h-6 rounded-full bg-background text-foreground border shadow-sm flex items-center justify-center pointer-events-none"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </span>
+            {avatar && (
+              <button
+                type="button"
+                onClick={removeAvatar}
+                aria-label="إزالة الصورة"
+                title="إزالة الصورة"
+                className="absolute -top-1.5 -left-1.5 w-6 h-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow cursor-pointer hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="font-black text-lg truncate">{user.fullName}</h2>
