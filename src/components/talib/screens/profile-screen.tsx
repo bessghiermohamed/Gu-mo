@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   Mail, IdCard, Building, BookOpen, Users, Shield, LogOut,
   ChevronLeft, Trash2, AlertTriangle, Loader2, UserPlus, Layers,
-  Calendar, FolderTree, Flag, Settings, Route, Megaphone,
+  Calendar, FolderTree, Flag, Settings, Route, Megaphone, Camera,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +19,7 @@ import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell } from "@/app/app/page";
 import { abbreviateOrgName } from "@/lib/abbreviate";
-import { useAvatar } from "@/lib/avatar";
+import { useAvatar, processAvatarFile, saveAvatar, notifyAvatarChanged } from "@/lib/avatar";
 import { toast } from "sonner";
 
 interface Props {
@@ -63,13 +63,33 @@ export function TalibProfileScreen({ onSignOut }: Props) {
       .catch(() => {});
   }, [user]);
 
-  // ═══ صورة الملف الشخصي (round 75) ═══
-  // حسابي يعرضها فقط — بلا شارة كاميرا ولا زر إزالة فوق الصندوق
-  // (بطلب المالك). الرفع والتغيير والإزالة الآن من بطاقة «الصورة
-  // الشخصية» في شاشة الإعدادات، وهذا الـ hook المشترك يجعل الصورة
-  // هنا تتحدث فوراً بعد أي تغيير هناك. اختيارية كما كانت: الأحرف
+  // ═══ صورة الملف الشخصي (round 77) ═══
+  // حسابي تعرض الصورة وتضيف شارة كاميرا صامتة (بلا نص — بطلب المالك)
+  // تفتح منتقي الملفات للرفع أو التغيير مباشرة، بنفس خط المعالجة
+  // المشترك: قصّ مربع ٦٤٠px/JPEG ← تخزين محلي لكل مستخدم ← بث الحدث
+  // الذي يجعل الرئيسية والإعدادات تتحدثان فوراً. الإزالة والإدارة
+  // الكاملة تبقى في بطاقة «الصورة الشخصية» بشاشة الإعدادات، والأحرف
   // الأولى تبقى البديل الأنيق حين لا توجد صورة.
   const avatar = useAvatar(user?.id);
+  const avatarInputRef = React.useRef<HTMLInputElement>(null);
+
+  async function handleAvatarFile(file: File | undefined) {
+    if (!file || !user) return;
+    try {
+      const dataUrl = await processAvatarFile(file);
+      if (!saveAvatar(user.id, dataUrl)) {
+        toast.error("تعذر حفظ الصورة — مساحة التخزين ممتلئة");
+        return;
+      }
+      notifyAvatarChanged();
+      toast.success("تم تحديث صورتك الشخصية");
+    } catch (err) {
+      const code = err instanceof Error ? err.message : "";
+      if (code === "INVALID_TYPE") toast.error("اختر ملف صورة صالح");
+      else if (code === "READ_FAILED") toast.error("تعذر قراءة الملف");
+      else toast.error("تعذر معالجة الصورة");
+    }
+  }
 
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [deleteConfirm, setDeleteConfirm] = React.useState("");
@@ -125,41 +145,50 @@ export function TalibProfileScreen({ onSignOut }: Props) {
           والبريد ودور المستخدم فوق خلفية داكنة شفافة. البطاقة المعلوماتية
           أدناه تبقى بيضاء كالسجّل الأكاديمي. */}
       <Card className="relative overflow-hidden p-0 border-0 bg-primary text-primary-foreground shadow-md">
-        {avatar ? (
-          <div aria-hidden="true" className="absolute inset-0">
-            {/* بنفس لغة بانر الرئيسية (round 75): الصورة خلفيةً بتكبير طفيف
-                وضبابية شبه محسوسة، وتحت تعتيم متدرج يُبقي المعلومات مقروءة */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={avatar}
-              alt=""
-              className="absolute inset-0 w-full h-full object-cover scale-105 blur-[1px]"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/40 to-black/30" />
-          </div>
-        ) : (
-          <>
-            <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/15" />
-            <IdCard
-              aria-hidden="true"
-              className="absolute -bottom-8 -left-6 w-36 h-36 text-white/10 -rotate-12 pointer-events-none"
-            />
-          </>
-        )}
+        {/* r77 (بطلب المالك): خلفية البطاقة عادية دائماً — تدرّج اللون
+            الأساسي وعلامته المائية، ولا تمتد الصورة الشخصية كخلفية هنا؛
+            تظهر في صندوقها فقط مع شارة الكاميرا للرفع المباشر. بانر
+            الرئيسية يبقى المكان الوحيد الذي تظهر فيه الصورة كخلفية. */}
+        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/15" />
+        <IdCard
+          aria-hidden="true"
+          className="absolute -bottom-8 -left-6 w-36 h-36 text-white/10 -rotate-12 pointer-events-none"
+        />
         <div className="relative p-5 flex items-center gap-4">
-          {/* الصندوق الآن عرضٌ فقط: الصورة أو الأحرف الأولى — بلا أيقونات
-              فوقه، والإدارة كاملة من الإعدادات (بطلب المالك round 75) */}
-          <div
-            className="w-16 h-16 rounded-2xl overflow-hidden bg-white/20 backdrop-blur-sm text-white flex items-center justify-center shrink-0 select-none border border-white/25"
-            role="img"
-            aria-label={avatar ? "صورة الملف الشخصي" : "الأحرف الأولى من اسمك"}
-          >
-            {avatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={avatar} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-2xl font-black leading-none">{initials}</span>
-            )}
+          {/* round 77 (بطلب المالك): عادت شارة الكاميرا الصامتة فوق صندوق
+              الصورة — أيقونة بلا نص تخبر الطالب أن بإمكانه إضافة صورة،
+              والضغط على الصندوق نفسه يفتح منتقي الملفات. الإزالة تبقى من
+              بطاقة «الصورة الشخصية» في شاشة الإعدادات. */}
+          <div className="relative shrink-0">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                handleAvatarFile(e.target.files?.[0]);
+                e.currentTarget.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              aria-label={avatar ? "تغيير صورة الملف الشخصي" : "إضافة صورة الملف الشخصي"}
+              className="w-16 h-16 rounded-2xl overflow-hidden bg-white/20 backdrop-blur-sm text-white flex items-center justify-center shrink-0 select-none border border-white/25 cursor-pointer transition-colors duration-150 hover:bg-white/25 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+            >
+              {avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatar} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-2xl font-black leading-none">{initials}</span>
+              )}
+            </button>
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-1 -left-1 w-6 h-6 rounded-full bg-background text-foreground border shadow-sm flex items-center justify-center pointer-events-none"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </span>
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="font-black text-lg truncate">{user.fullName}</h2>
