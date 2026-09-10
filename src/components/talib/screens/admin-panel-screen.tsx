@@ -3678,7 +3678,8 @@ function TgSourcesManager() {
         <div className="space-y-2 max-h-[55vh] overflow-y-auto scrollbar-thin">
           {sources.map((s) => (
             <Card key={s.id} className="p-3">
-              <div className="flex items-start justify-between gap-2">
+              {/* ترتيب نظيف: الاسم والبيانات ثم صف أزرار موحّد (نفس الحجم والتباعد) — يمنع انضغاط الاسم في الشاشات الضيقة */}
+              <div className="flex flex-col gap-2.5 md:flex-row md:items-start md:justify-between md:gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-sm">{s.titleAr}</span>
@@ -3702,34 +3703,30 @@ function TgSourcesManager() {
                     ) : null}
                   </div>
                 </div>
-                <div className="flex gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setTopicsSource(s)}
                     aria-label="روابط المواضيع" title="روابط المواضيع — اربط كل موضوع في القناة بسنة أو مقياس فيصنّف البوت منشوراته مباشرة">
-                    <Hash className="w-3.5 h-3.5 text-sky-600" />
+                    <Hash className="size-4 text-sky-600" />
                   </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setHealDeep(false); runSmartLink(s, false); }}
                     disabled={healRunning}
                     aria-label="الربط الذكي بالمقاييس" title="الربط الذكي — يربط منشورات هذا المصدر بلا مقياس بمقاييس التخصص (يعيد فحصها بالذكاء الاصطناعي)">
-                    {healRunning && healSource?.id === s.id && !healDeep ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-violet-500" />}
+                    {healRunning && healSource?.id === s.id && !healDeep ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4 text-violet-500" />}
                   </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setHealDeep(true); runSmartLink(s, true); }}
                     disabled={healRunning}
                     aria-label="الشفاء العميق" title="الشفاء العميق — يعيد فحص كل المنشورات المصنّفة آلياً (يشفي ما صُنّف في السنة/الملمح الخطأ). المُنقّح يدوياً محمي دائماً.">
-                    {healRunning && healSource?.id === s.id && healDeep ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5 text-sky-600" />}
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setTestSource(s); setTestText(""); setTestResult(null); setTestThreadId(""); }}
-                    aria-label="اختبار الاستيراد" title="اختبار الاستيراد — محاكاة منشور جديد">
-                    <Zap className="w-3.5 h-3.5 text-amber-600" />
+                    {healRunning && healSource?.id === s.id && healDeep ? <Loader2 className="size-4 animate-spin" /> : <Brain className="size-4 text-sky-600" />}
                   </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleToggleActive(s)}
                     aria-label={s.isActive ? "إيقاف الاستيراد" : "استئناف الاستيراد"} title={s.isActive ? "إيقاف الاستيراد" : "استئناف الاستيراد"}>
-                    <Power className={`w-3.5 h-3.5 ${s.isActive ? "text-emerald-600" : "text-muted-foreground"}`} />
+                    <Power className={`size-4 ${s.isActive ? "text-emerald-600" : "text-muted-foreground"}`} />
                   </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(s)} aria-label="تعديل الربط">
-                    <Pencil className="w-3.5 h-3.5" />
+                    <Pencil className="size-4" />
                   </Button>
                   <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => { setDeleteSource(s); setDeleteError(null); }} aria-label="فك الربط">
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="size-4" />
                   </Button>
                 </div>
               </div>
