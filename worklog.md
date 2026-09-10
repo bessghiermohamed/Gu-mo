@@ -826,3 +826,19 @@ Stage Summary:
 - Zero-DDL by design: everything works TODAY on production without the SQL; download/supabase_telegram_intelligence.sql unlocks moderation/confidence/AI-log (one paste in SQL editor).
 - AI strategy: deterministic-first (regex + curriculum DB + pure matching), Gemini primary (vision+text), Groq text fallback, local heuristics last; unused keys documented (OpenRouter/Mistral/HF/Cohere — no current workload gains them).
 - Owner actions: (1) run download/supabase_telegram_intelligence.sql once; (2) optionally run supabase_telegram_topics.sql (r65, still missing) + bind ENS forum topics; (3) deep-heal «Alk» + «اسد الجبال» channels to re-file the 22 misfiled library items; (4) the r69-documented binding correction (قناة 12 → فوج 7 سنة أولى) remains an owner curation decision.
+
+---
+Task ID: r71 (addendum — production heal + r71b)
+Agent: main (Super Z)
+Task: Deploy r71, verify live, heal the misfiled production history, harden the batch.
+
+Work Log:
+- Vercel r71 deploy READY; live probe (r71-prod-verify.mjs) 19/19: zero-DDL degradation verified (intelligence.ready=false, no library filter errors, ai-events graceful 403/empty), deep heal on «Alk» (source 5): 16 processed/round ×2 — year-1 student 79 went 1→7 items, year-2 student 77: 22→16 (correct isolation), titles clean, no module leak across years, idempotent re-run safe, admin/AI endpoints 403 for students.
+- r71-prod-heal2.mjs on «اسد الجبال» (source 12, cohort space): module-NULL pass + deep pass — 11→6 unclassified; Gemini VISION retry titled 8 former «صورة» junk items («ملخص إنجليزية», «ملخص النحو العربي»…) with year-1 modules from image text; shared space intact (23 items, myCohortName «فوج 7 — السنة الثانية»); 7/7 checks.
+- Live robustness defect found & fixed (r71b): a transient Gemini failure mid-batch wiped a healed item's module to NULL (reclassify overwrote unconditionally). Fix: keep the existing module when the model fails (newModule==null && item.moduleId!=null → keep). Rebuilt, e2e 48/48 again (review-queue seed cleanup for leftover r66-69 fixtures), regressions r66 38/38, r67 29/29, r68 55/55, r69 20/20. Pushed 7cb542d, deployed.
+- Stragglers fixed via single-item reclassify (the batch's 40s window re-processed the newest 16 each round): #40 «برنامج النحو العربي» (clean, m=13 correct) and #123 «تمرين صرف عربي» (m=35 year-1, ثقة 89). Final library state: 23 items, ZERO noisy titles, ZERO module-NULL, year isolation perfect (y1: 8 items across النحو/إنجليزية/الصرف year-1 modules; y2: 15 items across year-2 modules).
+- Browser verification (real onwer+student sessions, agent-browser): admin telegram section renders «سجل الذكاء» tab + «للمراجعة» chip + «الشفاء العميق» buttons + SQL setup hints (pre-DDL state) — screenshots download/r71-admin-*.png; student 79 library screenshot r71-student-library-y1.png. All temp sessions deleted.
+- Final report: download/تقرير-الجولة-71.md (14 sections per the owner's PART-18 brief).
+
+Stage Summary:
+- The owner's reported bug is fixed and PROVEN live on production with real students: posts now appear for the RIGHT students under the RIGHT modules with clean titles; ambiguous/conflicting content routes to an admin moderation queue instead of silent misfiling; the AI's reasoning is fully observable (confidence components + reasons + engine/model per decision).
