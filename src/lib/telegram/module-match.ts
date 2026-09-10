@@ -38,12 +38,18 @@ const cache = new Map<string, { at: number; list: ModuleCandidate[] }>();
 /**
  * مقاييس تخصصٍ ما (مع اسم السنة لكل مقياس). yearId اختياري لتضييق
  * النطاق حين يكون المصدر مربوطاً بسنة محددة.
+ *
+ * r70 (track fix): trackId اختياري كذلك — حين يكون المصدر مربوطاً بملمح
+ * محدد تُستبعد مقاييس الملامح الأخرى (يبقى المشترك NULL). أسماء السنوات
+ * تُوسَم بكود الممح («السنة الثانية (PEM)») حتى يميز البرومبتُ والمطابقةُ
+ * بين سنتين تحملان الاسم نفسه في ملامح مختلفة.
  */
 export async function loadModuleCandidates(
   specialtyId: number,
-  yearId: number | null = null
+  yearId: number | null = null,
+  trackId: number | null = null
 ): Promise<ModuleCandidate[]> {
-  const key = `${specialtyId}:${yearId ?? 0}`;
+  const key = `${specialtyId}:${yearId ?? 0}:${trackId ?? 0}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.list;
 
@@ -56,6 +62,8 @@ export async function loadModuleCandidates(
         .select("id, name, academic_year_id")
         .eq("specialty_id", specialtyId);
       if (yearId != null) q = q.eq("academic_year_id", yearId);
+      // r70: NULL-track modules are shared across tracks (house convention)
+      if (trackId != null) q = q.or(`track_id.is.null,track_id.eq.${trackId}`);
       const { data: mods } = await q;
       const yearIds = Array.from(
         new Set((mods ?? []).map((m: Record<string, unknown>) => Number(m.academic_year_id)).filter((y) => y > 0))
@@ -64,11 +72,30 @@ export async function loadModuleCandidates(
       if (yearIds.length > 0) {
         const { data: years } = await supabase
           .from("academic_years")
-          .select("id, year_name")
+          .select("id, year_name, track_id")
           .in("id", yearIds);
+        const trackIds = Array.from(
+          new Set((years ?? []).map((y: Record<string, unknown>) => (y.track_id != null ? Number(y.track_id) : 0)).filter((t) => t > 0))
+        );
+        const trackCodes = new Map<number, string>();
+        if (trackIds.length > 0) {
+          const { data: tracks } = await supabase
+            .from("academic_tracks")
+            .select("id, code")
+            .in("id", trackIds);
+          for (const t of tracks ?? []) {
+            const r = t as Record<string, unknown>;
+            trackCodes.set(Number(r.id), String(r.code ?? ""));
+          }
+        }
         for (const y of years ?? []) {
           const row = y as Record<string, unknown>;
-          yearNames.set(Number(row.id), String(row.year_name ?? ""));
+          const code = row.track_id != null ? trackCodes.get(Number(row.track_id)) ?? "" : "";
+          // r70: سَم السنة بكود الممح — «السنة الثانية (PEM)» تميّزها عن PEP
+          yearNames.set(
+            Number(row.id),
+            code ? `${String(row.year_name ?? "")} (${code})` : String(row.year_name ?? "")
+          );
         }
       }
       list = (mods ?? []).map((m: Record<string, unknown>) => ({
@@ -78,14 +105,25 @@ export async function loadModuleCandidates(
       })).filter((m) => m.name);
     } else {
       const mods = await db.moduleCourse.findMany({
-        where: { specialtyId, ...(yearId != null ? { academicYearId: yearId } : {}) },
+        where: {
+          specialtyId,
+          ...(yearId != null ? { academicYearId: yearId } : {}),
+          ...(trackId != null ? { OR: [{ trackId: null }, { trackId }] } : {}),
+        },
         select: { id: true, name: true, academicYearId: true },
       });
       const years = await db.academicYear.findMany({
         where: { specialtyId },
-        select: { id: true, yearName: true },
+        select: { id: true, yearName: true, trackId: true },
       });
-      const yearNames = new Map(years.map((y) => [y.id, y.yearName]));
+      const tracks = await db.academicTrack.findMany({
+        where: { specialtyId },
+        select: { id: true, code: true },
+      });
+      const trackCodes = new Map(tracks.map((t) => [t.id, t.code]));
+      const yearNames = new Map(
+        years.map((y) => [y.id, y.trackId != null && trackCodes.get(y.trackId) ? `${y.yearName} (${trackCodes.get(y.trackId)})` : y.yearName])
+      );
       list = mods
         .map((m) => ({
           id: m.id,

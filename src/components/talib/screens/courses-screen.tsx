@@ -403,7 +403,10 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
   const [professor, setProfessor] = React.useState("");
   const [coefficient, setCoefficient] = React.useState("2");
   const [semester, setSemester] = React.useState("1");
-  const [years, setYears] = React.useState<Array<{ id: number; yearName: string }>>([]);
+  // r70: years are PER-TRACK — carry trackId + track code so the dropdown
+  // never shows two indistinguishable "السنة الثانية" rows
+  const [years, setYears] = React.useState<Array<{ id: number; yearName: string; trackId?: number | null }>>([]);
+  const [trackCodes, setTrackCodes] = React.useState<Record<number, string>>({});
   const [yearId, setYearId] = React.useState<string>("");
   const [saving, setSaving] = React.useState(false);
 
@@ -415,11 +418,20 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
       setYears([]);
       return;
     }
-    fetch(`/api/onboarding/years?specialtyId=${user.assignedSpecialtyId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        const l = data.years ?? [];
+    // r70: when the caller has a track, the year list is scoped to it (that
+    // track's years + shared NULL-track years) — POST /api/courses then
+    // inherits the parent year's track_id server-side.
+    const trackParam = user?.scopeTrackId != null ? `&trackId=${user.scopeTrackId}` : "";
+    Promise.all([
+      fetch(`/api/onboarding/years?specialtyId=${user.assignedSpecialtyId}${trackParam}`).then((r) => r.json()),
+      fetch(`/api/tracks?specialtyId=${user.assignedSpecialtyId}`).then((r) => r.json()),
+    ])
+      .then(([yearsData, tracksData]) => {
+        const l: Array<{ id: number; yearName: string; trackId?: number | null }> = yearsData.years ?? [];
         setYears(l);
+        const codes: Record<number, string> = {};
+        for (const tr of tracksData.tracks ?? []) codes[tr.id] = tr.code;
+        setTrackCodes(codes);
         const own = l.find((y: { id: number }) => y.id === user?.scopeAcademicYearId);
         setYearId(own ? String(own.id) : l.length > 0 ? String(l[0].id) : "");
       })
@@ -464,7 +476,13 @@ function AddModuleDialog({ onCreated }: { onCreated: () => void }) {
           <div className="space-y-1.5"><Label htmlFor="year">السنة الدراسية</Label>
             <select id="year" value={yearId} onChange={(e) => setYearId(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
               <option value="">— اختر —</option>
-              {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+              {/* r70: disambiguate same-named years across tracks with the track code */}
+              {years.map((y) => (
+                <option key={y.id} value={y.id}>
+                  {y.yearName}
+                  {y.trackId != null && trackCodes[y.trackId] ? ` — ${trackCodes[y.trackId]}` : ""}
+                </option>
+              ))}
             </select>
           </div>
           <div className="space-y-1.5"><Label htmlFor="semester">السداسي</Label>

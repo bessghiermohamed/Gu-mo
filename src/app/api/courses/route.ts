@@ -6,6 +6,15 @@
  * AFTER:  filters by specialty AND academic year (when the student has one).
  *         Also returns `semester` so the screen can filter semesters for real
  *         (before, the screen guessed the semester from the course code!).
+ *
+ * r70 (track fix): a specialty holds MULTIPLE tracks (PEP/PEM/PES) whose
+ * curricula share nothing — the course list is now also filtered by the
+ * caller's track (user.scopeTrackId): a student sees their track's modules
+ * plus shared NULL-track modules, never another track's curriculum. The
+ * same filter applies for an OWNER browsing another specialty via
+ * ?specialtyId=&trackId=. POST/PATCH inherit the parent year's track_id
+ * so module_courses.track_id always matches its year (legacy NULL years
+ * keep NULL modules — still visible to every track).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -41,6 +50,8 @@ export async function GET(req: NextRequest) {
     // scope (e.g. OWNER who never onboarded) see the whole specialty.
     let yearId = user.scopeAcademicYearId ?? null;
     let specialtyId = user.assignedSpecialtyId;
+    // r70: track scope — same source of truth as the year scope
+    let trackId = user.scopeTrackId ?? null;
     // r68: المالك يستعرض مقاييس تخصص آخر — ربط القنوات متعدد التخصصات
     if (user.role === "OWNER") {
       const url = new URL(req.url);
@@ -49,6 +60,9 @@ export async function GET(req: NextRequest) {
         specialtyId = Number(sp);
         const yr = url.searchParams.get("yearId");
         yearId = yr && Number(yr) > 0 ? Number(yr) : null;
+        // r70: OWNER may also pin the track of the specialty being browsed
+        const tr = url.searchParams.get("trackId");
+        trackId = tr && Number(tr) > 0 ? Number(tr) : null;
       }
     }
 
@@ -59,6 +73,8 @@ export async function GET(req: NextRequest) {
         .select("*")
         .eq("specialty_id", specialtyId);
       if (yearId) query = query.eq("academic_year_id", yearId);
+      // r70: NULL-track modules are shared across tracks (house convention)
+      if (trackId != null) query = query.or(`track_id.is.null,track_id.eq.${trackId}`);
       const { data, error } = await query.order("id", { ascending: true });
       if (error) return NextResponse.json({ courses: [] });
       const courses = (data ?? []).map((c: Record<string, unknown>) => ({
@@ -66,6 +82,7 @@ export async function GET(req: NextRequest) {
         coefficient: Number(c.coefficient ?? 2), professorName: String(c.professor_name ?? ""),
         category: String(c.category ?? "أساسي"), description: String(c.description ?? ""),
         semester: Number(c.semester ?? 1), academicYearId: Number(c.academic_year_id ?? 0),
+        trackId: c.track_id != null ? Number(c.track_id) : null,
       }));
       return NextResponse.json({ courses });
     }
@@ -73,6 +90,7 @@ export async function GET(req: NextRequest) {
       where: {
         specialtyId,
         ...(yearId ? { academicYearId: yearId } : {}),
+        ...(trackId != null ? { OR: [{ trackId: null }, { trackId }] } : {}),
       },
       orderBy: { id: "asc" },
     });
@@ -80,7 +98,7 @@ export async function GET(req: NextRequest) {
       courses: items.map((c) => ({
         id: c.id, name: c.name, code: c.code, coefficient: c.coefficient,
         professorName: c.professorName, category: c.category, description: c.description,
-        semester: c.semester, academicYearId: c.academicYearId,
+        semester: c.semester, academicYearId: c.academicYearId, trackId: c.trackId ?? null,
       })),
     });
   } catch (e) {
@@ -95,25 +113,50 @@ export async function POST(req: NextRequest) {
   }
   try {
     const body = await req.json();
-    const { name, code, professorName, coefficient, credits, category, description, specialtyId, academicYearId, semester } = body;
+    const { name, code, professorName, coefficient, credits, category, description, specialtyId, academicYearId, semester, trackId } = body;
     if (!name?.trim() || !code?.trim()) {
       return NextResponse.json({ error: "الاسم والكود مطلوبان" }, { status: 400 });
     }
     // fix: no more hardcoded year 1 — default to the creator's year scope
     const finalYearId = academicYearId ?? user.scopeAcademicYearId ?? 1;
     const finalSemester = semester === 2 ? 2 : 1;
+    // r70: a module inherits its year's track — either the caller's explicit
+    // trackId (validated below) or the parent year's track_id (looked up).
+    let finalTrackId: number | null =
+      trackId != null && Number(trackId) > 0 ? Number(trackId) : null;
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
+      const { data: parentYear } = await supabase
+        .from("academic_years")
+        .select("specialty_id, track_id")
+        .eq("id", Number(finalYearId))
+        .maybeSingle();
+      // r70: the module's year must belong to the target specialty
+      if (parentYear && Number(parentYear.specialty_id) !== Number(specialtyId ?? user.assignedSpecialtyId)) {
+        return NextResponse.json({ error: "السنة المحددة لا تنتمي إلى هذا التخصص" }, { status: 400 });
+      }
+      if (finalTrackId == null && parentYear) {
+        finalTrackId = parentYear.track_id != null ? Number(parentYear.track_id) : null;
+      }
       const { data, error } = await supabase.from("module_courses").insert({
         specialty_id: specialtyId ?? user.assignedSpecialtyId,
         academic_year_id: finalYearId, semester: finalSemester,
         name: name.trim(), code: code.trim(), coefficient: coefficient ?? 2,
         credits: credits ?? 4, professor_name: professorName?.trim() ?? "",
         category: category ?? "أساسي", description: description?.trim() ?? "",
+        track_id: finalTrackId,
       }).select().single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ course: data });
     }
+    const parentYear = await db.academicYear.findUnique({
+      where: { id: Number(finalYearId) },
+      select: { specialtyId: true, trackId: true },
+    });
+    if (parentYear && parentYear.specialtyId !== Number(specialtyId ?? user.assignedSpecialtyId)) {
+      return NextResponse.json({ error: "السنة المحددة لا تنتمي إلى هذا التخصص" }, { status: 400 });
+    }
+    if (finalTrackId == null && parentYear) finalTrackId = parentYear.trackId ?? null;
     const course = await db.moduleCourse.create({
       data: {
         specialtyId: specialtyId ?? user.assignedSpecialtyId,
@@ -121,6 +164,7 @@ export async function POST(req: NextRequest) {
         name: name.trim(), code: code.trim(), coefficient: coefficient ?? 2,
         credits: credits ?? 4, professorName: professorName?.trim() ?? "",
         category: category ?? "أساسي", description: description?.trim() ?? "",
+        trackId: finalTrackId,
       },
     });
     return NextResponse.json({ course });
@@ -149,7 +193,7 @@ export async function PATCH(req: NextRequest) {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       const { data: course } = await supabase
-        .from("module_courses").select("id, specialty_id, code").eq("id", Number(id)).maybeSingle();
+        .from("module_courses").select("id, specialty_id, code, academic_year_id, track_id").eq("id", Number(id)).maybeSingle();
       if (!course) return NextResponse.json({ error: "المقياس غير موجود" }, { status: 404 });
       // scope check — non-OWNER may only edit their own specialty's courses
       if (user.role !== "OWNER" && Number(course.specialty_id) !== user.assignedSpecialtyId) {
@@ -169,7 +213,18 @@ export async function PATCH(req: NextRequest) {
       if (professorName !== undefined) patch.professor_name = professorName?.trim() ?? "";
       if (coefficient !== undefined && !Number.isNaN(Number(coefficient))) patch.coefficient = Number(coefficient);
       if (semester === 1 || semester === 2) patch.semester = semester;
-      if (academicYearId !== undefined && Number(academicYearId) > 0) patch.academic_year_id = Number(academicYearId);
+      if (academicYearId !== undefined && Number(academicYearId) > 0) {
+        patch.academic_year_id = Number(academicYearId);
+        // r70: moving the module to another year re-inherits that year's
+        // track so module_courses.track_id always matches its parent year
+        const { data: parentYear } = await supabase
+          .from("academic_years").select("specialty_id, track_id").eq("id", Number(academicYearId)).maybeSingle();
+        if (!parentYear) return NextResponse.json({ error: "السنة المحددة غير موجودة" }, { status: 400 });
+        if (Number(parentYear.specialty_id) !== Number(course.specialty_id)) {
+          return NextResponse.json({ error: "السنة المحددة لا تنتمي إلى تخصص المقياس" }, { status: 400 });
+        }
+        patch.track_id = parentYear.track_id != null ? Number(parentYear.track_id) : null;
+      }
       if (category !== undefined && String(category).trim()) patch.category = String(category).trim();
       if (description !== undefined) patch.description = String(description).trim();
       const { data, error } = await supabase
@@ -198,11 +253,25 @@ export async function PATCH(req: NextRequest) {
         ...(professorName !== undefined ? { professorName: professorName?.trim() ?? "" } : {}),
         ...(coefficient !== undefined && !Number.isNaN(Number(coefficient)) ? { coefficient: Number(coefficient) } : {}),
         ...(semester === 1 || semester === 2 ? { semester } : {}),
-        ...(academicYearId !== undefined && Number(academicYearId) > 0 ? { academicYearId: Number(academicYearId) } : {}),
+        ...(academicYearId !== undefined && Number(academicYearId) > 0
+          ? { academicYearId: Number(academicYearId) }
+          : {}),
         ...(category !== undefined && String(category).trim() ? { category: String(category).trim() } : {}),
         ...(description !== undefined ? { description: String(description).trim() } : {}),
       },
     });
+    // r70 local parity: re-inherit the parent year's track on a year move
+    if (academicYearId !== undefined && Number(academicYearId) > 0) {
+      const parentYear = await db.academicYear.findUnique({
+        where: { id: Number(academicYearId) }, select: { trackId: true, specialtyId: true },
+      });
+      if (parentYear && parentYear.specialtyId === course.specialtyId) {
+        await db.moduleCourse.update({
+          where: { id: Number(id) },
+          data: { trackId: parentYear.trackId ?? null },
+        });
+      }
+    }
     return NextResponse.json({ course: updated });
   } catch (e) {
     return NextResponse.json({ error: `خطأ: ${(e as Error).message}` }, { status: 500 });

@@ -49,6 +49,9 @@ interface Specialty {
 interface AcademicYear {
   id: number;
   yearName: string;
+  // r70: years are PER-TRACK — the wizard filters the list by the chosen
+  // track so "السنة الثانية" never appears twice from two different tracks
+  trackId?: number | null;
 }
 interface AcademicTrack {
   id: number;
@@ -179,6 +182,13 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
     return () => { alive = false; };
   }, [selectedInstitution, specTick]);
 
+  // r70 (track fix): the years list is fetched PER TRACK, not per specialty.
+  // The old single Promise.all loaded ALL years of the specialty once — the
+  // year tiles then showed "السنة الثانية" once per track, indistinguishable,
+  // and a PEM student could save the PEP year row (both named the same).
+  // Tracks load on specialty change; years reload on specialty OR track
+  // change with ?trackId= so the list is always the chosen track's years
+  // + shared NULL-track years.
   React.useEffect(() => {
     if (!selectedSpecialty) return;
     let alive = true;
@@ -186,43 +196,63 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
     // fix (R12-11): the first year/track of the DB listing used to be
     // silently pre-selected — identity-critical decisions landed in the
     // wrong scope by DB row order. Selection is now EXPLICIT.
-    setSelectedYear(null);
     setSelectedTrack(null);
-    Promise.all([
-      fetch(`/api/onboarding/years?specialtyId=${selectedSpecialty}`).then(async (r) => {
+    setSelectedYear(null);
+    fetch(`/api/onboarding/tracks?specialtyId=${selectedSpecialty}`)
+      .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
-      }),
-      fetch(`/api/onboarding/tracks?specialtyId=${selectedSpecialty}`).then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      }),
-    ])
-      .then(([yearsData, tracksData]) => {
+      })
+      .then((tracksData) => {
         if (!alive) return;
-        setYears(yearsData.years ?? []);
         setTracks(tracksData.tracks ?? []);
-        // round 36: restore the current year + track once (change mode) —
-        // only if they still exist under the freshly loaded lists
-        const wantedYear = preselectRef.current?.yearId ?? null;
-        if (wantedYear != null && (yearsData.years ?? []).some((y: AcademicYear) => y.id === wantedYear)) {
-          setSelectedYear(wantedYear);
-        }
+        // round 36: restore the current track once (change mode)
         const wantedTrack = preselectRef.current?.trackId ?? null;
         if (wantedTrack != null && (tracksData.tracks ?? []).some((tr: AcademicTrack) => tr.id === wantedTrack)) {
           setSelectedTrack(wantedTrack);
         }
-        if (preselectRef.current) { preselectRef.current.yearId = null; preselectRef.current.trackId = null; }
+        if (preselectRef.current) preselectRef.current.trackId = null;
         setYearTrackState("ok");
       })
       .catch(() => {
         if (!alive) return;
-        setYears([]);
         setTracks([]);
         setYearTrackState("error");
       });
     return () => { alive = false; };
   }, [selectedSpecialty, yearTrackTick]);
+
+  React.useEffect(() => {
+    if (!selectedSpecialty) return;
+    let alive = true;
+    setYearTrackState("loading");
+    setSelectedYear(null); // r70: the track changed → the year must be re-picked
+    const trackParam =
+      selectedTrack != null ? `&trackId=${selectedTrack}` : "";
+    fetch(`/api/onboarding/years?specialtyId=${selectedSpecialty}${trackParam}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((yearsData) => {
+        if (!alive) return;
+        setYears(yearsData.years ?? []);
+        // round 36: restore the current year once (change mode) — only if it
+        // still belongs to the restored track's filtered list
+        const wantedYear = preselectRef.current?.yearId ?? null;
+        if (wantedYear != null && (yearsData.years ?? []).some((y: AcademicYear) => y.id === wantedYear)) {
+          setSelectedYear(wantedYear);
+        }
+        if (preselectRef.current) preselectRef.current.yearId = null;
+        setYearTrackState("ok");
+      })
+      .catch(() => {
+        if (!alive) return;
+        setYears([]);
+        setYearTrackState("error");
+      });
+    return () => { alive = false; };
+  }, [selectedSpecialty, selectedTrack, yearTrackTick]);
 
   function canProceed() {
     switch (step) {
@@ -597,7 +627,13 @@ export function TalibOnboardingScreen({ onComplete, mode = "initial", onCancel }
                             : "border-border hover:border-primary/50"
                         }`}
                       >
-                        <span>{y.yearName}</span>
+                        <span className="flex flex-col items-start gap-0.5">
+                          <span>{y.yearName}</span>
+                          {/* r70: shared NULL-track year — common to every track */}
+                          {selectedTrack != null && y.trackId == null && (
+                            <span className="text-[10px] font-normal text-muted-foreground">مشترك لكل الملامح</span>
+                          )}
+                        </span>
                         {selectedYear === y.id && <Check className="w-4 h-4 shrink-0" aria-label="مُحدد" />}
                       </button>
                     ))}

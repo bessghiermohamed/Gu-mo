@@ -32,11 +32,14 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "يجب تسجيل الدخول" }, { status: 401 });
   try {
     // the caller's course list — same scoping as /api/courses
+    // r70: + track filter — a student's absence buckets are their own
+    // track's modules (+ shared NULL-track modules), never another track's
     let courseNames: Array<{ id: number; name: string }> = [];
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       let query = supabase.from("module_courses").select("id, name").eq("specialty_id", user.assignedSpecialtyId);
       if (user.scopeAcademicYearId != null) query = query.eq("academic_year_id", user.scopeAcademicYearId);
+      if (user.scopeTrackId != null) query = query.or(`track_id.is.null,track_id.eq.${user.scopeTrackId}`);
       const { data, error } = await query.order("id", { ascending: true });
       if (!error) courseNames = (data ?? []).map((c: Record<string, unknown>) => ({ id: Number(c.id), name: String(c.name ?? "") }));
     } else {
@@ -44,6 +47,7 @@ export async function GET() {
         where: {
           specialtyId: user.assignedSpecialtyId,
           ...(user.scopeAcademicYearId != null ? { academicYearId: user.scopeAcademicYearId } : {}),
+          ...(user.scopeTrackId != null ? { OR: [{ trackId: null }, { trackId: user.scopeTrackId }] } : {}),
         },
         orderBy: { id: "asc" },
       });

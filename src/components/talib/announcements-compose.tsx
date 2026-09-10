@@ -40,6 +40,8 @@ export interface AnnouncementRowData {
 interface YearOption {
   id: number;
   yearName: string;
+  // r70: years are per-track — label same-named years with the track code
+  trackId?: number | null;
 }
 
 interface CohortOption {
@@ -71,14 +73,24 @@ function ScopeField({
 }) {
   const { user } = useAuth();
   const [years, setYears] = React.useState<YearOption[]>([]);
+  const [trackCodes, setTrackCodes] = React.useState<Record<number, string>>({});
   const [cohorts, setCohorts] = React.useState<CohortOption[]>([]);
   const [loadingCohorts, setLoadingCohorts] = React.useState(false);
 
   React.useEffect(() => {
     if (scopeLevel !== "سنة دراسية" || years.length > 0) return;
-    fetch(`/api/years?specialtyId=${user?.assignedSpecialtyId ?? ""}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setYears(d.years ?? []))
+    // r70: years + tracks — the picker shows "السنة الثانية — PEP" so
+    // targeting a year is never ambiguous across tracks
+    Promise.all([
+      fetch(`/api/years?specialtyId=${user?.assignedSpecialtyId ?? ""}`, { cache: "no-store" }).then((r) => r.json()),
+      fetch(`/api/tracks?specialtyId=${user?.assignedSpecialtyId ?? ""}`, { cache: "no-store" }).then((r) => r.json()),
+    ])
+      .then(([yd, td]) => {
+        setYears(yd.years ?? []);
+        const codes: Record<number, string> = {};
+        for (const tr of td.tracks ?? []) codes[tr.id] = tr.code;
+        setTrackCodes(codes);
+      })
       .catch(() => setYears([]));
   }, [scopeLevel, years.length, user?.assignedSpecialtyId]);
 
@@ -120,7 +132,10 @@ function ScopeField({
         >
           <option value="">اختر السنة…</option>
           {years.map((y) => (
-            <option key={y.id} value={y.id}>{y.yearName}</option>
+            <option key={y.id} value={y.id}>
+              {y.yearName}
+              {y.trackId != null && trackCodes[y.trackId] ? ` — ${trackCodes[y.trackId]}` : ""}
+            </option>
           ))}
         </select>
       )}

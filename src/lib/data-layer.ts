@@ -32,6 +32,9 @@ export interface AcademicYear {
   specialtyId: number;
   yearName: string;
   semester: number;
+  /** r70: the year's academic track (ملمح) — null = shared/"no track" bucket.
+   * The SAME year_name can exist once per track of a specialty. */
+  trackId: number | null;
 }
 
 export interface Cohort {
@@ -118,6 +121,7 @@ function mapAcademicYear(row: Record<string, unknown>): AcademicYear {
     specialtyId: Number(row.specialty_id ?? 0),
     yearName: String(row.year_name ?? ""),
     semester: Number(row.semester ?? 1),
+    trackId: row.track_id != null ? Number(row.track_id) : null,
   };
 }
 
@@ -226,20 +230,35 @@ export async function fetchSpecialties(institutionId?: number): Promise<Specialt
 // =====================================================
 // Academic Years
 // =====================================================
-export async function fetchAcademicYears(specialtyId: number): Promise<AcademicYear[]> {
+// r70 (track fix): a specialty can hold MULTIPLE tracks (PEP/PEM/PES...)
+// and the SAME year_name exists once per track. fetchAcademicYears now
+// accepts an optional trackId and — following the house convention used by
+// fetchCohorts/fetchStudyGroups since round 3 — a NULL-track year is
+// "shared/global": it is returned to every track of the specialty.
+// Callers that omit trackId get the full list (each row now carries
+// trackId so the UI can group by track).
+export async function fetchAcademicYears(
+  specialtyId: number,
+  trackId?: number | null
+): Promise<AcademicYear[]> {
   if (isVercel) {
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase
+    let query = supabase
       .from("academic_years")
       .select("*")
-      .eq("specialty_id", specialtyId)
-      .order("id", { ascending: true });
+      .eq("specialty_id", specialtyId);
+    // NULL-track years are shared across tracks (same rule as cohorts/groups)
+    if (trackId != null) query = query.or(`track_id.is.null,track_id.eq.${trackId}`);
+    const { data, error } = await query.order("id", { ascending: true });
     if (error) return [];
     return (data ?? []).map(mapAcademicYear);
   }
-  const items = await db.academicYear.findMany({ where: { specialtyId }, orderBy: { id: "asc" } });
+  const where: Record<string, unknown> = { specialtyId };
+  if (trackId != null) where.OR = [{ trackId: null }, { trackId }];
+  const items = await db.academicYear.findMany({ where: where as never, orderBy: { id: "asc" } });
   return items.map((y) => ({
     id: y.id, specialtyId: y.specialtyId, yearName: y.yearName, semester: y.semester,
+    trackId: y.trackId ?? null,
   }));
 }
 

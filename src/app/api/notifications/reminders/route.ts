@@ -84,23 +84,39 @@ function bucketLabel(bucket: string): string {
   return "بعد ثلاثة أيام";
 }
 
-async function loadExams(specialtyId: number): Promise<ExamRow[]> {
+/** r70: scope filters for reminders — a student gets reminders ONLY for
+ *  their own year + track curriculum, never another track's exams. */
+interface ReminderScope {
+  specialtyId: number;
+  yearId: number | null;
+  trackId: number | null;
+}
+
+function moduleInScope(rel: unknown, s: ReminderScope): boolean {
+  const mod = (
+    Array.isArray(rel) ? (rel as Array<Record<string, unknown>>)[0] : rel
+  ) as Record<string, unknown> | null | undefined;
+  if (!mod) return false;
+  const sid = Number(mod.specialty_id);
+  if (sid !== s.specialtyId) return false;
+  if (s.yearId != null && Number(mod.academic_year_id) !== s.yearId) return false;
+  // NULL-track modules are shared across tracks (house convention)
+  const t = mod.track_id != null ? Number(mod.track_id) : null;
+  if (s.trackId != null && t != null && t !== s.trackId) return false;
+  return true;
+}
+
+async function loadExams(s: ReminderScope): Promise<ExamRow[]> {
   if (isVercel) {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("exams")
-      .select("id, title, exam_date, module_name, module_courses!exams_module_id_fkey(specialty_id)")
+      .select("id, title, exam_date, module_name, module_courses!exams_module_id_fkey(specialty_id, academic_year_id, track_id)")
       .order("exam_date", { ascending: true })
       .limit(200);
     if (error) return [];
     return (data ?? [])
-      .filter((r: Record<string, unknown>) => {
-        const rel = r.module_courses;
-        const sid = Number(
-          Array.isArray(rel) ? (rel as Array<Record<string, unknown>>)[0]?.specialty_id : (rel as Record<string, unknown> | null)?.specialty_id
-        );
-        return sid === specialtyId;
-      })
+      .filter((r: Record<string, unknown>) => moduleInScope(r.module_courses, s))
       .map((r: Record<string, unknown>) => ({
         id: Number(r.id),
         title: String(r.title ?? ""),
@@ -109,7 +125,13 @@ async function loadExams(specialtyId: number): Promise<ExamRow[]> {
       }));
   }
   const rows = await db.exam.findMany({
-    where: { module: { specialtyId } },
+    where: {
+      module: {
+        specialtyId: s.specialtyId,
+        ...(s.yearId != null ? { academicYearId: s.yearId } : {}),
+        ...(s.trackId != null ? { OR: [{ trackId: null }, { trackId: s.trackId }] } : {}),
+      },
+    },
     select: { id: true, title: true, examDate: true, moduleName: true },
     orderBy: { examDate: "asc" },
     take: 200,
@@ -117,23 +139,17 @@ async function loadExams(specialtyId: number): Promise<ExamRow[]> {
   return rows.map((r) => ({ id: r.id, title: r.title, moduleName: r.moduleName, examDate: r.examDate }));
 }
 
-async function loadAssignments(specialtyId: number): Promise<AssignmentRow[]> {
+async function loadAssignments(s: ReminderScope): Promise<AssignmentRow[]> {
   if (isVercel) {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("assignments")
-      .select("id, title, due_date, module_courses!assignments_module_id_fkey(specialty_id, name)")
+      .select("id, title, due_date, module_courses!assignments_module_id_fkey(specialty_id, name, academic_year_id, track_id)")
       .order("due_date", { ascending: true })
       .limit(200);
     if (error) return [];
     return (data ?? [])
-      .filter((r: Record<string, unknown>) => {
-        const rel = r.module_courses;
-        const sid = Number(
-          Array.isArray(rel) ? (rel as Array<Record<string, unknown>>)[0]?.specialty_id : (rel as Record<string, unknown> | null)?.specialty_id
-        );
-        return sid === specialtyId;
-      })
+      .filter((r: Record<string, unknown>) => moduleInScope(r.module_courses, s))
       .map((r: Record<string, unknown>) => {
         const rel = r.module_courses as Record<string, unknown> | Array<Record<string, unknown>>;
         const modName = String((Array.isArray(rel) ? rel[0]?.name : rel?.name) ?? "");
@@ -146,7 +162,13 @@ async function loadAssignments(specialtyId: number): Promise<AssignmentRow[]> {
       });
   }
   const rows = await db.assignment.findMany({
-    where: { module: { specialtyId } },
+    where: {
+      module: {
+        specialtyId: s.specialtyId,
+        ...(s.yearId != null ? { academicYearId: s.yearId } : {}),
+        ...(s.trackId != null ? { OR: [{ trackId: null }, { trackId: s.trackId }] } : {}),
+      },
+    },
     select: { id: true, title: true, dueDate: true, module: { select: { name: true } } },
     orderBy: { dueDate: "asc" },
     take: 200,
@@ -217,9 +239,16 @@ export async function POST(req: NextRequest) {
         .filter((n) => Number.isFinite(n))
     );
 
+    // r70: reminders are computed from the CALLER'S scope (year + track),
+    // so a PEP student is never pinged about a PEM exam
+    const reminderScope: ReminderScope = {
+      specialtyId: user.assignedSpecialtyId,
+      yearId: user.scopeAcademicYearId ?? null,
+      trackId: user.scopeTrackId ?? null,
+    };
     const [exams, assignments, existing] = await Promise.all([
-      loadExams(user.assignedSpecialtyId),
-      loadAssignments(user.assignedSpecialtyId),
+      loadExams(reminderScope),
+      loadAssignments(reminderScope),
       loadExistingSignatures(user.id),
     ]);
 

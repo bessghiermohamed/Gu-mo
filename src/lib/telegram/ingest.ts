@@ -226,6 +226,8 @@ export interface SourceLite {
   titleAr: string;
   sourceType: string;
   specialtyId: number;
+  /** r70: the source's track binding (ملمح) — used to scope module matching */
+  trackId: number | null;
   yearId: number | null;
   semester: number | null;
   moduleId: number | null;
@@ -325,14 +327,14 @@ export async function loadSourceById(id: number): Promise<SourceLite | null> {
       const supabase = await createSupabaseServerClient();
       const { data } = await supabase
         .from("telegram_sources")
-        .select("id, tg_channel_id, tg_username, title_ar, source_type, specialty_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
+        .select("id, tg_channel_id, tg_username, title_ar, source_type, specialty_id, track_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
         .eq("id", id)
         .maybeSingle();
       if (!data) return null;
       return {
         id: Number(data.id), tgChannelId: String(data.tg_channel_id), tgUsername: String(data.tg_username ?? ""),
         titleAr: String(data.title_ar ?? ""), sourceType: String(data.source_type ?? "channel"),
-        specialtyId: Number(data.specialty_id ?? 1), yearId: data.year_id == null ? null : Number(data.year_id),
+        specialtyId: Number(data.specialty_id ?? 1), trackId: data.track_id == null ? null : Number(data.track_id), yearId: data.year_id == null ? null : Number(data.year_id),
         semester: data.semester == null ? null : Number(data.semester), moduleId: data.module_id == null ? null : Number(data.module_id),
         cohortId: data.cohort_id == null ? null : Number(data.cohort_id),
         isActive: !!data.is_active, lastUpdateId: Number(data.last_update_id ?? 0),
@@ -342,7 +344,7 @@ export async function loadSourceById(id: number): Promise<SourceLite | null> {
     if (!s) return null;
     return {
       id: s.id, tgChannelId: s.tgChannelId, tgUsername: s.tgUsername, titleAr: s.titleAr,
-      sourceType: s.sourceType, specialtyId: s.specialtyId, yearId: s.yearId, semester: s.semester,
+      sourceType: s.sourceType, specialtyId: s.specialtyId, trackId: s.trackId ?? null, yearId: s.yearId, semester: s.semester,
       moduleId: s.moduleId, cohortId: s.cohortId, isActive: s.isActive, lastUpdateId: s.lastUpdateId,
     };
   } catch {
@@ -355,14 +357,14 @@ async function loadSourceByChatId(chatId: string): Promise<SourceLite | null> {
     const supabase = await createSupabaseServerClient();
     const { data } = await supabase
       .from("telegram_sources")
-      .select("id, tg_channel_id, tg_username, title_ar, source_type, specialty_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
+      .select("id, tg_channel_id, tg_username, title_ar, source_type, specialty_id, track_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
       .eq("tg_channel_id", chatId)
       .maybeSingle();
     if (!data) return null;
     return {
       id: Number(data.id), tgChannelId: String(data.tg_channel_id), tgUsername: String(data.tg_username ?? ""),
       titleAr: String(data.title_ar ?? ""), sourceType: String(data.source_type ?? "channel"),
-      specialtyId: Number(data.specialty_id ?? 1), yearId: data.year_id == null ? null : Number(data.year_id),
+      specialtyId: Number(data.specialty_id ?? 1), trackId: data.track_id == null ? null : Number(data.track_id), yearId: data.year_id == null ? null : Number(data.year_id),
       semester: data.semester == null ? null : Number(data.semester), moduleId: data.module_id == null ? null : Number(data.module_id),
       cohortId: data.cohort_id == null ? null : Number(data.cohort_id),
       isActive: !!data.is_active, lastUpdateId: Number(data.last_update_id ?? 0),
@@ -372,7 +374,7 @@ async function loadSourceByChatId(chatId: string): Promise<SourceLite | null> {
   if (!s) return null;
   return {
     id: s.id, tgChannelId: s.tgChannelId, tgUsername: s.tgUsername, titleAr: s.titleAr,
-    sourceType: s.sourceType, specialtyId: s.specialtyId, yearId: s.yearId, semester: s.semester,
+    sourceType: s.sourceType, specialtyId: s.specialtyId, trackId: s.trackId ?? null, yearId: s.yearId, semester: s.semester,
     moduleId: s.moduleId, cohortId: s.cohortId, isActive: s.isActive, lastUpdateId: s.lastUpdateId,
   };
 }
@@ -388,7 +390,7 @@ export async function loadSourcesByChatId(chatId: string): Promise<SourceLite[]>
       const supabase = await createSupabaseServerClient();
       const { data } = await supabase
         .from("telegram_sources")
-        .select("id, tg_channel_id, tg_username, title_ar, source_type, specialty_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
+        .select("id, tg_channel_id, tg_username, title_ar, source_type, specialty_id, track_id, year_id, semester, module_id, cohort_id, is_active, last_update_id")
         .like("tg_channel_id", `${chatId}%`);
       for (const r of (data ?? []) as unknown[]) {
         const m = r as Record<string, unknown>;
@@ -396,7 +398,7 @@ export async function loadSourcesByChatId(chatId: string): Promise<SourceLite[]>
         rows.push({
           id: Number(m.id), tgChannelId: String(m.tg_channel_id), tgUsername: String(m.tg_username ?? ""),
           titleAr: String(m.title_ar ?? ""), sourceType: String(m.source_type ?? "channel"),
-          specialtyId: Number(m.specialty_id ?? 1), yearId: m.year_id == null ? null : Number(m.year_id),
+          specialtyId: Number(m.specialty_id ?? 1), trackId: m.track_id == null ? null : Number(m.track_id), yearId: m.year_id == null ? null : Number(m.year_id),
           semester: m.semester == null ? null : Number(m.semester), moduleId: m.module_id == null ? null : Number(m.module_id),
           cohortId: m.cohort_id == null ? null : Number(m.cohort_id),
           isActive: !!m.is_active, lastUpdateId: Number(m.last_update_id ?? 0),
@@ -408,7 +410,7 @@ export async function loadSourcesByChatId(chatId: string): Promise<SourceLite[]>
         if (!isBinding(s.tgChannelId)) continue;
         rows.push({
           id: s.id, tgChannelId: s.tgChannelId, tgUsername: s.tgUsername, titleAr: s.titleAr,
-          sourceType: s.sourceType, specialtyId: s.specialtyId, yearId: s.yearId, semester: s.semester,
+          sourceType: s.sourceType, specialtyId: s.specialtyId, trackId: s.trackId ?? null, yearId: s.yearId, semester: s.semester,
           moduleId: s.moduleId, cohortId: s.cohortId, isActive: s.isActive, lastUpdateId: s.lastUpdateId,
         });
       }
@@ -616,7 +618,7 @@ async function ingestForBinding(
     // المطابق لكل منشور. المصدر أو الموضوع المربوط بمقياس (قرار
     // إداري) يفوز دائماً، والموضوع المربوط بسنة يضيّق المرشحين (r65).
     const moduleCandidates = source.moduleId == null && bindingModuleId == null
-      ? await loadModuleCandidates(source.specialtyId, binding?.yearId ?? source.yearId)
+      ? await loadModuleCandidates(source.specialtyId, binding?.yearId ?? source.yearId, source.trackId ?? null)
       : [];
     const classifyInput = {
       kind: content.kind, caption: content.caption, fileName: content.fileName,

@@ -57,6 +57,10 @@ model AcademicYear {
   specialtyId  Int
   yearName     String
   semester     Int            @default(1)
+  // r70 (track fix): the SAME year_name can exist once per track of a
+  // specialty — trackId scopes a year to its track; NULL = shared/"no track".
+  trackId      Int?
+  track        AcademicTrack? @relation(fields: [trackId], references: [id], onDelete: SetNull)
   specialty    Specialty      @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
   cohortGroups CohortGroup[]
   studyGroups  StudyGroup[]
@@ -147,6 +151,8 @@ model AcademicTrack {
   cohorts     CohortGroup[]
   studyGroups StudyGroup[]
   appUsers    AppUser[]
+  academicYears AcademicYear[] // r70: years can be per-track
+  modules      ModuleCourse[] // r70: modules inherit their year's track
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -173,8 +179,12 @@ model ModuleCourse {
   syllabusTopics       String           @default("")
   visibilityScope      String           @default("تخصص كامل")
   targetGroup          String           @default("الكل")
+  // r70 (track fix): a module inherits its year's track so student queries
+  // can filter the curriculum by track; NULL = shared/legacy "no track".
+  trackId              Int?
   specialty            Specialty        @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
   academicYear         AcademicYear     @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  track                AcademicTrack?   @relation(fields: [trackId], references: [id], onDelete: SetNull)
   lectures             Lecture[]
   assignments         Assignment[]
   exams                Exam[]

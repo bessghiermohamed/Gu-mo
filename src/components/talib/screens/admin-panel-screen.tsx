@@ -37,7 +37,9 @@ import {
 // =====================================================
 interface Inst { id: number; nameAr: string; type: string; city: string }
 interface Spec { id: number; nameAr: string; code: string; faculty: string; institutionId: number }
-interface Year { id: number; yearName: string }
+// r70: years are PER-TRACK — trackId rides along so every year dropdown
+// can disambiguate same-named years across tracks
+interface Year { id: number; yearName: string; trackId?: number | null }
 interface Track { id: number; trackNameAr: string; code: string }
 interface GroupRow { id: number; groupName: string; description: string }
 
@@ -96,6 +98,24 @@ function useCascade() {
       .catch(() => { setYears([]); setTracks([]); });
   }, [specId]);
 
+  // r70: track code lookup for labeling years in dropdowns — "السنة الثانية"
+  // alone is ambiguous once a specialty has multiple tracks
+  const trackCodeOf = React.useCallback(
+    (tid: number | null | undefined) => {
+      if (tid == null) return "";
+      const tr = tracks.find((t) => t.id === tid);
+      return tr?.code ?? "";
+    },
+    [tracks]
+  );
+  const yearLabel = React.useCallback(
+    (y: Year) => {
+      const code = trackCodeOf(y.trackId);
+      return code ? `${y.yearName} — ${code}` : y.yearName;
+    },
+    [trackCodeOf]
+  );
+
   React.useEffect(() => {
     if (!specId || !yearId) { setGroups([]); setGroupId(""); return; }
     setGroupId("");
@@ -109,6 +129,9 @@ function useCascade() {
     institutions, specialties, years, tracks, groups,
     instId, setInstId, specId, setSpecId, yearId, setYearId,
     trackId, setTrackId, groupId, setGroupId,
+    // r70: label helpers — year dropdowns show the track code so two
+    // same-named years from different tracks are never confused
+    trackCodeOf, yearLabel,
   };
 }
 
@@ -1375,12 +1398,26 @@ function TracksManager() {
 }
 
 // =====================================================
+// =====================================================
 // Years Manager — NEW in round 3 (زر "السنوات")
 // The admin previously had NO way to add study years: every year dropdown
 // in the app (groups, cohorts, modules, onboarding) read a read-only list.
 // A new specialty started with zero years → impossible to create groups or
-// regiments. This tab adds years (quick presets 1..5 + custom) and lets the
-// supervisor delete a year (blocked while groups/cohorts/modules exist).
+// regiments. This tab adds years (quick presets 1..5 + custom) and lets
+// the supervisor delete a year (blocked while groups/cohorts/modules exist).
+//
+// r70 (track fix — owner request): years are PER-TRACK. The section used to
+// show ONE flat grid for the whole specialty: "السنة الثانية" for PEP and
+// for PEM appeared as two identical unlabeled cards (no separation between
+// the years and their track/specialty), the quick-preset buttons got
+// disabled because ANY track already had that name, and the duplicate
+// guard rejected legitimate years. Now:
+//   • a REQUIRED track selector targets every year creation (each track +
+//     the shared "عام — بدون ملمح" bucket);
+//   • the list is GROUPED by track with clear headers — same-named years
+//     of different tracks can never merge visually;
+//   • the edit dialog can MOVE a year to another track (the server re-tags
+//     its module_courses so modules always inherit the year's track).
 // =====================================================
 const YEAR_PRESETS = ["السنة الأولى", "السنة الثانية", "السنة الثالثة", "السنة الرابعة", "السنة الخامسة"];
 
@@ -1392,10 +1429,14 @@ function YearsManager({ presetSpecId, onConsumePresetSpec }: {
 }) {
   const cascade = useCascade();
   const [years, setYears] = React.useState<YearRow[]>([]);
+  const [tracks, setTracks] = React.useState<Track[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [open, setOpen] = React.useState(false);
   const [customName, setCustomName] = React.useState("");
   const [customSemester, setCustomSemester] = React.useState("1");
+  // r70: REQUIRED target selector for year creation — "" = not chosen yet,
+  // "none" = the shared NULL-track bucket ("عام — بدون ملمح")
+  const [newYearTrack, setNewYearTrack] = React.useState<string>("");
   const [saving, setSaving] = React.useState(false);
   const [deleteYear, setDeleteYear] = React.useState<YearRow | null>(null);
   const [deleting, setDeleting] = React.useState(false);
@@ -1403,6 +1444,8 @@ function YearsManager({ presetSpecId, onConsumePresetSpec }: {
   const [editYear, setEditYear] = React.useState<YearRow | null>(null);
   const [editName, setEditName] = React.useState("");
   const [editSemester, setEditSemester] = React.useState("1");
+  // r70: move the year to another track from the edit dialog
+  const [editTrack, setEditTrack] = React.useState<string>("");
   const [editSaving, setEditSaving] = React.useState(false);
   // round 36: actionable blocked-delete + cross-panel navigation preset
   const yearFetchSeq = React.useRef(0);
@@ -1421,27 +1464,47 @@ function YearsManager({ presetSpecId, onConsumePresetSpec }: {
   }, [presetSpecId, cascade, onConsumePresetSpec]);
 
   const fetchYears = React.useCallback(async (specialtyId: string) => {
-    if (!specialtyId) { setYears([]); setLoading(false); return; }
+    if (!specialtyId) { setYears([]); setTracks([]); setLoading(false); return; }
     // round 36: latest-request-wins (same race as SpecialtiesPanel)
     const seq = ++yearFetchSeq.current;
     setLoading(true);
     try {
-      const res = await fetch(`/api/years?specialtyId=${specialtyId}`, { cache: "no-store" });
-      const data = await res.json();
-      if (seq === yearFetchSeq.current) setYears(data.years ?? []);
+      // r70: years + tracks together — the list is grouped by track
+      const [yearsRes, tracksRes] = await Promise.all([
+        fetch(`/api/years?specialtyId=${specialtyId}`, { cache: "no-store" }),
+        fetch(`/api/tracks?specialtyId=${specialtyId}`, { cache: "no-store" }),
+      ]);
+      const [yearsData, tracksData] = await Promise.all([yearsRes.json(), tracksRes.json()]);
+      if (seq === yearFetchSeq.current) {
+        setYears(yearsData.years ?? []);
+        setTracks(tracksData.tracks ?? []);
+      }
     } catch { toast.error("فشل تحميل السنوات"); }
     finally { if (seq === yearFetchSeq.current) setLoading(false); }
   }, []);
 
   React.useEffect(() => { fetchYears(cascade.specId); }, [fetchYears, cascade.specId]);
+  // r70: reset the creation target when the specialty changes
+  React.useEffect(() => { setNewYearTrack(""); }, [cascade.specId]);
+
+  /** r70: resolve the creation target selector → trackId (undefined = not chosen). */
+  function targetTrackId(): number | null | undefined {
+    if (newYearTrack === "") return undefined;
+    if (newYearTrack === "none") return null;
+    const n = Number(newYearTrack);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }
 
   async function addYear(yearName: string, semester?: number) {
     if (!cascade.specId) { toast.error("اختر المؤسسة والتخصص أولاً"); return false; }
+    const tid = targetTrackId();
+    // r70: the track is REQUIRED — a year always lands in an explicit bucket
+    if (tid === undefined) { toast.error("اختر الملمح أولاً — كل سنة تُنشأ داخل ملمح محدد (أو «عام» بدون ملمح)"); return false; }
     setSaving(true);
     try {
       const res = await fetch("/api/years", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ specialtyId: parseInt(cascade.specId), yearName, semester }),
+        body: JSON.stringify({ specialtyId: parseInt(cascade.specId), yearName, semester, trackId: tid }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return false; }
@@ -1488,6 +1551,9 @@ function YearsManager({ presetSpecId, onConsumePresetSpec }: {
   function openEditYear(y: YearRow) {
     setEditName(y.yearName);
     setEditSemester(String(y.semester ?? 1));
+    // r70: current bucket preselected ("" guards legacy rows with a
+    // trackId that no longer exists — falls back to "none")
+    setEditTrack(y.trackId != null && tracks.some((t) => t.id === y.trackId) ? String(y.trackId) : "none");
     setEditYear(y);
   }
 
@@ -1496,24 +1562,63 @@ function YearsManager({ presetSpecId, onConsumePresetSpec }: {
     if (!editName.trim()) { toast.error("اكتب اسم السنة"); return; }
     setEditSaving(true);
     try {
+      const tid = editTrack === "none" ? null : Number(editTrack);
       const res = await fetch("/api/years", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: editYear.id, yearName: editName.trim(), semester: parseInt(editSemester) }),
+        body: JSON.stringify({
+          id: editYear.id, yearName: editName.trim(),
+          semester: parseInt(editSemester),
+          // r70: trackId always sent — moving the year re-tags its modules
+          trackId: tid != null && Number.isFinite(tid) && tid > 0 ? tid : null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error); return; }
-      toast.success("تم تعديل السنة");
+      toast.success(editTrack !== (editYear.trackId != null ? String(editYear.trackId) : "none")
+        ? "تم نقل السنة إلى الملمح الجديد (مع مقاييسها)"
+        : "تم تعديل السنة");
       setEditYear(null);
       fetchYears(cascade.specId);
     } catch { toast.error("فشل الاتصال"); }
     finally { setEditSaving(false); }
   }
 
+  // r70: the grouped list — one section per track, shared NULL bucket last,
+  // orphaned track ids (track deleted afterwards) get their own bucket so
+  // no year ever silently disappears from this screen.
+  const yearGroups = React.useMemo(() => {
+    const groups: Array<{ key: string; label: string; years: YearRow[] }> = [];
+    for (const tr of tracks) {
+      const ys = years.filter((y) => (y.trackId ?? null) === tr.id);
+      if (ys.length > 0) groups.push({ key: `t${tr.id}`, label: `${tr.trackNameAr} (${tr.code})`, years: ys });
+    }
+    const orphanIds = Array.from(new Set(
+      years.filter((y) => y.trackId != null && !tracks.some((t) => t.id === y.trackId)).map((y) => y.trackId as number)
+    ));
+    for (const oid of orphanIds) {
+      const ys = years.filter((y) => y.trackId === oid);
+      if (ys.length > 0) groups.push({ key: `o${oid}`, label: `ملمح محذوف (#${oid})`, years: ys });
+    }
+    const nullYears = years.filter((y) => y.trackId == null);
+    if (nullYears.length > 0) groups.push({ key: "none", label: "عام — بدون ملمح (مشترك بين كل الملامح)", years: nullYears });
+    return groups;
+  }, [years, tracks]);
+
+  /** r70: quick-preset "exists" check is PER BUCKET — the button stays
+   * usable for tracks that don't have the year yet, and disabled only for
+   * the currently selected creation target. */
+  const selectedTargetLabel = React.useMemo(() => {
+    if (newYearTrack === "") return "— لم يُحدد —";
+    if (newYearTrack === "none") return "عام (بدون ملمح)";
+    const tr = tracks.find((t) => t.id === Number(newYearTrack));
+    return tr ? `${tr.trackNameAr} (${tr.code})` : "—";
+  }, [newYearTrack, tracks]);
+
   return (
     <Card className="p-4 space-y-3">
       <div>
         <h3 className="font-bold text-sm flex items-center gap-2"><CalendarDays className="w-4 h-4 text-primary" />السنوات الدراسية</h3>
-        <p className="text-xs text-muted-foreground mt-1">أضف سنوات التخصص حتى تتمكن من إنشاء المجموعات والأفواج والمقاييس</p>
+        <p className="text-xs text-muted-foreground mt-1">أضف سنوات التخصص حتى تتمكن من إنشاء المجموعات والأفواج والمقاييس — كل سنة تُنشأ داخل ملمح محدد</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1537,9 +1642,35 @@ function YearsManager({ presetSpecId, onConsumePresetSpec }: {
         <div className="text-center py-6 text-sm text-muted-foreground">اختر مؤسسة وتخصصاً لعرض/إضافة السنوات</div>
       ) : (
         <>
-          <div className="flex flex-wrap gap-2">
+          {/* r70: REQUIRED track selector — the creation target */}
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-1">
+              إنشاء السنوات داخل
+              <span className="text-muted-foreground font-normal">(إلزامي)</span>
+            </Label>
+            <select
+              value={newYearTrack}
+              onChange={(e) => setNewYearTrack(e.target.value)}
+              className={selectCls}
+              aria-label="الملمح الهدف"
+            >
+              <option value="">— اختر الملمح —</option>
+              {tracks.map((t) => (
+                <option key={t.id} value={t.id}>{t.trackNameAr} ({t.code})</option>
+              ))}
+              <option value="none">عام — بدون ملمح (مشترك)</option>
+            </select>
+            {newYearTrack === "" && (
+              <p className="text-xs text-muted-foreground">كل سنة تُنشأ داخل ملمح محدد — «السنة الثانية» لـ PEP و«السنة الثانية» لـ PEM سنتان مختلفتان.</p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2 items-center">
             {YEAR_PRESETS.map((name) => {
-              const exists = years.some((y) => y.yearName === name);
+              const tid = targetTrackId();
+              const exists = tid === undefined
+                ? false
+                : years.some((y) => y.yearName === name && (y.trackId ?? null) === tid);
               return (
                 <Button key={name} size="sm" variant={exists ? "outline" : "secondary"} disabled={saving || exists} onClick={() => handlePreset(name)}>
                   <Plus className="w-3.5 h-3.5 ml-1" />{name}{exists ? <Check className="w-3.5 h-3.5 ml-1" /> : null}
@@ -1551,6 +1682,9 @@ function YearsManager({ presetSpecId, onConsumePresetSpec }: {
               <DialogContent>
                 <DialogHeader><DialogTitle>إضافة سنة مخصصة</DialogTitle></DialogHeader>
                 <div className="space-y-3 py-2">
+                  <div className="rounded-lg bg-muted/50 p-2.5 text-xs">
+                    الملمح الهدف: <span className="font-bold">{selectedTargetLabel}</span>
+                  </div>
                   <div className="space-y-1.5"><Label>اسم السنة</Label><Input value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="مثال: السنة السادسة (تحضيري)" /></div>
                   <div className="space-y-1.5">
                     <Label>السداسي</Label>
@@ -1566,27 +1700,45 @@ function YearsManager({ presetSpecId, onConsumePresetSpec }: {
           </div>
 
           {loading ? <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div> : years.length === 0 ? (
-            <div className="text-center py-4 text-sm text-muted-foreground">لا توجد سنوات لهذا التخصص — استخدم الأزرار السريعة أعلاه</div>
+            <div className="text-center py-4 text-sm text-muted-foreground">
+              لا توجد سنوات لهذا التخصص — اختر ملمحاً أعلاه واستخدم الأزرار السريعة
+            </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              {years.map((y) => (
-                <Card key={y.id} className="p-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="font-bold text-sm">{y.yearName}</div>
-                      <Badge variant="outline" className="mt-2 text-xs">ID: {y.id}</Badge>
-                    </div>
-                    <div className="flex flex-col gap-1 shrink-0">
-                      {/* round 36: bordered icon buttons (was ghost — read as plain text) */}
-                      <Button size="icon" variant="outline" className="h-8 w-8 bg-background" onClick={() => openEditYear(y)} aria-label="تعديل السنة">
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button size="icon" variant="outline" className="h-8 w-8 bg-background border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => { setDeleteYear(y); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }} aria-label="حذف السنة">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
+            /* r70: GROUPED by track — same-named years of different tracks are
+               visually separated and can never be confused again */
+            <div className="space-y-4">
+              {yearGroups.map((g) => (
+                <div key={g.key} className="space-y-2">
+                  <div className="flex items-center gap-2 pt-1 border-t border-border/60">
+                    <Route className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-xs font-black">{g.label}</span>
+                    <Badge variant="outline" className="text-[10px]">{g.years.length} {g.years.length === 1 ? "سنة" : "سنوات"}</Badge>
                   </div>
-                </Card>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {g.years.map((y) => (
+                      <Card key={y.id} className="p-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="font-bold text-sm">{y.yearName}</div>
+                            <div className="flex items-center gap-1.5 mt-2">
+                              <Badge variant="outline" className="text-xs">ID: {y.id}</Badge>
+                              {y.semester === 2 ? <Badge variant="outline" className="text-xs">س2</Badge> : null}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-1 shrink-0">
+                            {/* round 36: bordered icon buttons (was ghost — read as plain text) */}
+                            <Button size="icon" variant="outline" className="h-8 w-8 bg-background" onClick={() => openEditYear(y)} aria-label="تعديل السنة">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button size="icon" variant="outline" className="h-8 w-8 bg-background border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => { setDeleteYear(y); setDeleteError(null); setBlockedCounts(null); setAckForce(false); }} aria-label="حذف السنة">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           )}
@@ -1644,6 +1796,17 @@ function YearsManager({ presetSpecId, onConsumePresetSpec }: {
                   <option value="1">السداسي 1</option>
                   <option value="2">السداسي 2</option>
                 </select>
+              </div>
+              {/* r70: move the year between tracks — modules follow */}
+              <div className="space-y-1.5">
+                <Label>الملمح</Label>
+                <select value={editTrack} onChange={(e) => setEditTrack(e.target.value)} className={selectCls}>
+                  {tracks.map((t) => (
+                    <option key={t.id} value={t.id}>{t.trackNameAr} ({t.code})</option>
+                  ))}
+                  <option value="none">عام — بدون ملمح (مشترك)</option>
+                </select>
+                <p className="text-xs text-muted-foreground">نقل السنة إلى ملمح آخر ينقل مقاييسها معها تلقائياً.</p>
               </div>
               <p className="text-xs text-muted-foreground">التعديل آمن حتى لو كانت السنة تحتوي مجموعات وأفواجاً ومقاييس — لا تُفقد أي بيانات.</p>
             </div>
@@ -1804,7 +1967,7 @@ function CohortsManager() {
               <div className="space-y-1.5"><Label>4. السنة الدراسية</Label>
                 <select value={cascade.yearId} onChange={(e) => cascade.setYearId(e.target.value)} className={selectCls}>
                   <option value="">— اختر —</option>
-                  {cascade.years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                  {cascade.years.map((y) => <option key={y.id} value={y.id}>{cascade.yearLabel(y)}</option>)}
                 </select>
               </div>
               <div className="space-y-1.5"><Label>5. المجموعة الأم</Label>
@@ -2041,7 +2204,7 @@ function GroupsManager() {
               <div className="space-y-1.5"><Label>4. السنة الدراسية</Label>
                 <select value={cascade.yearId} onChange={(e) => cascade.setYearId(e.target.value)} className={selectCls}>
                   <option value="">— اختر —</option>
-                  {cascade.years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                  {cascade.years.map((y) => <option key={y.id} value={y.id}>{cascade.yearLabel(y)}</option>)}
                 </select>
               </div>
               <div className="space-y-1.5"><Label>5. اسم المجموعة</Label><Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="مثال: المجموعة 3" /></div>
@@ -2068,7 +2231,7 @@ function GroupsManager() {
         <div className="space-y-1.5"><Label>السنة الدراسية</Label>
           <select value={listYear} onChange={(e) => setListYear(e.target.value)} className={selectCls}>
             <option value="">— اختر —</option>
-            {cascade.years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+            {cascade.years.map((y) => <option key={y.id} value={y.id}>{cascade.yearLabel(y)}</option>)}
           </select>
         </div>
         <div className="space-y-1.5"><Label>الملمح (اختياري)</Label>
@@ -2893,7 +3056,8 @@ function TgSourcesManager() {
   const [specialtyChoice, setSpecialtyChoice] = React.useState("");
   const [trackChoice, setTrackChoice] = React.useState("");
   const [specialties, setSpecialties] = React.useState<Array<{ id: number; nameAr: string }>>([]);
-  const [tracks, setTracks] = React.useState<Array<{ id: number; trackNameAr: string }>>([]);
+  // r70: + code — year dropdowns show the track code to disambiguate
+  const [tracks, setTracks] = React.useState<Array<{ id: number; trackNameAr: string; code: string }>>([]);
   // التخصص المستهدف في نافذة الربط — المختار أو تخصص الرابط نفسه
   const dialogSpecialtyId = specialtyChoice || String(user?.assignedSpecialtyId ?? 1);
   const isOwnerLinker = user?.role === "OWNER";
@@ -2919,10 +3083,19 @@ function TgSourcesManager() {
       .then((r) => r.json()).then((data) => setCourses(data.courses ?? [])).catch(() => setCourses([]));
     // r68: ملامح التخصص المستهدف — الربط متعدد القواعد
     fetch(`/api/onboarding/tracks?specialtyId=${dialogSpecialtyId}`)
-      .then((r) => r.json()).then((data) => setTracks(data.tracks ?? [])).catch(() => setTracks([]));
+      .then((r) => r.json()).then((data) => setTracks(
+        (data.tracks ?? []).map((tr: { id: number; trackNameAr: string; code?: string }) =>
+          ({ id: Number(tr.id), trackNameAr: String(tr.trackNameAr ?? ""), code: String(tr.code ?? "") }))
+      )).catch(() => setTracks([]));
     // تغيير التخصص يصفّر الممح (خيارات الملامح تتبع التخصص)
     setTrackChoice("");
   }, [dialogSpecialtyId, user?.role]);
+
+  // r70: "السنة الثانية" — PEP vs PEM must be distinguishable in the dropdown
+  const yearLabel = (y: Year) => {
+    const tr = y.trackId != null ? tracks.find((t) => t.id === y.trackId) : undefined;
+    return tr?.code ? `${y.yearName} — ${tr.code}` : y.yearName;
+  };
 
   React.useEffect(() => {
     // r67: تُحمَّل الأفواج دوماً (بدون سنة) — قناة مساحة الفوج تُربط بفوج
@@ -3199,7 +3372,7 @@ function TgSourcesManager() {
                   <Label>السنة الدراسية</Label>
                   <select value={yearId} onChange={(e) => setYearId(e.target.value)} className={selectCls}>
                     <option value="">— بدون —</option>
-                    {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                    {years.map((y) => <option key={y.id} value={y.id}>{yearLabel(y)}</option>)}
                   </select>
                 </div>
               )}
@@ -3564,13 +3737,25 @@ function TgTopicsDialog({ source, onClose }: { source: TgSourceRow; onClose: () 
   // cascade data
   const [years, setYears] = React.useState<Year[]>([]);
   const [courses, setCourses] = React.useState<TgCourseRow[]>([]);
+  // r70: track codes to disambiguate same-named years in the dropdown
+  const [trackCodes, setTrackCodes] = React.useState<Record<number, string>>({});
 
   React.useEffect(() => {
     fetch(`/api/onboarding/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
       .then((r) => r.json()).then((data) => setYears(data.years ?? [])).catch(() => setYears([]));
+    fetch(`/api/tracks?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
+      .then((r) => r.json()).then((data) => {
+        const codes: Record<number, string> = {};
+        for (const tr of data.tracks ?? []) codes[tr.id] = tr.code;
+        setTrackCodes(codes);
+      }).catch(() => setTrackCodes({}));
     fetch("/api/courses", { cache: "no-store" })
       .then((r) => r.json()).then((data) => setCourses(data.courses ?? [])).catch(() => setCourses([]));
   }, [user]);
+
+  // r70: "السنة الثانية" — PEP vs PEM must be distinguishable
+  const yearLabel = (y: Year) =>
+    y.trackId != null && trackCodes[y.trackId] ? `${y.yearName} — ${trackCodes[y.trackId]}` : y.yearName;
 
   const fetchTopics = React.useCallback(async () => {
     setLoading(true);
@@ -3706,7 +3891,7 @@ function TgTopicsDialog({ source, onClose }: { source: TgSourceRow; onClose: () 
                 <Label>السنة</Label>
                 <select value={yearId} onChange={(e) => { setYearId(e.target.value); setModuleId(""); }} className={selectCls} aria-label="سنة ربط الموضوع">
                   <option value="">— بدون —</option>
-                  {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                  {years.map((y) => <option key={y.id} value={y.id}>{yearLabel(y)}</option>)}
                 </select>
               </div>
             )}
@@ -4624,7 +4809,7 @@ function ScopeEditDialog({ user, onClose, onDone }: { user: SupervisorNode; onCl
               <Label>السنة</Label>
               <select value={cascade.yearId} onChange={(e) => cascade.setYearId(e.target.value)} className={selectCls}>
                 <option value="">— اختر —</option>
-                {cascade.years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                {cascade.years.map((y) => <option key={y.id} value={y.id}>{cascade.yearLabel(y)}</option>)}
               </select>
             </div>
           )}
@@ -4633,7 +4818,7 @@ function ScopeEditDialog({ user, onClose, onDone }: { user: SupervisorNode; onCl
               <Label>السنة ثم المجموعة</Label>
               <select value={cascade.yearId} onChange={(e) => cascade.setYearId(e.target.value)} className={selectCls}>
                 <option value="">— السنة —</option>
-                {cascade.years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                {cascade.years.map((y) => <option key={y.id} value={y.id}>{cascade.yearLabel(y)}</option>)}
               </select>
               <select value={cascade.groupId} onChange={(e) => cascade.setGroupId(e.target.value)} className={selectCls}>
                 <option value="">— المجموعة —</option>

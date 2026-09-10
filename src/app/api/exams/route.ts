@@ -25,16 +25,23 @@ const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 async function scopedModuleIds(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>> | null,
   specialtyId: number,
-  yearId: number | null
+  yearId: number | null,
+  trackId: number | null = null
 ): Promise<number[]> {
   if (supabase) {
     let q = supabase.from("module_courses").select("id").eq("specialty_id", specialtyId);
     if (yearId) q = q.eq("academic_year_id", yearId);
+    // r70: NULL-track modules are shared across tracks (house convention)
+    if (trackId != null) q = q.or(`track_id.is.null,track_id.eq.${trackId}`);
     const { data } = await q;
     return (data ?? []).map((m: { id: number }) => Number(m.id));
   }
   const mods = await db.moduleCourse.findMany({
-    where: { specialtyId, ...(yearId ? { academicYearId: yearId } : {}) },
+    where: {
+      specialtyId,
+      ...(yearId ? { academicYearId: yearId } : {}),
+      ...(trackId != null ? { OR: [{ trackId: null }, { trackId }] } : {}),
+    },
     select: { id: true },
   });
   return mods.map((m) => m.id);
@@ -45,9 +52,11 @@ export async function GET() {
   if (!user) return NextResponse.json({ exams: [] });
   try {
     const yearId = user.scopeAcademicYearId ?? null;
+    // r70: exams follow the caller's track curriculum, not the whole specialty
+    const trackId = user.scopeTrackId ?? null;
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
-      const moduleIds = await scopedModuleIds(supabase, user.assignedSpecialtyId, yearId);
+      const moduleIds = await scopedModuleIds(supabase, user.assignedSpecialtyId, yearId, trackId);
       if (moduleIds.length === 0) return NextResponse.json({ exams: [] });
       const { data, error } = await supabase
         .from("exams")
@@ -69,6 +78,7 @@ export async function GET() {
         module: {
           specialtyId: user.assignedSpecialtyId,
           ...(yearId ? { academicYearId: yearId } : {}),
+          ...(user.scopeTrackId != null ? { OR: [{ trackId: null }, { trackId: user.scopeTrackId }] } : {}),
         },
       },
       orderBy: { examDate: "asc" },

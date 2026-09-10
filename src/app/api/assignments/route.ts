@@ -26,32 +26,46 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const moduleId = url.searchParams.get("moduleId");
     const specialtyId = user.assignedSpecialtyId;
+    // r70: assignments follow the caller's year AND track curriculum — a
+    // student must never see another track's assignments
+    const yearId = user.scopeAcademicYearId ?? null;
+    const trackId = user.scopeTrackId ?? null;
 
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       let query = supabase
         .from("assignments")
         .select(
-          "id, module_id, title, due_date, description, max_score, visibility_scope, target_group, created_at, module_courses!assignments_module_id_fkey(specialty_id)"
+          "id, module_id, title, due_date, description, max_score, visibility_scope, target_group, created_at, module_courses!assignments_module_id_fkey(specialty_id, academic_year_id, track_id)"
         )
         .eq("module_courses.specialty_id", specialtyId);
+      if (yearId) query = query.eq("module_courses.academic_year_id", yearId);
       if (moduleId) {
         query = query.eq("module_id", parseInt(moduleId));
       }
       const { data, error } = await query.order("id", { ascending: false });
       if (error) {
-        // Fall back to simple list without join filter
-        const fallback = await supabase
-          .from("assignments")
-          .select("*")
-          .order("id", { ascending: false });
-        return NextResponse.json({ assignments: fallback.data ?? [] });
+        // r70: the old fallback returned ALL assignments of ALL specialties
+        // (fail-open leak). Fail CLOSED instead — a broken join shows nothing
+        // rather than everyone's homework.
+        console.error("GET /api/assignments join error:", error.message);
+        return NextResponse.json({ assignments: [] });
       }
-      return NextResponse.json({ assignments: data ?? [] });
+      // r70: NULL-track modules are shared across tracks (house convention)
+      const rows = (data ?? []).filter((a: Record<string, unknown>) => {
+        const mod = a.module_courses as Record<string, unknown> | null | undefined;
+        const t = mod?.track_id != null ? Number(mod.track_id) : null;
+        return trackId == null || t == null || t === trackId;
+      });
+      return NextResponse.json({ assignments: rows });
     }
 
     const where: Record<string, unknown> = {
-      module: { specialtyId },
+      module: {
+        specialtyId,
+        ...(yearId ? { academicYearId: yearId } : {}),
+        ...(trackId != null ? { OR: [{ trackId: null }, { trackId }] } : {}),
+      },
     };
     if (moduleId) where.moduleId = parseInt(moduleId);
     const assignments = await db.assignment.findMany({
@@ -101,6 +115,20 @@ export async function POST(req: NextRequest) {
 
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
+      // r70: the module must belong to the caller's specialty (OWNER may
+      // target any) — POST previously accepted ANY module id of ANY
+      // specialty, forging cross-specialty content
+      const { data: targetModule } = await supabase
+        .from("module_courses")
+        .select("id, specialty_id")
+        .eq("id", Number(moduleId))
+        .maybeSingle();
+      if (!targetModule) {
+        return NextResponse.json({ error: "المقياس غير موجود" }, { status: 404 });
+      }
+      if (user.role !== "OWNER" && Number(targetModule.specialty_id) !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا المقياس خارج نطاق تخصصك" }, { status: 403 });
+      }
       const { data, error } = await supabase
         .from("assignments")
         .insert({
@@ -136,6 +164,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ assignment: data });
     }
 
+    // r70 local parity: module ownership check (non-OWNER → own specialty)
+    const localModule = await db.moduleCourse.findUnique({
+      where: { id: Number(moduleId) },
+      select: { specialtyId: true },
+    });
+    if (!localModule) {
+      return NextResponse.json({ error: "المقياس غير موجود" }, { status: 404 });
+    }
+    if (user.role !== "OWNER" && localModule.specialtyId !== user.assignedSpecialtyId) {
+      return NextResponse.json({ error: "هذا المقياس خارج نطاق تخصصك" }, { status: 403 });
+    }
     const assignment = await db.assignment.create({
       data: {
         moduleId: Number(moduleId),

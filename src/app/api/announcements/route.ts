@@ -59,7 +59,7 @@ function canEditAnnouncement(
 // never be targeted. Returns either the validated pair or an error string.
 const SCOPE_LEVELS = ["تخصص كامل", "سنة دراسية", "فوج"] as const;
 
-type ScopeUser = { role: string; assignedSpecialtyId: number };
+type ScopeUser = { role: string; assignedSpecialtyId: number; scopeTrackId?: number | null };
 
 async function resolveScope(
   user: ScopeUser,
@@ -83,17 +83,35 @@ async function resolveScope(
     return { visibilityScope: level, targetGroups: String(target) };
   }
   // سنة دراسية
+  let yearSpecialtyId: number | null = null;
+  let yearTrackId: number | null = null;
   if (isVercel) {
     const supabase = await createSupabaseServerClient();
-    const { data } = await supabase.from("academic_years").select("id, specialty_id").eq("id", target).maybeSingle();
-    if (!data || Number((data as Record<string, unknown>).specialty_id) !== user.assignedSpecialtyId) {
-      return { error: "السنة المحددة غير موجودة في تخصصك" };
-    }
+    const { data } = await supabase.from("academic_years").select("id, specialty_id, track_id").eq("id", target).maybeSingle();
+    if (!data) return { error: "السنة المحددة غير موجودة في تخصصك" };
+    const r = data as Record<string, unknown>;
+    yearSpecialtyId = Number(r.specialty_id);
+    yearTrackId = r.track_id != null ? Number(r.track_id) : null;
   } else {
-    const year = await db.academicYear.findUnique({ where: { id: target }, select: { specialtyId: true } });
-    if (!year || year.specialtyId !== user.assignedSpecialtyId) {
-      return { error: "السنة المحددة غير موجودة في تخصصك" };
-    }
+    const year = await db.academicYear.findUnique({ where: { id: target }, select: { specialtyId: true, trackId: true } });
+    if (!year) return { error: "السنة المحددة غير موجودة في تخصصك" };
+    yearSpecialtyId = year.specialtyId;
+    yearTrackId = year.trackId ?? null;
+  }
+  if (yearSpecialtyId !== user.assignedSpecialtyId) {
+    return { error: "السنة المحددة غير موجودة في تخصصك" };
+  }
+  // r70: a track-scoped REPRESENTATIVE may only target their own track's
+  // year rows (or shared NULL-track years) — "السنة الثانية" of PEP and of
+  // PEM are different years with the same name.
+  if (
+    user.role !== "OWNER" &&
+    user.role !== "SPECIALTY_ADMIN" &&
+    user.scopeTrackId != null &&
+    yearTrackId != null &&
+    yearTrackId !== user.scopeTrackId
+  ) {
+    return { error: "السنة المحددة تنتمي إلى ملمح آخر" };
   }
   return { visibilityScope: level, targetGroups: String(target) };
 }

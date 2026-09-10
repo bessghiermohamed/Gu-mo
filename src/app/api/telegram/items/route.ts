@@ -253,11 +253,13 @@ function shapeItem(item: ItemRow, moduleName: string | null, sourceTitle: string
   };
 }
 
-/** r65: مقاييس سنة/فصل (لتقييد المكتبة) — null عند أي فشل يعني بلا تقييد */
+/** r65: مقاييس سنة/فصل (لتقييد المكتبة) — null عند أي فشل يعني بلا تقييد
+ *  r70: + الممح — مقاييس ملامح أخرى تُستبعد، ويبقى المشترك NULL */
 async function moduleIdsForFilters(
   specialtyId: number,
   yearId: number | null,
-  semester: number | null
+  semester: number | null,
+  trackId: number | null = null
 ): Promise<number[] | null> {
   try {
     if (isVercel) {
@@ -265,6 +267,8 @@ async function moduleIdsForFilters(
       let q = supabase.from("module_courses").select("id").eq("specialty_id", specialtyId);
       if (yearId != null) q = q.eq("academic_year_id", yearId);
       if (semester != null) q = q.eq("semester", semester);
+      // r70: NULL-track modules are shared across tracks (house convention)
+      if (trackId != null) q = q.or(`track_id.is.null,track_id.eq.${trackId}`);
       const { data } = await q;
       return (data ?? []).map((m: Record<string, unknown>) => Number(m.id));
     }
@@ -273,6 +277,7 @@ async function moduleIdsForFilters(
         specialtyId,
         ...(yearId != null ? { academicYearId: yearId } : {}),
         ...(semester != null ? { semester } : {}),
+        ...(trackId != null ? { OR: [{ trackId: null }, { trackId }] } : {}),
       },
       select: { id: true },
     });
@@ -340,9 +345,10 @@ export async function GET(req: NextRequest) {
     const finalSemester = semesterParam === "1" || semesterParam === "2" ? Number(semesterParam) : null;
 
     // r65: مقاييس السنة/الفصل المطلوبين — تعمل كقيد moduleId IN (…)
+    // r70: القيد يشمل الممح — مقياس ملامح أخرى لا يظهر أبداً لطالب الممح
     let allowedModuleIds: number[] | null = null;
-    if (mode === "library" && (finalYearId != null || finalSemester != null)) {
-      allowedModuleIds = await moduleIdsForFilters(user.assignedSpecialtyId, finalYearId, finalSemester);
+    if (mode === "library" && (finalYearId != null || finalSemester != null || myTrackId != null)) {
+      allowedModuleIds = await moduleIdsForFilters(user.assignedSpecialtyId, finalYearId, finalSemester, myTrackId);
     }
 
     let rows: ItemRow[] = [];
@@ -698,7 +704,8 @@ export async function PATCH(req: NextRequest) {
         });
       }
 
-      const candidates = await loadModuleCandidates(source.specialtyId, source.yearId);
+      // r70: مقاييس تخصص المصدر + ممحه — إعادة التصنيف لا تربط بمقياس ملمح آخر
+      const candidates = await loadModuleCandidates(source.specialtyId, source.yearId, source.trackId ?? null);
       const botReady = await isBotConfigured();
       const deadline = Date.now() + 40_000; // نافذة أمان تحت maxDuration=60
       let processed = 0, updated = 0, moduleAssigned = 0, aiCount = 0;
@@ -822,7 +829,13 @@ export async function PATCH(req: NextRequest) {
         if (dl) { imageBase64 = dl.base64; imageMime = dl.mime; }
       }
       // r64: مقاييس تخصص المنشور — ليستنتج الذكاء الاصطناعي المقياس أيضاً
-      const candidates = await loadModuleCandidates(item.specialtyId);
+      // r70: + ممح مصدر المنشور إن وُجد — حتى لا يُربط بمقياس ملمح آخر
+      let reclassifyTrackId: number | null = null;
+      if (item.sourceId != null) {
+        const src = await loadSourceById(item.sourceId);
+        reclassifyTrackId = src?.trackId ?? null;
+      }
+      const candidates = await loadModuleCandidates(item.specialtyId, null, reclassifyTrackId);
       const cls = await classifyItem({
         kind: item.kind,
         caption: item.captionText,

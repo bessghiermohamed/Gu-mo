@@ -97,21 +97,34 @@ export async function GET(req: NextRequest) {
     // then dropped for module-scoped reads — which also makes already-stranded
     // rows (uploaded before this fix) visible again with no data migration.
     let courseSpecialtyId: number | null = null;
+    let courseTrackId: number | null = null;
     if (moduleId) {
       const mid = Number(moduleId);
       if (!Number.isFinite(mid)) return NextResponse.json({ items: [] });
       if (isVercel) {
         const supabase0 = await createSupabaseServerClient();
         const { data: course0 } = await supabase0
-          .from("module_courses").select("specialty_id").eq("id", mid).maybeSingle();
+          .from("module_courses").select("specialty_id, track_id").eq("id", mid).maybeSingle();
         if (!course0) return NextResponse.json({ items: [] });
         courseSpecialtyId = Number(course0.specialty_id);
+        courseTrackId = course0.track_id != null ? Number(course0.track_id) : null;
       } else {
-        const course0 = await db.moduleCourse.findUnique({ where: { id: mid }, select: { specialtyId: true } });
+        const course0 = await db.moduleCourse.findUnique({ where: { id: mid }, select: { specialtyId: true, trackId: true } });
         if (!course0) return NextResponse.json({ items: [] });
         courseSpecialtyId = course0.specialtyId;
+        courseTrackId = course0.trackId ?? null;
       }
       if (user.role !== "OWNER" && courseSpecialtyId !== user.assignedSpecialtyId) {
+        return NextResponse.json({ items: [] });
+      }
+      // r70: a non-OWNER with a track scope may only read their own track's
+      // course materials (+ shared NULL-track courses)
+      if (
+        user.role !== "OWNER" &&
+        user.scopeTrackId != null &&
+        courseTrackId != null &&
+        courseTrackId !== user.scopeTrackId
+      ) {
         return NextResponse.json({ items: [] });
       }
     }
@@ -200,21 +213,34 @@ export async function POST(req: NextRequest) {
     // same rule as PATCH/DELETE on /api/courses), and stamp + notify with
     // the course's specialty.
     let courseSpecialtyId: number | null = null;
+    let courseTrackId: number | null = null;
     if (moduleId != null) {
       const mid = Number(moduleId);
       if (isVercel) {
         const supabase0 = await createSupabaseServerClient();
         const { data: course0 } = await supabase0
-          .from("module_courses").select("specialty_id").eq("id", mid).maybeSingle();
+          .from("module_courses").select("specialty_id, track_id").eq("id", mid).maybeSingle();
         if (!course0) return NextResponse.json({ error: "المقياس غير موجود" }, { status: 400 });
         courseSpecialtyId = Number(course0.specialty_id);
+        courseTrackId = course0.track_id != null ? Number(course0.track_id) : null;
       } else {
-        const course0 = await db.moduleCourse.findUnique({ where: { id: mid }, select: { specialtyId: true } });
+        const course0 = await db.moduleCourse.findUnique({ where: { id: mid }, select: { specialtyId: true, trackId: true } });
         if (!course0) return NextResponse.json({ error: "المقياس غير موجود" }, { status: 400 });
         courseSpecialtyId = course0.specialtyId;
+        courseTrackId = course0.trackId ?? null;
       }
       if (user.role !== "OWNER" && courseSpecialtyId !== user.assignedSpecialtyId) {
         return NextResponse.json({ error: "هذا المقياس خارج نطاق تخصصك" }, { status: 403 });
+      }
+      // r70: a track-scoped uploader may only attach materials to their own
+      // track's courses (+ shared NULL-track courses)
+      if (
+        user.role !== "OWNER" &&
+        user.scopeTrackId != null &&
+        courseTrackId != null &&
+        courseTrackId !== user.scopeTrackId
+      ) {
+        return NextResponse.json({ error: "هذا المقياس خارج نطاق ملمحك" }, { status: 403 });
       }
     }
     if (isVercel) {

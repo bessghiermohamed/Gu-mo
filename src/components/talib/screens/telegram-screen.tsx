@@ -182,7 +182,10 @@ export function TalibTelegramScreen() {
   const [semesterFilter, setSemesterFilter] = React.useState("");
   const [kindFilter, setKindFilter] = React.useState("");
   const [sourceFilter, setSourceFilter] = React.useState("");
-  const [years, setYears] = React.useState<Array<{ id: number; yearName: string }>>([]);
+  const [years, setYears] = React.useState<Array<{ id: number; yearName: string; trackId?: number | null }>>([]);
+  // r70: track codes — the year filter shows "السنة الثانية — PEP" so two
+  // same-named years of different tracks are never confused
+  const [trackCodes, setTrackCodes] = React.useState<Record<number, string>>({});
 
   // r66: عزل السنوات التلقائي — الخادم يشتق سنة الطالب من نطاقه أو من
   // فوجه المنضم إليه (بلا أي اختيار منه) ويقفل المكتبة عليها؛ نقرأ قرار
@@ -219,9 +222,16 @@ export function TalibTelegramScreen() {
   }, []);
 
   React.useEffect(() => {
-    fetch(`/api/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`)
-      .then((r) => r.json())
-      .then((data) => setYears(data.years ?? []))
+    Promise.all([
+      fetch(`/api/years?specialtyId=${user?.assignedSpecialtyId ?? 1}`).then((r) => r.json()),
+      fetch(`/api/tracks?specialtyId=${user?.assignedSpecialtyId ?? 1}`).then((r) => r.json()),
+    ])
+      .then(([yd, td]) => {
+        setYears(yd.years ?? []);
+        const codes: Record<number, string> = {};
+        for (const tr of td.tracks ?? []) codes[tr.id] = tr.code;
+        setTrackCodes(codes);
+      })
       .catch(() => setYears([]));
   }, [user]);
 
@@ -379,7 +389,12 @@ export function TalibTelegramScreen() {
                 aria-label="تصفية حسب السنة"
               >
                 <option value="">كل السنوات</option>
-                {years.map((y) => <option key={y.id} value={y.id}>{y.yearName}</option>)}
+                {years.map((y) => (
+                  <option key={y.id} value={y.id}>
+                    {y.yearName}
+                    {y.trackId != null && trackCodes[y.trackId] ? ` — ${trackCodes[y.trackId]}` : ""}
+                  </option>
+                ))}
               </select>
             )}
             <select

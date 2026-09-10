@@ -45,6 +45,10 @@ const ROLE_RANK: Record<UserRole, number> = {
 export interface ScopeChain {
   institutionId: number | null;
   specialtyId: number | null;
+  /** r70: the track (ملمح) this scope is restricted to — null = unrestricted
+   *  or a NULL/shared-track scope. Years are per-track, so a YEAR-scoped
+   *  representative effectively holds a track-scoped year. */
+  trackId: number | null;
   yearId: number | null;
   groupId: number | null;
   cohortId: number | null;
@@ -54,6 +58,9 @@ export interface ScopeContext {
   institutions: Map<number, string>;
   specialties: Map<number, { institutionId: number; nameAr: string }>;
   years: Map<number, string>;
+  /** r70 (track fix): each year's track — years are PER-TRACK now, so the
+   *  chain can (and must) carry the track dimension. NULL = shared year. */
+  yearTracks: Map<number, number | null>;
   groups: Map<number, { specialtyId: number; yearId: number; trackId: number | null; nameAr: string }>;
   cohorts: Map<
     number,
@@ -67,6 +74,9 @@ export interface ScopedUserLike {
   assignedSpecialtyId: number;
   scopeInstitutionId?: number | null;
   scopeSpecialtyId?: number | null;
+  /** r70: the supervisor's track scope (ملمح) — optional so existing
+   *  callers keep compiling; null/absent = no track restriction. */
+  scopeTrackId?: number | null;
   scopeAcademicYearId?: number | null;
   scopeGroupId?: number | null;
   scopeCohortGroupId?: number | null;
@@ -80,6 +90,7 @@ export async function loadScopeContext(): Promise<ScopeContext> {
     institutions: new Map(),
     specialties: new Map(),
     years: new Map(),
+    yearTracks: new Map(),
     groups: new Map(),
     cohorts: new Map(),
   };
@@ -89,7 +100,7 @@ export async function loadScopeContext(): Promise<ScopeContext> {
       const [insts, specs, yrs, grps, chs] = await Promise.all([
         supabase.from("institutions").select("id, name_ar"),
         supabase.from("specialties").select("id, institution_id, name_ar"),
-        supabase.from("academic_years").select("id, year_name"),
+        supabase.from("academic_years").select("id, year_name, track_id"),
         supabase.from("study_groups").select("id, specialty_id, academic_year_id, track_id, group_name"),
         supabase.from("cohort_groups").select("id, specialty_id, academic_year_id, group_id, track_id, group_name"),
       ]);
@@ -100,8 +111,10 @@ export async function loadScopeContext(): Promise<ScopeContext> {
           institutionId: Number(r.institution_id ?? 0),
           nameAr: String(r.name_ar ?? ""),
         }));
-      (yrs.data ?? []).forEach((r: Record<string, unknown>) =>
-        ctx.years.set(Number(r.id), String(r.year_name ?? "")));
+      (yrs.data ?? []).forEach((r: Record<string, unknown>) => {
+        ctx.years.set(Number(r.id), String(r.year_name ?? ""));
+        ctx.yearTracks.set(Number(r.id), r.track_id != null ? Number(r.track_id) : null);
+      });
       (grps.data ?? []).forEach((r: Record<string, unknown>) =>
         ctx.groups.set(Number(r.id), {
           specialtyId: Number(r.specialty_id ?? 0),
@@ -121,13 +134,16 @@ export async function loadScopeContext(): Promise<ScopeContext> {
       const [insts, specs, yrs, grps, chs] = await Promise.all([
         db.institution.findMany({ select: { id: true, nameAr: true } }),
         db.specialty.findMany({ select: { id: true, institutionId: true, nameAr: true } }),
-        db.academicYear.findMany({ select: { id: true, yearName: true } }),
+        db.academicYear.findMany({ select: { id: true, yearName: true, trackId: true } }),
         db.studyGroup.findMany({ select: { id: true, specialtyId: true, academicYearId: true, trackId: true, groupName: true } }),
         db.cohortGroup.findMany({ select: { id: true, specialtyId: true, academicYearId: true, groupId: true, trackId: true, groupName: true } }),
       ]);
       insts.forEach((i) => ctx.institutions.set(i.id, i.nameAr));
       specs.forEach((s) => ctx.specialties.set(s.id, { institutionId: s.institutionId, nameAr: s.nameAr }));
-      yrs.forEach((y) => ctx.years.set(y.id, y.yearName));
+      yrs.forEach((y) => {
+        ctx.years.set(y.id, y.yearName);
+        ctx.yearTracks.set(y.id, y.trackId ?? null);
+      });
       grps.forEach((g) => ctx.groups.set(g.id, { specialtyId: g.specialtyId, yearId: g.academicYearId, trackId: g.trackId ?? null, nameAr: g.groupName }));
       chs.forEach((c) => ctx.cohorts.set(c.id, { specialtyId: c.specialtyId, yearId: c.academicYearId, groupId: c.groupId ?? null, trackId: c.trackId ?? null, nameAr: c.groupName }));
     }
@@ -152,6 +168,14 @@ export function scopeChainOf(user: ScopedUserLike, ctx: ScopeContext): ScopeChai
   const groupId = user.scopeGroupId ?? cohort?.groupId ?? null;
   const group = groupId != null ? ctx.groups.get(groupId) : undefined;
   const yearId = user.scopeAcademicYearId ?? group?.yearId ?? null;
+  // r70: the track dimension — the user's declared track wins, else the
+  // track of the most specific scope object (cohort → group → year).
+  // A NULL track means "no restriction" (shared across all tracks).
+  const trackId =
+    user.scopeTrackId ??
+    cohort?.trackId ??
+    group?.trackId ??
+    (yearId != null ? ctx.yearTracks.get(yearId) ?? null : null);
 
   // Institution-level supervisor (spec §7.2): institution set, everything
   // below it deliberately empty.
@@ -170,7 +194,7 @@ export function scopeChainOf(user: ScopedUserLike, ctx: ScopeContext): ScopeChai
     user.scopeInstitutionId ??
     (specialtyId != null ? ctx.specialties.get(specialtyId)?.institutionId ?? null : null);
 
-  return { institutionId, specialtyId, yearId, groupId, cohortId };
+  return { institutionId, specialtyId, trackId, yearId, groupId, cohortId };
 }
 
 /** Most specific scope level of a user (spec §7). */
@@ -236,6 +260,9 @@ export function scopeContains(
   const b = scopeChainOf(descendant, ctx);
   if (a.institutionId != null && a.institutionId !== b.institutionId) return false;
   if (a.specialtyId != null && a.specialtyId !== b.specialtyId) return false;
+  // r70: track containment — a track-scoped supervisor contains only
+  // same-track or NULL-track (shared) scopes, never another track's.
+  if (a.trackId != null && b.trackId != null && a.trackId !== b.trackId) return false;
   if (a.yearId != null && a.yearId !== b.yearId) return false;
   if (a.groupId != null && a.groupId !== b.groupId) return false;
   if (a.cohortId != null && a.cohortId !== b.cohortId) return false;
@@ -277,7 +304,13 @@ export function requestVisibleTo(
     case "GROUP":
       return cohort.groupId != null && cohort.groupId === chain.groupId;
     case "YEAR":
-      return cohort.yearId === chain.yearId && cohort.specialtyId === chain.specialtyId;
+      // r70: a track-scoped year-rep only sees requests of their track's
+      // cohorts (+ shared NULL-track cohorts of that year)
+      return (
+        cohort.yearId === chain.yearId &&
+        cohort.specialtyId === chain.specialtyId &&
+        (chain.trackId == null || cohort.trackId == null || cohort.trackId === chain.trackId)
+      );
     case "SPECIALTY":
       return cohort.specialtyId === chain.specialtyId;
     case "INSTITUTION": {
@@ -298,6 +331,8 @@ export interface StudentRowLike {
   role: UserRole;
   scopeInstitutionId: number | null;
   assignedSpecialtyId: number;
+  /** r70: the student's track (ملمح) — optional for older callers */
+  scopeTrackId?: number | null;
   scopeAcademicYearId: number | null;
   scopeCohortGroupId: number | null;
 }
@@ -336,9 +371,12 @@ export function studentVisibleTo(
     case "SPECIALTY":
       return student.assignedSpecialtyId === chain.specialtyId;
     case "YEAR":
+      // r70: a year-rep of track T sees the students of THEIR track's year
+      // (+ track-less students of that year) — never the other tracks'
       return (
         student.scopeAcademicYearId === chain.yearId &&
-        student.assignedSpecialtyId === chain.specialtyId
+        student.assignedSpecialtyId === chain.specialtyId &&
+        (chain.trackId == null || student.scopeTrackId == null || student.scopeTrackId === chain.trackId)
       );
     case "GROUP": {
       // members of the group's sub-groups
@@ -402,7 +440,12 @@ export function cohortAssignableBy(
     case "GROUP":
       return cohort.groupId != null && cohort.groupId === chain.groupId;
     case "YEAR":
-      return cohort.yearId === chain.yearId && cohort.specialtyId === chain.specialtyId;
+      // r70: track-scoped year-reps assign only within their track
+      return (
+        cohort.yearId === chain.yearId &&
+        cohort.specialtyId === chain.specialtyId &&
+        (chain.trackId == null || cohort.trackId == null || cohort.trackId === chain.trackId)
+      );
     case "SPECIALTY":
       return cohort.specialtyId === chain.specialtyId;
     case "INSTITUTION": {
