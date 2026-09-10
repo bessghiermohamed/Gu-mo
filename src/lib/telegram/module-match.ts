@@ -165,6 +165,77 @@ export async function moduleById(id: number): Promise<ModuleCandidate | null> {
 }
 
 // ------------------------------------------------------------
+// r71: سياق نطاق المصدر — يحوّل (year_id, track_id) للربط إلى
+// (رقم السنة، كود الممح) لاستعماله في مطابقة المنهاج الذكية.
+// ------------------------------------------------------------
+
+/** «السنة الأولى» → 1 — من اسم سنة مطبَّع (دالة صافية تُختبر وحدوياً) */
+export function yearOrdinalFromName(yearName: string): number | null {
+  const n = normalizeArabic(yearName ?? "");
+  if (!n) return null;
+  if (/(الاولي|الاول|اولي|اول)(\s|$)|(^|\s)(1)(\s|$)/.test(n)) return 1;
+  if (/(الثانيه|الثاني|ثانيه|ثاني)(\s|$)|(^|\s)(2)(\s|$)/.test(n)) return 2;
+  if (/(الثالثه|الثالث|ثالثه|ثالث)(\s|$)|(^|\s)(3)(\s|$)/.test(n)) return 3;
+  return null;
+}
+
+/**
+ * يستنبط (رقم السنة، كود الممح) من ربط المصدر/الموضوع: يقرأ صف السنة
+ * المربوطة ومعه كود ممحها. فشل القراءة يعيد nulls — فتفضيل السنة يسقط
+ * بهدوء (سلوك r64-r70). بلا كاش: يُستدعى مرة واحدة لكل منشور وارد.
+ */
+export async function loadScopeContext(
+  yearId: number | null,
+  trackId: number | null
+): Promise<{ yearOrdinal: number | null; trackCode: string | null }> {
+  if (yearId == null && trackId == null) return { yearOrdinal: null, trackCode: null };
+  try {
+    if (isVercel) {
+      const supabase = await createSupabaseServerClient();
+      let yearOrdinal: number | null = null;
+      let trackCode: string | null = null;
+      if (yearId != null) {
+        const { data: y } = await supabase
+          .from("academic_years")
+          .select("year_name, track_id")
+          .eq("id", yearId)
+          .maybeSingle();
+        if (y) {
+          const r = y as Record<string, unknown>;
+          yearOrdinal = yearOrdinalFromName(String(r.year_name ?? ""));
+          const yTrack = r.track_id == null ? null : Number(r.track_id);
+          if (yTrack != null && trackId == null) trackId = yTrack;
+        }
+      }
+      const resolveTrack = trackId != null
+        ? await supabase.from("academic_tracks").select("code").eq("id", trackId).maybeSingle()
+        : null;
+      if (resolveTrack?.data) trackCode = String((resolveTrack.data as Record<string, unknown>).code ?? "").toUpperCase() || null;
+      return { yearOrdinal, trackCode };
+    }
+    let yearOrdinal: number | null = null;
+    let trackCode: string | null = null;
+    if (yearId != null) {
+      const y = await db.academicYear.findUnique({
+        where: { id: yearId },
+        select: { yearName: true, trackId: true },
+      });
+      if (y) {
+        yearOrdinal = yearOrdinalFromName(y.yearName);
+        if (y.trackId != null && trackId == null) trackId = y.trackId;
+      }
+    }
+    if (trackId != null) {
+      const t = await db.academicTrack.findUnique({ where: { id: trackId }, select: { code: true } });
+      trackCode = t?.code ?? null;
+    }
+    return { yearOrdinal, trackCode };
+  } catch {
+    return { yearOrdinal: null, trackCode: null };
+  }
+}
+
+// ------------------------------------------------------------
 // المطابقة — كلها نقية (بلا شبكة/قاعدة) وتُختبر وحدوياً
 // ------------------------------------------------------------
 

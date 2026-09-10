@@ -120,7 +120,7 @@ globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? "{}"));
     const parts = body?.contents?.[0]?.parts ?? [];
     const bodyText = parts.map((p: { text?: string }) => p.text ?? "").join("\n");
-    geminiCalls.push({ model: u.split("/models/")[1]?.split(":")[0] ?? "", hasCandidates: bodyText.includes("المقاييس المتاحة"), bodyText });
+    geminiCalls.push({ model: u.split("/models/")[1]?.split(":")[0] ?? "", hasCandidates: bodyText.includes("المقاييس المتاحة") || bodyText.includes("مقاييس التخصص"), bodyText });
     return new Response(geminiResponse.json, { status: geminiResponse.status, headers: { "Content-Type": "application/json" } });
   }
   return realFetch(url, init);

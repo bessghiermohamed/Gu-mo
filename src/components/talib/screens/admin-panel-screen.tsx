@@ -8,7 +8,7 @@ import {
   Flag, AlertTriangle, CheckCheck, RotateCcw, Send, Eye, EyeOff, Star, Link2, Sparkles, Power,
   FlaskConical, Zap, ExternalLink, Mail, IdCard,
   Network, ChevronDown, ChevronLeft, Search, ArrowLeftRight, UserMinus, UserCog,
-  LayoutDashboard, Inbox, Megaphone, Target, Hash,
+  LayoutDashboard, Inbox, Megaphone, Target, Hash, Brain, History,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -2534,6 +2534,18 @@ interface TgItemAdminRow {
   isFeatured: boolean;
   aiClassified: boolean;
   postedAt: string | null;
+  // r71: حقول الذكاء — الثقة والحالة وما استُخرج
+  classConfidence: number | null;
+  classStatus: string | null;
+  classMeta: {
+    extracted?: { yearOrdinal?: number | null; trackCode?: string | null; semester?: number | null; lessonHint?: string | null };
+    matchReason?: string;
+    yearAgreement?: string;
+    trackAgreement?: string;
+    engine?: string;
+    model?: string;
+    components?: Array<{ label: string; points: number }>;
+  } | null;
 }
 
 interface TgCourseRow { id: number; name: string; semester: number; academicYearId: number }
@@ -2598,12 +2610,14 @@ function TelegramManager() {
       </Collapsible>
       <Card className="p-4">
         <Tabs defaultValue="sources">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="sources" className="text-xs data-[state=active]:font-bold">القنوات والأربطة</TabsTrigger>
             <TabsTrigger value="posts" className="text-xs data-[state=active]:font-bold">تنقيح المنشورات</TabsTrigger>
+            <TabsTrigger value="ailog" className="text-xs data-[state=active]:font-bold">سجل الذكاء</TabsTrigger>
           </TabsList>
           <TabsContent value="sources" className="mt-4"><TgSourcesManager /></TabsContent>
           <TabsContent value="posts" className="mt-4"><TgItemsManager /></TabsContent>
+          <TabsContent value="ailog" className="mt-4"><TgAiLogCard /></TabsContent>
         </Tabs>
       </Card>
     </div>
@@ -3038,9 +3052,11 @@ function TgSourcesManager() {
 
   // r64 — الربط الذكي بالمقاييس: شفاء منشورات المصدر بلا مقياس (دفعات)
   const [healSource, setHealSource] = React.useState<TgSourceRow | null>(null);
+  // r71: وضع الشفاء الأخير (عادي/عميق) — يُستعمل عند «معالجة الدفعة التالية»
+  const [healDeep, setHealDeep] = React.useState(false);
   const [healRunning, setHealRunning] = React.useState(false);
   const [healResult, setHealResult] = React.useState<{
-    ok: boolean; processed: number; moduleAssigned: number; remaining: number; message: string;
+    ok: boolean; processed: number; moduleAssigned: number; remaining: number; reviewCount: number; message: string;
   } | null>(null);
 
   // r65 — روابط المواضيع: خريطة القناة (عام/سنة/مقياس لكل موضوع)
@@ -3246,14 +3262,14 @@ function TgSourcesManager() {
   }
 
   // r64 — دفعة ربط ذكي: يعيد تصنيف منشورات المصدر بلا مقياس (حتى ٤٠ دفعة واحدة)
-  async function runSmartLink(s: TgSourceRow) {
+  async function runSmartLink(s: TgSourceRow, deep = false) {
     setHealRunning(true);
     setHealResult(null);
     setHealSource(s);
     try {
       const res = await fetch("/api/telegram/items", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reclassify-source", sourceId: s.id }),
+        body: JSON.stringify({ action: "reclassify-source", sourceId: s.id, deep }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "تعذّر الربط الذكي"); setHealSource(null); return; }
@@ -3262,6 +3278,7 @@ function TgSourcesManager() {
         processed: Number(data.processed ?? 0),
         moduleAssigned: Number(data.moduleAssigned ?? 0),
         remaining: Number(data.remaining ?? 0),
+        reviewCount: Number(data.reviewCount ?? 0),
         message: String(data.message ?? ""),
       });
       if (data.remaining > 0) toast.info("بقيت منشورات بلا مقياس — أعد التشغيل لمعالجتها");
@@ -3533,7 +3550,7 @@ function TgSourcesManager() {
             </DialogHeader>
             <div className="space-y-3 py-2">
               <p className="text-sm leading-relaxed">{healResult.message}</p>
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="grid grid-cols-4 gap-2 text-center">
                 <div className="rounded-lg bg-muted/60 p-2">
                   <p className="text-lg font-black">{healResult.processed}</p>
                   <p className="text-xs text-muted-foreground">فُحصت</p>
@@ -3545,6 +3562,10 @@ function TgSourcesManager() {
                 <div className="rounded-lg bg-amber-500/10 p-2">
                   <p className="text-lg font-black text-amber-600 dark:text-amber-300">{healResult.remaining}</p>
                   <p className="text-xs text-muted-foreground">بقيت بلا مقياس</p>
+                </div>
+                <div className="rounded-lg bg-sky-500/10 p-2">
+                  <p className="text-lg font-black text-sky-600 dark:text-sky-300">{healResult.reviewCount}</p>
+                  <p className="text-xs text-muted-foreground">للمراجعة</p>
                 </div>
               </div>
               {healResult.remaining > 0 ? (
@@ -3558,7 +3579,7 @@ function TgSourcesManager() {
             </div>
             <DialogFooter>
               {healResult.remaining > 0 ? (
-                <Button onClick={() => runSmartLink(healSource)} disabled={healRunning}>
+                <Button onClick={() => runSmartLink(healSource, healDeep)} disabled={healRunning}>
                   {healRunning ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <Sparkles className="w-4 h-4 ml-1" />}
                   معالجة الدفعة التالية
                 </Button>
@@ -3686,10 +3707,15 @@ function TgSourcesManager() {
                     aria-label="روابط المواضيع" title="روابط المواضيع — اربط كل موضوع في القناة بسنة أو مقياس فيصنّف البوت منشوراته مباشرة">
                     <Hash className="w-3.5 h-3.5 text-sky-600" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => runSmartLink(s)}
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setHealDeep(false); runSmartLink(s, false); }}
                     disabled={healRunning}
                     aria-label="الربط الذكي بالمقاييس" title="الربط الذكي — يربط منشورات هذا المصدر بلا مقياس بمقاييس التخصص (يعيد فحصها بالذكاء الاصطناعي)">
-                    {healRunning && healSource?.id === s.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-violet-500" />}
+                    {healRunning && healSource?.id === s.id && !healDeep ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-violet-500" />}
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setHealDeep(true); runSmartLink(s, true); }}
+                    disabled={healRunning}
+                    aria-label="الشفاء العميق" title="الشفاء العميق — يعيد فحص كل المنشورات المصنّفة آلياً (يشفي ما صُنّف في السنة/الملمح الخطأ). المُنقّح يدوياً محمي دائماً.">
+                    {healRunning && healSource?.id === s.id && healDeep ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5 text-sky-600" />}
                   </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setTestSource(s); setTestText(""); setTestResult(null); setTestThreadId(""); }}
                     aria-label="اختبار الاستيراد" title="اختبار الاستيراد — محاكاة منشور جديد">
@@ -3924,6 +3950,158 @@ function TgTopicsDialog({ source, onClose }: { source: TgSourceRow; onClose: () 
 // -----------------------------------------------------
 // تنقيح المنشورات (تصنيف/إخفاء/تثبيت/إعادة ربط/حذف)
 // -----------------------------------------------------
+// -----------------------------------------------------
+// r71 — سجل الذكاء: مراقبة تنسيق النماذج (المالك/المطورون)
+// كل قرار تصنيف يترك أثراً: النموذج المستعمل، ما استُخرج (سنة/ملمح/
+// درس/مقياس)، الثقة، القرار، والسبب — فيفهم المالك ما يجري بين
+// النماذج دون أي واجهة حاشدة. لا يُعرض فيه أي سر أبداً.
+// -----------------------------------------------------
+interface AiEventRow {
+  id: number;
+  stage: string;
+  sourceId: number | null;
+  tgMessageId: number | null;
+  model: string | null;
+  provider: string | null;
+  latencyMs: number | null;
+  extracted: Record<string, unknown> | null;
+  decision: string | null;
+  confidence: number | null;
+  reason: string | null;
+  detail: string | null;
+  createdAt: string | null;
+}
+
+const AI_EVENT_STAGES: Record<string, string> = {
+  "ingest": "استيراد",
+  "ingest-update": "تحديث منشور",
+  "reclassify": "إعادة تصنيف",
+  "reclassify-source": "ربط ذكي جماعي",
+  "approve": "اعتماد إداري",
+};
+
+function TgAiLogCard() {
+  const [events, setEvents] = React.useState<AiEventRow[]>([]);
+  const [ready, setReady] = React.useState<boolean | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [stageFilter, setStageFilter] = React.useState("");
+
+  const fetchEvents = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "120" });
+      const res = await fetch(`/api/telegram/ai-events?${params.toString()}`, { cache: "no-store" });
+      const data = await res.json();
+      setEvents(data.events ?? []);
+      setReady(data.ready !== false);
+    } catch {
+      setEvents([]);
+      setReady(false);
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { fetchEvents(); }, [fetchEvents]);
+
+  const shown = stageFilter ? events.filter((e) => e.stage === stageFilter) : events;
+  const byProvider = events.reduce<Record<string, number>>((acc, e) => {
+    if (e.provider) acc[e.provider] = (acc[e.provider] ?? 0) + 1;
+    return acc;
+  }, {});
+  const avgLatency = events.length > 0
+    ? Math.round(events.reduce((s, e) => s + (e.latencyMs ?? 0), 0) / events.length)
+    : null;
+
+  if (ready === false) {
+    return (
+      <Card className="p-3 border-amber-500/40 bg-amber-500/10">
+        <p className="text-xs text-amber-700 leading-relaxed">
+          سجل الذكاء يحتاج جدول <span dir="ltr" className="font-mono">ai_events</span> — نفّذ ملف{" "}
+          <span dir="ltr" className="font-mono">download/supabase_telegram_intelligence.sql</span>{" "}
+          مرة واحدة في محرر SQL داخل Supabase ثم أعد التحميل. حتى ذلك يواصل التصنيف العمل — لكن بلا أثر مرئي.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 flex-wrap items-center">
+        <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className={`${selectCls} w-44`}>
+          <option value="">كل المراحل</option>
+          {Object.entries(AI_EVENT_STAGES).map(([v, label]) => (
+            <option key={v} value={v}>{label}</option>
+          ))}
+        </select>
+        <Button variant="outline" size="sm" onClick={fetchEvents} disabled={loading}>
+          {loading ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <RotateCcw className="w-4 h-4 ml-1" />}
+          تحديث
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {shown.length} حدثاً{Object.keys(byProvider).length > 0 ? ` — ${Object.entries(byProvider).map(([p, n]) => `${p}: ${n}`).join(" · ")}` : ""}{avgLatency != null ? ` — متوسط زمن النموذج ${avgLatency}مث` : ""}
+        </span>
+      </div>
+      {loading ? (
+        <div className="text-center py-4"><Loader2 className="w-5 h-5 mx-auto animate-spin" /></div>
+      ) : shown.length === 0 ? (
+        <div className="text-center py-6 text-sm text-muted-foreground">
+          لا أحداث بعد — تُسجَّل تلقائياً مع كل منشور يستورده الويبهوك أو يُعاد تصنيفه
+        </div>
+      ) : (
+        <div className="space-y-1.5 max-h-[55vh] overflow-y-auto scrollbar-thin">
+          {shown.map((e) => {
+            const ext = e.extracted ?? {};
+            return (
+              <Card key={e.id} className="p-2.5 text-xs">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <History className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="font-bold">{AI_EVENT_STAGES[e.stage] ?? e.stage}</span>
+                  {e.provider && (
+                    <Badge variant="outline" className="text-[10px]">
+                      {e.provider === "gemini" ? "Gemini" : e.provider === "groq" ? "Groq" : e.provider === "heuristic" ? "محلي" : e.provider}
+                      {e.model ? ` · ${e.model}` : ""}
+                    </Badge>
+                  )}
+                  {e.decision && (
+                    <span className={`font-bold rounded px-1.5 py-0.5 border text-[10px] ${
+                      e.decision === "publish"
+                        ? "text-emerald-700 border-emerald-500/40 bg-emerald-500/10"
+                        : e.decision === "review"
+                          ? "text-amber-700 border-amber-500/40 bg-amber-500/10"
+                          : "text-rose-700 border-rose-500/40 bg-rose-500/10"
+                    }`}>
+                      {e.decision === "publish" ? "نُشر" : e.decision === "review" ? "للمراجعة" : "رُفض"}
+                    </span>
+                  )}
+                  {e.confidence != null && <span className="text-muted-foreground">ثقة {e.confidence}%</span>}
+                  {e.latencyMs != null && <span className="text-muted-foreground" dir="ltr">{e.latencyMs}ms</span>}
+                  {e.sourceId != null && <span className="text-muted-foreground">قناة #{e.sourceId}</span>}
+                  <span className="text-muted-foreground ms-auto" title={e.createdAt ?? ""}>
+                    {e.createdAt ? new Date(e.createdAt).toLocaleString("ar-DZ", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
+                  </span>
+                </div>
+                {(Boolean(ext.title) || Boolean(ext.module) || Boolean(ext.year) || Boolean(ext.track)) && (
+                  <p className="text-muted-foreground mt-1 leading-relaxed">
+                    {ext.title ? `«${String(ext.title).slice(0, 50)}»` : ""}
+                    {ext.module ? ` → ${String(ext.module)}` : ""}
+                    {ext.year ? ` · سنة ${String(ext.year)}` : ""}
+                    {ext.track ? ` · ${String(ext.track)}` : ""}
+                    {ext.semester ? ` · فصل ${String(ext.semester)}` : ""}
+                    {ext.lesson ? ` · درس ${String(ext.lesson)}` : ""}
+                  </p>
+                )}
+                {e.reason ? (
+                  <p className="text-muted-foreground/80 mt-0.5 leading-relaxed" title={e.reason}>
+                    ⌞ {e.reason.slice(0, 160)}{e.reason.length > 160 ? "…" : ""}
+                  </p>
+                ) : null}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TgItemsManager() {
   const { user } = useAuth();
   const [items, setItems] = React.useState<TgItemAdminRow[]>([]);
@@ -3938,6 +4116,9 @@ function TgItemsManager() {
   const [spaceCohorts, setSpaceCohorts] = React.useState<TgCohortRow[]>([]);
   const [spaceYears, setSpaceYears] = React.useState<Year[]>([]);
   const [busyId, setBusyId] = React.useState<number | null>(null);
+  // r71: قائمة المراجعة + حالة أعمدة الذكاء
+  const [needsReview, setNeedsReview] = React.useState(false);
+  const [intelligence, setIntelligence] = React.useState<{ ready: boolean; reviewCount: number } | null>(null);
 
   // edit dialog
   const [editItem, setEditItem] = React.useState<TgItemAdminRow | null>(null);
@@ -3975,17 +4156,36 @@ function TgItemsManager() {
       if (itemType) params.set("itemType", itemType);
       // r69: مساحة محددة («none» = المكتبة بلا مساحة) أو الكل
       if (cohortFilter) params.set("cohortId", cohortFilter);
+      // r71: قائمة المراجعة — المنشورات التي قرر العقل إحالتها للمشرف
+      if (needsReview) params.set("needsReview", "1");
       const res = await fetch(`/api/telegram/items?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل تحميل المنشورات"); return; }
       setItems(data.items ?? []);
+      setIntelligence(data.intelligence ?? null);
     } catch { toast.error("فشل تحميل المنشورات"); }
     finally { setLoading(false); }
-  }, [q, sourceId, itemType, cohortFilter]);
+  }, [q, sourceId, itemType, cohortFilter, needsReview]);
   React.useEffect(() => { fetchItems(); }, [fetchItems]);
 
   // r68: تغيير الفلاتر يبدأ تحديداً نظيفاً
-  React.useEffect(() => { setSelectedIds(new Set()); }, [q, sourceId, itemType, cohortFilter]);
+  React.useEffect(() => { setSelectedIds(new Set()); }, [q, sourceId, itemType, cohortFilter, needsReview]);
+
+  // r71: اعتماد منشور من قائمة المراجعة — قرار إداري ينهي الانتظار
+  async function handleApprove(i: TgItemAdminRow) {
+    setBusyId(i.id);
+    try {
+      const res = await fetch("/api/telegram/items", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: i.id, action: "approve" }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error); return; }
+      toast.success(data.message ?? "اعتُمد المنشور");
+      fetchItems();
+    } catch { toast.error("فشل الاتصال"); }
+    finally { setBusyId(null); }
+  }
 
   async function patchItem(id: number, patch: Record<string, unknown>, successMsg: string) {
     setBusyId(id);
@@ -4118,9 +4318,40 @@ function TgItemsManager() {
             <option key={c.id} value={String(c.id)}>مساحة {spaceLabel(c)}</option>
           ))}
         </select>
+        {/* r71: قائمة المراجعة — ما قرر العقل إحالته لقرار إداري */}
+        {intelligence?.ready && (
+          <button
+            type="button"
+            onClick={() => setNeedsReview((v) => !v)}
+            className={`h-9 px-3 rounded-md border text-xs font-bold flex items-center gap-1.5 transition-colors ${
+              needsReview
+                ? "bg-amber-500/15 border-amber-500/60 text-amber-700"
+                : "bg-transparent border-input hover:bg-muted text-muted-foreground"
+            }`}
+            aria-pressed={needsReview}
+          >
+            <AlertTriangle className="w-3.5 h-3.5" />
+            للمراجعة
+            {(intelligence?.reviewCount ?? 0) > 0 && (
+              <span className="bg-amber-500 text-white rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+                {intelligence.reviewCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
+      {/* r71: إرشاد تنفيذ SQL قبل تفعيل قائمة المراجعة */}
+      {intelligence != null && !intelligence.ready && (
+        <Card className="p-2.5 border-amber-500/40 bg-amber-500/10">
+          <p className="text-xs text-amber-700 leading-relaxed">
+            لتفعيل قائمة المراجعة ودرجات الثقة وسجل الذكاء: نفّذ ملف{" "}
+            <span dir="ltr" className="font-mono">download/supabase_telegram_intelligence.sql</span>{" "}
+            مرة واحدة في محرر SQL داخل Supabase، ثم أعد التحميل. التطبيق يعمل بدونه — لكن القرارات الحدّية تبقى تنشر تلقائياً كما كانت.
+          </p>
+        </Card>
+      )}
       <p className="text-xs text-muted-foreground">
-        {items.length} منشوراً{hiddenCount > 0 ? ` — ${hiddenCount} مخفي` : ""} — المصنّف آلياً يعلّمه ✦
+        {items.length} منشوراً{hiddenCount > 0 ? ` — ${hiddenCount} مخفي` : ""}{needsReview ? " — بانتظار المراجعة" : ""} — المصنّف آلياً يعلّمه ✦ — المُنقّح يدوياً محمي من إعادة التصنيف
       </p>
 
       {/* r68: شريط التحديد والحذف الجماعي */}
@@ -4220,7 +4451,7 @@ function TgItemsManager() {
       ) : (
         <div className="space-y-2 max-h-[55vh] overflow-y-auto scrollbar-thin">
           {items.map((i) => (
-            <Card key={i.id} className={`p-3 ${i.isHidden ? "opacity-55" : ""}`}>
+            <Card key={i.id} className={`p-3 ${i.isHidden ? "opacity-55" : ""} ${i.classStatus === "review" ? "border-amber-500/50 bg-amber-500/5" : ""}`}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -4237,6 +4468,25 @@ function TgItemsManager() {
                     {i.aiClassified && <span title="صُنِّف آلياً" className="text-xs text-muted-foreground"><Sparkles className="w-3 h-3" /></span>}
                     {i.isHidden && <Badge variant="secondary" className="text-xs">مخفي</Badge>}
                     {i.origin === "manual" && <Badge variant="outline" className="text-xs border-teal-500/50 text-teal-700">يدوي</Badge>}
+                    {i.classStatus === "review" && (
+                      <Badge variant="outline" className="text-xs border-amber-500/60 text-amber-700 bg-amber-500/10">
+                        <AlertTriangle className="w-3 h-3 ml-0.5" />للمراجعة — غير مرئي للطلبة
+                      </Badge>
+                    )}
+                    {i.classConfidence != null && (
+                      <span
+                        title={(i.classMeta?.components ?? []).map((c) => `${c.points > 0 ? "+" : ""}${c.points} ${c.label}`).join("\n") || "درجة الثقة"}
+                        className={`text-[10px] font-bold rounded px-1.5 py-0.5 border ${
+                          i.classConfidence >= 70
+                            ? "text-emerald-700 border-emerald-500/40 bg-emerald-500/10"
+                            : i.classConfidence >= 40
+                              ? "text-amber-700 border-amber-500/40 bg-amber-500/10"
+                              : "text-rose-700 border-rose-500/40 bg-rose-500/10"
+                        }`}
+                      >
+                        ثقة {i.classConfidence}%
+                      </span>
+                    )}
                     {i.cohortId != null && (
                       <Badge variant="outline" className="text-xs border-violet-500/50 text-violet-700">
                         مساحة {spaceLabelById.get(i.cohortId) ?? `فوج #${i.cohortId}`}
@@ -4250,8 +4500,41 @@ function TgItemsManager() {
                       <Link2 className="w-3 h-3" />t.me
                     </a>
                   </div>
+                  {/* r71: ما فهمه العقل من المنشور — سنة/ملمح/فصل/درس + سبب المطابقة */}
+                  {i.classMeta && (
+                    <div className="text-[11px] text-muted-foreground/90 mt-1.5 flex items-center gap-1.5 flex-wrap">
+                      {i.classMeta.extracted?.yearOrdinal != null && (
+                        <span className="border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">السنة {i.classMeta.extracted.yearOrdinal === 1 ? "الأولى" : i.classMeta.extracted.yearOrdinal === 2 ? "الثانية" : "الثالثة"}</span>
+                      )}
+                      {i.classMeta.extracted?.trackCode && (
+                        <span className="border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">{i.classMeta.extracted.trackCode}</span>
+                      )}
+                      {i.classMeta.extracted?.semester != null && (
+                        <span className="border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">فصل {i.classMeta.extracted.semester}</span>
+                      )}
+                      {i.classMeta.extracted?.lessonHint && (
+                        <span className="border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">درس: {i.classMeta.extracted.lessonHint}</span>
+                      )}
+                      {i.classMeta.matchReason && (
+                        <span
+                          title={`${i.classMeta.matchReason}${i.classMeta.model ? `\n(${i.classMeta.engine}/${i.classMeta.model})` : ""}`}
+                          className="truncate max-w-full"
+                        >
+                          ⌞ {i.classMeta.matchReason}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-1 shrink-0">
+                  {/* r71: اعتماد — ينشر مرئياً للطلبة ويخرجه من قائمة المراجعة */}
+                  {i.classStatus === "review" && (
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:bg-emerald-500/10" disabled={busyId === i.id}
+                      onClick={() => handleApprove(i)}
+                      aria-label="اعتماد ونشر" title="اعتماد — يصبح مرئياً للطلبة في المكتبة (عدّل أولاً إن أردت تصحيح التصنيف)">
+                      {busyId === i.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                    </Button>
+                  )}
                   <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busyId === i.id}
                     onClick={() => handleReclassify(i.id)}
                     aria-label="إعادة تصنيف بالذكاء الاصطناعي" title="إعادة تصنيف بالذكاء الاصطناعي (Gemini) — يعيد العنوان والنوع ويستخرج نص الصورة">

@@ -179,11 +179,18 @@ async function classifyAndReply(msg: TgMessage, token: string): Promise<"handled
     context: "رسالة خاصة إلى البوت — صنّف لعرض النوع والعنوان فقط",
   });
 
+  // r71: نفس عقل خط الأنابيب — نعرض أيضاً ما فهمه عن السنة/الممح/الدرس
   const lines = [
     `التصنيف الذكي: ${cls.itemType}`,
     `العنوان المقترح: ${cls.title || "—"}`,
   ];
-  if (cls.aiClassified) lines.push("(صُنِّف بالذكاء الاصطناعي)");
+  const scopeBits: string[] = [];
+  if (cls.extracted.yearOrdinal) scopeBits.push(cls.extracted.yearOrdinal === 1 ? "السنة الأولى" : cls.extracted.yearOrdinal === 2 ? "السنة الثانية" : "السنة الثالثة");
+  if (cls.extracted.trackCode) scopeBits.push(`ملمح ${cls.extracted.trackCode === "PEP" ? "ابتدائي" : cls.extracted.trackCode === "PEM" ? "متوسط" : "ثانوي"} (${cls.extracted.trackCode})`);
+  if (cls.extracted.semester) scopeBits.push(`الفصل ${cls.extracted.semester}`);
+  if (scopeBits.length > 0) lines.push(`المستوى المفهوم: ${scopeBits.join(" · ")}`);
+  if (cls.extracted.lessonHint) lines.push(`الدرس المفهوم: ${cls.extracted.lessonHint}`);
+  if (cls.aiClassified) lines.push(`(صُنِّف عبر ${cls.engine === "gemini" ? "Gemini" : cls.engine === "groq" ? "Groq" : "تحليل محلي"})`);
   lines.push("", "هذا التصنيف للعرض فقط — لم يُحفظ الملف ولن يظهر لأحد. يمكنك سؤالي عن محتواه الآن.");
   const sent = await sendMessageText(token, msg.chat.id, lines.join("\n"));
   return sent ? "handled-classify" : "handled-fallback";

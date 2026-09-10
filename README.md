@@ -35,8 +35,13 @@ the Supabase Dashboard → SQL Editor. Current migration state:
 | `supabase_round2_fixes.sql` | groups + join_requests | join-request feature |
 | `supabase_update_schema.sql` | round 3+ updates | later features |
 | `supabase_telegram.sql` | Telegram integration | Telegram screens |
-| **`supabase_notifications.sql`** | **`app_notifications` table — round 10** | **notifications (§3/§4/§16)** |
+| `supabase_notifications.sql` | `app_notifications` table — round 10 | notifications (§3/§4/§16) |
+| **`supabase_telegram_intelligence.sql`** | **r71: class_confidence/class_status/class_meta + ai_events — moderation queue, confidence badges, AI log** | **Telegram intelligence (optional but recommended)** |
 
 All migration files are idempotent (`IF NOT EXISTS` guards) and safe to re-run.
 Until `supabase_notifications.sql` is applied, the app keeps working — the bell
 panel simply stays empty and notification inserts fail silently server-side.
+Until `supabase_telegram_intelligence.sql` is applied, classification keeps
+working exactly as before (r64–r70 behavior); the moderation queue, confidence
+display, and AI event log stay dormant with a one-line setup hint in the admin
+Telegram section.

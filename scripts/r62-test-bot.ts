@@ -64,7 +64,7 @@ globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
       return new Response(JSON.stringify({ candidates: [{ content: { parts: [] } }] }), { status: 200 });
     }
     // نميّز: طلب التصنيف يحمل «صنّف المحتوى» في النص؛ المحادثة لا
-    const isClassify = JSON.stringify(body).includes("صنّف المحتوى التالي");
+    const isClassify = JSON.stringify(body).includes("صنّف المحتوى التالي") || JSON.stringify(body).includes("أمين مكتبة أكاديمي"); // r71: برومبت التصنيف الجديد
     const text = isClassify
       ? JSON.stringify({ item_type: "امتحان", title: "امتحان التحليل الرياضي 2024", text: "" })
       : geminiAnswer;

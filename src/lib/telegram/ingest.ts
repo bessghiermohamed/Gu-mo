@@ -25,8 +25,12 @@ import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { classifyItem, isGeminiConfigured } from "./classify";
 import { buildSearchText, firstLineTitle, fileNameToTitle } from "./normalize";
-import { loadModuleCandidates } from "./module-match";
+import { loadModuleCandidates, loadScopeContext } from "./module-match";
 import { loadTopicBindings } from "./topic-bindings";
+import {
+  matchWithCurriculum, scoreConfidence, decideModeration, isMeaningfulTitle,
+  intelligenceColumnsReady, logAiEvent, type MatchOutcome,
+} from "./pipeline";
 import { resolveBotCredentials } from "./bot-config";
 import { telegramApi, getMeWith, activateWebhookWith, downloadFileBase64With } from "./bot-api";
 import { handlePrivateMessage, handleGroupMessage, isBotAddressed, type PrivateChatOutcome, type GroupChatOutcome } from "./bot-chat";
@@ -584,11 +588,12 @@ async function ingestForBinding(
     let existingId: number | null = null;
     let existingTitle = "";
     let existingModuleId: number | null = null;
+    let existingAiClassified = false;
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       const { data: existing } = await supabase
         .from("telegram_items")
-        .select("id, title_ar, module_id")
+        .select("id, title_ar, module_id, ai_classified")
         .eq("source_id", source.id)
         .eq("tg_message_id", msg.message_id)
         .maybeSingle();
@@ -596,29 +601,33 @@ async function ingestForBinding(
         existingId = Number(existing.id);
         existingTitle = String(existing.title_ar ?? "");
         existingModuleId = existing.module_id == null ? null : Number(existing.module_id);
+        existingAiClassified = !!existing.ai_classified;
       }
     } else {
       const existing = await db.telegramItem.findUnique({
         where: { sourceId_tgMessageId: { sourceId: source.id, tgMessageId: msg.message_id } },
-        select: { id: true, titleAr: true, moduleId: true },
+        select: { id: true, titleAr: true, moduleId: true, aiClassified: true },
       });
       if (existing) {
         existingId = existing.id;
         existingTitle = existing.titleAr;
         existingModuleId = existing.moduleId;
+        existingAiClassified = existing.aiClassified;
       }
     }
 
-    // --- التصنيف (Gemini ثم fallback محلي) ---
+    // --- r71: التصنيف المنظم (Gemini ← Groq ← محلي) ---
     const imageBase64 = vision?.base64;
     const imageMime = vision?.mime;
     const topicName = binding?.titleAr || topicNameFor(String(msg.chat.id), threadId);
     const context = `القناة: ${source.titleAr}${source.moduleId ? ` — المقياس: ${await getModuleName(source.moduleId)}` : ""}${bindingModuleId ? ` — المقياس (ربط الموضوع): ${await getModuleName(bindingModuleId)}` : ""}${topicName ? ` — الموضوع (Topic): ${topicName}` : ""}${msg.is_topic_message ? " — منشور داخل موضوع منتدى" : ""}`;
-    // r64: مقاييس التخصص المرشحة للربط الذكي — يختار النموذج المقياس
-    // المطابق لكل منشور. المصدر أو الموضوع المربوط بمقياس (قرار
-    // إداري) يفوز دائماً، والموضوع المربوط بسنة يضيّق المرشحين (r65).
+    // r71: القائمة الكاملة لمقاييس التخصص — كل مقياس موسوم بسنته وملمحه
+    // («النحو العربي (السنة الأولى — PEP)»). النموذج والمطابقة يريانها
+    // كلها فيُختار المقياس الصحيح حتى عند تشابه الأسماء بين سنتين أو
+    // ملمحين — علة r70 وما قبلها: «سنة أولى» في قناة مربوطة بسنة ثانية
+    // كانت تُملأ في مقياس السنة الثانية بصمت.
     const moduleCandidates = source.moduleId == null && bindingModuleId == null
-      ? await loadModuleCandidates(source.specialtyId, binding?.yearId ?? source.yearId, source.trackId ?? null)
+      ? await loadModuleCandidates(source.specialtyId)
       : [];
     const classifyInput = {
       kind: content.kind, caption: content.caption, fileName: content.fileName,
@@ -626,18 +635,103 @@ async function ingestForBinding(
       ...(moduleCandidates.length ? { moduleCandidates } : {}),
       context,
     };
+    const classifyStartedAt = Date.now();
     const cls = await classifyItem(classifyInput);
     const captionPlusOcr = [content.caption, cls.extractedText].filter(Boolean).join("\n");
 
-    // --- r65: بوابة المحتوى الدراسي ---
-    // منشور جديد في مصدر مكتبة (ليس مساحة فوج) بلا ربط إداري بمقياس:
-    // لا يُضاف إلا إن كان محتوى دراسيّاً يطابق مقياساً فعلاً — فلا تدخل
-    // المكتبةَ رسالة ترحيب ولا نقاش عام ولا ذِكر عرضي لمقياس
-    // («لدينا 10 مقاييس لكن ليست الهندسة المعمارية»).
+    // --- r71: مطابقة المنهاج الذكية + درجة الثقة + قرار المراجعة ---
+    // ربط إداري (المصدر/الموضوع بمقياس) يفوز دائماً — قرار مشرف مسبق.
     const boundModuleId = source.moduleId ?? bindingModuleId;
-    if (existingId == null && source.cohortId == null && boundModuleId == null) {
-      if (!cls.isCourse || cls.moduleMatch == null) return "skipped";
+    const scope = await loadScopeContext(binding?.yearId ?? source.yearId, source.trackId ?? null);
+    let match: MatchOutcome;
+    if (source.moduleId == null && bindingModuleId == null && cls.moduleMatch) {
+      // مطابقة بالاسم الذي وجده النموذج/النص، مع تفضيل السنة/الممح
+      // المستخرجين من نص المنشور (الصريح يفوز) ثم من ربط القناة.
+      match = matchWithCurriculum(moduleCandidates, {
+        moduleName: cls.moduleMatch.name,
+        extracted: cls.extracted,
+        sourceYearOrdinal: scope.yearOrdinal,
+        sourceTrackCode: scope.trackCode,
+      });
+    } else {
+      match = {
+        module: null,
+        yearAgreement: "unknown",
+        trackAgreement: "unknown",
+        ambiguous: false,
+        reason: boundModuleId != null ? "ربط إداري حتمي بالمقياس" : "لا اسم مقياس في المنشور",
+      };
     }
+    const confidence = scoreConfidence({
+      moduleFromBinding: boundModuleId != null,
+      match,
+      ambiguous: match.ambiguous,
+      aiClassified: cls.aiClassified,
+      meaningfulTitle: isMeaningfulTitle(cls.title),
+      hasOcrText: !!cls.extractedText.trim(),
+      hasMedia,
+      isCourse: cls.isCourse,
+    });
+    const colsReady = await intelligenceColumnsReady();
+    const decision = decideModeration(
+      {
+        moduleFromBinding: boundModuleId != null,
+        match,
+        ambiguous: match.ambiguous,
+        aiClassified: cls.aiClassified,
+        meaningfulTitle: isMeaningfulTitle(cls.title),
+        hasOcrText: !!cls.extractedText.trim(),
+        hasMedia,
+        isCourse: cls.isCourse,
+      },
+      { isLibrarySource: source.cohortId == null, columnsReady: colsReady }
+    );
+    // المقياس النهائي: الربط الإداري ثم مطابقة المنهاج (بترجيح السنة)
+    // ثم مطابقة الاسم وحدها (سلوك r64-r70).
+    const finalModuleId = boundModuleId ?? match.module?.id ?? cls.moduleMatch?.id ?? null;
+
+    // مراقبة التنسيق (جدول ai_events — تحسيني بلا كسور): حدث واحد لكل
+    // قرار يحمل الاستخراج والنموذج والثقة والسبب. بلا أسرار أبداً.
+    await logAiEvent({
+      stage: existingId == null ? "ingest" : "ingest-update",
+      sourceId: source.id,
+      tgMessageId: msg.message_id,
+      model: cls.model,
+      provider: cls.engine,
+      latencyMs: Date.now() - classifyStartedAt,
+      extracted: {
+        title: cls.title,
+        year: cls.extracted.yearOrdinal,
+        track: cls.extracted.trackCode,
+        semester: cls.extracted.semester,
+        lesson: cls.extracted.lessonHint,
+        module: cls.moduleMatch?.name ?? null,
+        item_type: cls.itemType,
+      },
+      decision,
+      confidence: confidence.score,
+      reason: match.reason,
+      detail: `engine=${cls.engine} model=${cls.model} candidates=${moduleCandidates.length}`,
+    });
+
+    // --- r65/r71: بوابة المحتوى الدراسي + قرار النشر ---
+    // منشور جديد في مصدر مكتبة (ليس مساحة فوج) بلا ربط إداري بمقياس:
+    // القرار يحكم — نشر/مراجعة (قبل أعمدة SQL تصير «مراجعة» رفضاً،
+    // سلوك r65 نفسه) / رفض. مصادر مساحات الفوج تبقى مرئية دائماً
+    // (وعد r67) مع وسم «للمراجعة» حين تقل الثقة.
+    if (existingId == null && source.cohortId == null && boundModuleId == null) {
+      if (decision === "skip") return "skipped";
+    }
+    const classStatus = decision === "review" ? "review" : "published";
+    const classMeta = {
+      extracted: cls.extracted,
+      matchReason: match.reason,
+      yearAgreement: match.yearAgreement,
+      trackAgreement: match.trackAgreement,
+      engine: cls.engine,
+      model: cls.model,
+      components: confidence.components,
+    };
 
     // --- الكتابة (upsert مع حماية حقول التنقيح) ---
     if (isVercel) {
@@ -658,7 +752,7 @@ async function ingestForBinding(
           size_bytes: content.sizeBytes,
           link,
           specialty_id: source.specialtyId,
-          module_id: boundModuleId ?? cls.moduleMatch?.id ?? null,
+          module_id: finalModuleId,
           item_type: cls.itemType,
           origin: "telegram",
           posted_by: postedBy,
@@ -667,6 +761,11 @@ async function ingestForBinding(
           is_featured: false,
           ai_classified: cls.aiClassified,
           posted_at: postedAt,
+          // r71: أعمدة الذكاء — تكتب فقط إذا نُفّذ SQL (وإلا يرفض الإدراج
+          // كاملاً بعمود غائب!). colsReady مُستكشف مرة لكل مثيل.
+          ...(colsReady
+            ? { class_confidence: confidence.score, class_status: classStatus, class_meta: classMeta }
+            : {}),
         });
         if (error) return "ignored";
       } else {
@@ -686,11 +785,19 @@ async function ingestForBinding(
           ai_classified: cls.aiClassified,
         };
         if (!existingTitle.trim()) patch.title_ar = cls.title;
-        // r64/r65: املأ المقياس حين يكون فارغاً فقط — ربط الموضوع
-        // الإداري أولاً ثم مطابقة التصنيف؛ الربط اليدوي محمي دائماً.
+        // r64/r65/r71: املأ المقياس حين يكون فارغاً فقط — ربط الموضوع
+        // الإداري أولاً ثم مطابقة المنهاج الذكية ثم مطابقة الاسم؛
+        // الربط اليدوي محمي دائماً.
         if (existingModuleId == null) {
-          const fill = bindingModuleId ?? (source.moduleId == null && cls.moduleMatch ? cls.moduleMatch.id : null);
+          const fill = bindingModuleId ?? (source.moduleId == null ? finalModuleId : null);
           if (fill != null) patch.module_id = fill;
+        }
+        // r71: تحديث حقول الآلة للمنشورات غير المنقّحة يدوياً فقط
+        // (ai_classified=false بعد تعديل إداري = علامة تنقيح)
+        if (colsReady && existingAiClassified) {
+          patch.class_confidence = confidence.score;
+          patch.class_status = classStatus;
+          patch.class_meta = classMeta;
         }
         await supabase.from("telegram_items").update(patch).eq("id", existingId);
       }
@@ -709,11 +816,13 @@ async function ingestForBinding(
           searchText: buildSearchText(cls.title, captionPlusOcr, content.fileName),
           fileName: content.fileName, mimeType: content.mimeType, fileId: content.fileId,
           fileUniqueId: content.fileUniqueId, sizeBytes: content.sizeBytes, link,
-          specialtyId: source.specialtyId, moduleId: boundModuleId ?? cls.moduleMatch?.id ?? null, itemType: cls.itemType,
+          specialtyId: source.specialtyId, moduleId: finalModuleId, itemType: cls.itemType,
           origin: "telegram", postedBy, cohortId: source.cohortId,
           isHidden: false, isFeatured: false, aiClassified: cls.aiClassified,
           postedAt: new Date(postedAt),
-        },
+          // r71: محلياً الأعمدة موجودة دائماً (المخطط محدّث) — JSON نصي
+          classConfidence: confidence.score, classStatus, classMeta: JSON.stringify(classMeta),
+        } as never,
       });
     } else {
       await db.telegramItem.update({
@@ -726,10 +835,13 @@ async function ingestForBinding(
           mediaGroupId: content.mediaGroupId, link, postedAt: new Date(postedAt),
           aiClassified: cls.aiClassified,
           ...(existingTitle ? {} : { titleAr: cls.title }),
-          ...(existingModuleId == null && (bindingModuleId != null || (source.moduleId == null && cls.moduleMatch))
-            ? { moduleId: bindingModuleId ?? cls.moduleMatch!.id }
+          ...(existingModuleId == null && (bindingModuleId != null || (source.moduleId == null && finalModuleId != null))
+            ? { moduleId: bindingModuleId ?? finalModuleId }
             : {}),
-        },
+          ...(existingAiClassified
+            ? { classConfidence: confidence.score, classStatus, classMeta: JSON.stringify(classMeta) }
+            : {}),
+        } as never,
       });
     }
     if (update.update_id > source.lastUpdateId) {

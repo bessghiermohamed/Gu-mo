@@ -25,7 +25,11 @@ import { buildSearchText } from "@/lib/telegram/normalize";
 import { kindFromDocument } from "@/lib/telegram/ingest";
 import { isBotConfigured, downloadFileBase64, loadSourceById } from "@/lib/telegram/ingest";
 import { classifyItem, isGeminiConfigured } from "@/lib/telegram/classify";
-import { loadModuleCandidates, moduleById } from "@/lib/telegram/module-match";
+import { loadModuleCandidates, moduleById, loadScopeContext } from "@/lib/telegram/module-match";
+import {
+  matchWithCurriculum, scoreConfidence, decideModeration, isMeaningfulTitle,
+  intelligenceColumnsReady, logAiEvent,
+} from "@/lib/telegram/pipeline";
 
 export const maxDuration = 60;
 
@@ -54,6 +58,45 @@ interface ItemRow {
   isFeatured: boolean;
   aiClassified: boolean;
   postedAt: Date | string | null;
+  // r71: أعمدة الذكاء (NULL قبل تنفيذ SQL)
+  classConfidence: number | null;
+  classStatus: string | null;
+  classMeta: string | Record<string, unknown> | null; // JSON نصي في الصفوف
+}
+
+/** r71: يطبّع صف تيليجرام من Supabase/Prisma إلى ItemRow */
+function toItemRow(r: Record<string, unknown>): ItemRow {
+  const isPrisma = "titleAr" in r; // Prisma camelCase مقابل Supabase snake_case
+  if (isPrisma) {
+    return {
+      id: Number(r.id), sourceId: r.sourceId == null ? null : Number(r.sourceId),
+      tgMessageId: Number(r.tgMessageId ?? 0), mediaGroupId: String(r.mediaGroupId ?? ""),
+      kind: String(r.kind ?? "text"), titleAr: String(r.titleAr ?? ""), captionText: String(r.captionText ?? ""),
+      fileName: String(r.fileName ?? ""), mimeType: String(r.mimeType ?? ""), fileId: String(r.fileId ?? ""),
+      sizeBytes: Number(r.sizeBytes ?? 0), link: String(r.link ?? ""), specialtyId: Number(r.specialtyId ?? 1),
+      moduleId: r.moduleId == null ? null : Number(r.moduleId), itemType: String(r.itemType ?? "عام"),
+      origin: String(r.origin ?? "telegram"), postedBy: String(r.postedBy ?? ""),
+      cohortId: r.cohortId == null ? null : Number(r.cohortId), isHidden: !!r.isHidden, isFeatured: !!r.isFeatured,
+      aiClassified: !!r.aiClassified, postedAt: (r.postedAt as string | Date | null) ?? null,
+      classConfidence: r.classConfidence == null ? null : Number(r.classConfidence),
+      classStatus: r.classStatus == null ? null : String(r.classStatus),
+      classMeta: r.classMeta == null ? null : String(r.classMeta),
+    };
+  }
+  return {
+    id: Number(r.id), sourceId: r.source_id == null ? null : Number(r.source_id),
+    tgMessageId: Number(r.tg_message_id ?? 0), mediaGroupId: String(r.media_group_id ?? ""),
+    kind: String(r.kind ?? "text"), titleAr: String(r.title_ar ?? ""), captionText: String(r.caption_text ?? ""),
+    fileName: String(r.file_name ?? ""), mimeType: String(r.mime_type ?? ""), fileId: String(r.file_id ?? ""),
+    sizeBytes: Number(r.size_bytes ?? 0), link: String(r.link ?? ""), specialtyId: Number(r.specialty_id ?? 1),
+    moduleId: r.module_id == null ? null : Number(r.module_id), itemType: String(r.item_type ?? "عام"),
+    origin: String(r.origin ?? "telegram"), postedBy: String(r.posted_by ?? ""),
+    cohortId: r.cohort_id == null ? null : Number(r.cohort_id), isHidden: !!r.is_hidden, isFeatured: !!r.is_featured,
+    aiClassified: !!r.ai_classified, postedAt: (r.posted_at as string | null) ?? null,
+    classConfidence: r.class_confidence == null ? null : Number(r.class_confidence),
+    classStatus: r.class_status == null ? null : String(r.class_status),
+    classMeta: r.class_meta == null ? null : (typeof r.class_meta === "string" ? r.class_meta : JSON.stringify(r.class_meta)),
+  };
 }
 
 /** فوج المتصل: نطاقه المباشر أو آخر طلب انضمام مقبول */
@@ -181,29 +224,11 @@ async function loadItem(id: number): Promise<ItemRow | null> {
     const supabase = await createSupabaseServerClient();
     const { data } = await supabase.from("telegram_items").select("*").eq("id", id).maybeSingle();
     if (!data) return null;
-    const r = data as Record<string, unknown>;
-    return {
-      id: Number(r.id), sourceId: r.source_id == null ? null : Number(r.source_id),
-      tgMessageId: Number(r.tg_message_id ?? 0), mediaGroupId: String(r.media_group_id ?? ""),
-      kind: String(r.kind ?? "text"), titleAr: String(r.title_ar ?? ""), captionText: String(r.caption_text ?? ""),
-      fileName: String(r.file_name ?? ""), mimeType: String(r.mime_type ?? ""), fileId: String(r.file_id ?? ""),
-      sizeBytes: Number(r.size_bytes ?? 0), link: String(r.link ?? ""), specialtyId: Number(r.specialty_id ?? 1),
-      moduleId: r.module_id == null ? null : Number(r.module_id), itemType: String(r.item_type ?? "عام"),
-      origin: String(r.origin ?? "telegram"), postedBy: String(r.posted_by ?? ""),
-      cohortId: r.cohort_id == null ? null : Number(r.cohort_id), isHidden: !!r.is_hidden, isFeatured: !!r.is_featured,
-      aiClassified: !!r.ai_classified, postedAt: (r.posted_at as string | null) ?? null,
-    };
+    return toItemRow(data as Record<string, unknown>);
   }
   const it = await db.telegramItem.findUnique({ where: { id } });
   if (!it) return null;
-  return {
-    id: it.id, sourceId: it.sourceId, tgMessageId: it.tgMessageId, mediaGroupId: it.mediaGroupId,
-    kind: it.kind, titleAr: it.titleAr, captionText: it.captionText, fileName: it.fileName,
-    mimeType: it.mimeType, fileId: it.fileId, sizeBytes: it.sizeBytes, link: it.link,
-    specialtyId: it.specialtyId, moduleId: it.moduleId, itemType: it.itemType, origin: it.origin,
-    postedBy: it.postedBy, cohortId: it.cohortId, isHidden: it.isHidden, isFeatured: it.isFeatured,
-    aiClassified: it.aiClassified, postedAt: it.postedAt,
-  };
+  return toItemRow(it as unknown as Record<string, unknown>);
 }
 
 /** سنة المقياس (لمطابقة نطاق الممثل) */
@@ -241,6 +266,13 @@ async function canCurateItem(
 }
 
 function shapeItem(item: ItemRow, moduleName: string | null, sourceTitle: string | null, sourceUsername: string | null) {
+  // r71: تفكيك classMeta (JSON) لكائن قابل للعرض — بلا فشل إن فسد
+  let meta: Record<string, unknown> | null = null;
+  if (item.classMeta) {
+    try {
+      meta = typeof item.classMeta === "string" ? JSON.parse(item.classMeta) : item.classMeta;
+    } catch { meta = null; }
+  }
   return {
     id: item.id, sourceId: item.sourceId, tgMessageId: item.tgMessageId, mediaGroupId: item.mediaGroupId,
     kind: item.kind, titleAr: item.titleAr, captionText: item.captionText, fileName: item.fileName,
@@ -250,6 +282,10 @@ function shapeItem(item: ItemRow, moduleName: string | null, sourceTitle: string
     isHidden: item.isHidden, isFeatured: item.isFeatured, aiClassified: item.aiClassified,
     postedAt: item.postedAt ? new Date(item.postedAt as string | Date).toISOString() : null,
     sourceTitle, sourceUsername,
+    // r71: حقول الذكاء — للمشرفين (تُتجاهل في واجهة الطالب)
+    classConfidence: item.classConfidence,
+    classStatus: item.classStatus,
+    classMeta: meta,
   };
 }
 
@@ -313,6 +349,10 @@ export async function GET(req: NextRequest) {
             ? Number(cohortIdParam)
             : null
         : null;
+    // r71: فلتر قائمة المراجعة (وضع المشرف) — منشورات بانتظار قرار إداري
+    const needsReviewFilter = mode === "admin" && url.searchParams.get("needsReview") === "1";
+    // r71: هل أعمدة الذكاء موجودة؟ (يُستكشف مرة لكل مثيل)
+    const colsReady = await intelligenceColumnsReady();
 
     if (mode === "admin" && !canUploadContent(user)) {
       return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
@@ -369,12 +409,20 @@ export async function GET(req: NextRequest) {
         // r65: المكتبة تعرض المنشورات المرتبطة بمقياس فقط — غير المصنّف
         // لا يظهر للطلبة (يبقى متاحاً للتنقيح في وضع المشرف)
         query = query.not("module_id", "is", null);
+        // r71: المنشورات «للمراجعة» لا تظهر للطلبة في المكتبة — قرار
+        // الإنسان مطلوب أولاً (تعارض سنة/غموض/بلا مقياس). الصفوف القديمة
+        // (NULL) تعامل كمنشورة — بلا رجعية.
+        if (colsReady) {
+          query = query.or("class_status.is.null,class_status.neq.review");
+        }
         if (allowedModuleIds != null) {
           query = allowedModuleIds.length > 0
             ? query.in("module_id", allowedModuleIds)
             : query.eq("tg_message_id", -1); // لا مقاييس مطابقة → مجموعة فارغة
         }
       }
+      // r71: قائمة المراجعة الإدارية — المنشورات المعلَّمة review فقط
+      if (needsReviewFilter && colsReady) query = query.eq("class_status", "review");
       if (mode !== "admin" && moduleId) query = query.eq("module_id", Number(moduleId));
       if (itemType) query = query.eq("item_type", itemType);
       if (kind) query = query.eq("kind", kind);
@@ -390,17 +438,7 @@ export async function GET(req: NextRequest) {
       if (error) {
         return NextResponse.json({ items: [], myCohortId, tablesReady: false, error: "جدول تيليجرام غير منشأ — نفّذ supabase_telegram.sql" });
       }
-      rows = (data ?? []).map((r: Record<string, unknown>) => ({
-        id: Number(r.id), sourceId: r.source_id == null ? null : Number(r.source_id),
-        tgMessageId: Number(r.tg_message_id ?? 0), mediaGroupId: String(r.media_group_id ?? ""),
-        kind: String(r.kind ?? "text"), titleAr: String(r.title_ar ?? ""), captionText: String(r.caption_text ?? ""),
-        fileName: String(r.file_name ?? ""), mimeType: String(r.mime_type ?? ""), fileId: String(r.file_id ?? ""),
-        sizeBytes: Number(r.size_bytes ?? 0), link: String(r.link ?? ""), specialtyId: Number(r.specialty_id ?? 1),
-        moduleId: r.module_id == null ? null : Number(r.module_id), itemType: String(r.item_type ?? "عام"),
-        origin: String(r.origin ?? "telegram"), postedBy: String(r.posted_by ?? ""),
-        cohortId: r.cohort_id == null ? null : Number(r.cohort_id), isHidden: !!r.is_hidden, isFeatured: !!r.is_featured,
-        aiClassified: !!r.ai_classified, postedAt: (r.posted_at as string | null) ?? null,
-      }));
+      rows = (data ?? []).map((r: Record<string, unknown>) => toItemRow(r));
     } else {
       const { normalizeArabic } = await import("@/lib/telegram/normalize");
       const where: Record<string, unknown> = {};
@@ -410,6 +448,8 @@ export async function GET(req: NextRequest) {
         // r69: تصفية إدارية حسب مساحة الفوج (محلياً)
         if (adminCohortFilter === "none") where.cohortId = null;
         else if (adminCohortFilter != null) where.cohortId = adminCohortFilter as number;
+        // r71: قائمة المراجعة
+        if (needsReviewFilter) where.classStatus = "review";
       } else if (mode === "shared") {
         if (myCohortId == null) return NextResponse.json({ items: [], myCohortId: null });
         where.cohortId = myCohortId;
@@ -420,6 +460,8 @@ export async function GET(req: NextRequest) {
         where.cohortId = null;
         // r65: المكتبة تعرض ما رُبط بمقياس فقط (غير المصنّف غير مرئي للطلبة)
         where.moduleId = allowedModuleIds != null ? { in: allowedModuleIds } : { not: null };
+        // r71: بلا «للمراجعة» — الصفوف القديمة (NULL) منشورة
+        if (colsReady) where.classStatus = { not: "review" };
       }
       if (mode !== "admin" && moduleId) where.moduleId = Number(moduleId);
       if (itemType) where.itemType = itemType;
@@ -542,6 +584,29 @@ export async function GET(req: NextRequest) {
     // r69: اسم الفوج المميِّز في وضع المساحة — يعرف الطالب (والمشرف الذي
     // يفحص بحسابه) أي فضاء يعرض، فلا يلتبس «فوج 7» بآخر بالاسم نفسه
     const myCohortName = mode === "shared" && myCohortId != null ? await resolveCohortLabel(myCohortId) : null;
+    // r71: عدد بانتظار المراجعة (وضع المشرف) — شارة قائمة المراجعة
+    let reviewCount = 0;
+    if (mode === "admin" && colsReady) {
+      try {
+        if (isVercel) {
+          const supabase = await createSupabaseServerClient();
+          let cnt = supabase
+            .from("telegram_items")
+            .select("id", { count: "exact", head: true })
+            .eq("class_status", "review");
+          if (user.role !== "OWNER") cnt = cnt.eq("specialty_id", user.assignedSpecialtyId);
+          const { count } = await cnt;
+          reviewCount = count ?? 0;
+        } else {
+          reviewCount = await db.telegramItem.count({
+            where: {
+              classStatus: "review",
+              ...(user.role !== "OWNER" ? { specialtyId: user.assignedSpecialtyId } : {}),
+            },
+          });
+        }
+      } catch { /* تحسيني */ }
+    }
     return NextResponse.json({
       items: rows.map((r) =>
         shapeItem(
@@ -556,6 +621,8 @@ export async function GET(req: NextRequest) {
       yearLock,
       trackLock,
       setup: { bot: await isBotConfigured(), activeSources },
+      // r71: حالة الذكاء — تُخفي الواجهة قائمة المراجعة قبل تنفيذ SQL
+      intelligence: { ready: colsReady, reviewCount },
     });
   } catch {
     return NextResponse.json({ items: [], myCohortId: null, tablesReady: false });
@@ -667,31 +734,31 @@ export async function PATCH(req: NextRequest) {
       }
 
       const batchSize = Math.min(Math.max(Number(body.limit ?? 20) || 20, 1), 40);
-      // المنشورات بلا مقياس (المخفية منها أيضاً) — الأحدث أولاً
+      // r71: الوضع العميق — يشمل كل المنشورات المصنّفة آلياً (ai_classified
+      // = true) وليس فقط بلا مقياس: هكذا يُشافى ما صُنّف في السنة/الممح
+      // الخطأ قبل r71 دون مساس بما نقّحه مشرف يدوياً (ai_classified=false
+      // علامة التنقيح) ولا الإضافات اليدوية.
+      const deep = body.deep === true;
+      // المنشورات المستهدفة — الأحدث أولاً
       let rows: ItemRow[] = [];
       if (isVercel) {
         const supabase = await createSupabaseServerClient();
-        const { data } = await supabase
+        let q = supabase
           .from("telegram_items")
           .select("*")
-          .eq("source_id", source.id)
-          .is("module_id", null)
+          .eq("source_id", source.id);
+        q = deep
+          ? q.eq("ai_classified", true)
+          : q.is("module_id", null);
+        const { data } = await q
           .order("posted_at", { ascending: false, nullsFirst: false })
           .limit(batchSize);
-        rows = (data ?? []).map((r: Record<string, unknown>) => ({
-          id: Number(r.id), sourceId: r.source_id == null ? null : Number(r.source_id),
-          tgMessageId: Number(r.tg_message_id ?? 0), mediaGroupId: String(r.media_group_id ?? ""),
-          kind: String(r.kind ?? "text"), titleAr: String(r.title_ar ?? ""), captionText: String(r.caption_text ?? ""),
-          fileName: String(r.file_name ?? ""), mimeType: String(r.mime_type ?? ""), fileId: String(r.file_id ?? ""),
-          sizeBytes: Number(r.size_bytes ?? 0), link: String(r.link ?? ""), specialtyId: Number(r.specialty_id ?? 1),
-          moduleId: r.module_id == null ? null : Number(r.module_id), itemType: String(r.item_type ?? "عام"),
-          origin: String(r.origin ?? "telegram"), postedBy: String(r.posted_by ?? ""),
-          cohortId: r.cohort_id == null ? null : Number(r.cohort_id), isHidden: !!r.is_hidden, isFeatured: !!r.is_featured,
-          aiClassified: !!r.ai_classified, postedAt: (r.posted_at as string | null) ?? null,
-        }));
+        rows = (data ?? []).map((r: Record<string, unknown>) => toItemRow(r));
       } else {
         rows = (await db.telegramItem.findMany({
-          where: { sourceId: source.id, moduleId: null },
+          where: deep
+            ? { sourceId: source.id, aiClassified: true }
+            : { sourceId: source.id, moduleId: null },
           orderBy: { postedAt: "desc" },
           take: batchSize,
         })) as unknown as ItemRow[];
@@ -700,15 +767,20 @@ export async function PATCH(req: NextRequest) {
       if (rows.length === 0) {
         return NextResponse.json({
           ok: true, processed: 0, moduleAssigned: 0, remaining: 0,
-          message: "لا توجد منشورات بلا مقياس في هذا المصدر — كل شيء مربوط أو فارغ.",
+          message: deep
+            ? "لا توجد منشورات مصنّفة آلياً في هذا المصدر — كل شيء إما منقّح يدوياً أو بلا تصنيف."
+            : "لا توجد منشورات بلا مقياس في هذا المصدر — كل شيء مربوط أو فارغ.",
         });
       }
 
-      // r70: مقاييس تخصص المصدر + ممحه — إعادة التصنيف لا تربط بمقياس ملمح آخر
-      const candidates = await loadModuleCandidates(source.specialtyId, source.yearId, source.trackId ?? null);
+      // r71: القائمة الكاملة لمقاييس التخصص (كل السنوات والملامح) + سياق
+      // نطاق المصدر — إعادة التصنيف بنفس دماغ الاستيراد الجديد.
+      const candidates = await loadModuleCandidates(source.specialtyId);
+      const scope = await loadScopeContext(source.yearId, source.trackId ?? null);
       const botReady = await isBotConfigured();
+      const colsReady = await intelligenceColumnsReady();
       const deadline = Date.now() + 40_000; // نافذة أمان تحت maxDuration=60
-      let processed = 0, updated = 0, moduleAssigned = 0, aiCount = 0;
+      let processed = 0, updated = 0, moduleAssigned = 0, aiCount = 0, reviewCount = 0;
 
       const classifyOne = async (item: ItemRow) => {
         let imageBase64: string | undefined;
@@ -746,11 +818,53 @@ export async function PATCH(req: NextRequest) {
           processed += 1;
           if (!cls) continue;
           if (cls.aiClassified) aiCount += 1;
+          // r71: مطابقة المنهاج الذكية — يصحح سنوات ما قبل r71
+          const match = cls.moduleMatch
+            ? matchWithCurriculum(candidates, {
+                moduleName: cls.moduleMatch.name,
+                extracted: cls.extracted,
+                sourceYearOrdinal: scope.yearOrdinal,
+                sourceTrackCode: scope.trackCode,
+              })
+            : null;
+          const newModule = match?.module?.id ?? cls.moduleMatch?.id ?? null;
+          const confidence = scoreConfidence({
+            moduleFromBinding: false,
+            match: match ?? { module: null, yearAgreement: "unknown", trackAgreement: "unknown", ambiguous: false, reason: "لا مطابقة" },
+            ambiguous: match?.ambiguous ?? false,
+            aiClassified: cls.aiClassified,
+            meaningfulTitle: isMeaningfulTitle(cls.title),
+            hasOcrText: !!cls.extractedText.trim(),
+            hasMedia: item.kind !== "text" && item.kind !== "link",
+            isCourse: cls.isCourse,
+          });
+          const decision = decideModeration(
+            {
+              moduleFromBinding: false,
+              match: match ?? { module: null, yearAgreement: "unknown", trackAgreement: "unknown", ambiguous: false, reason: "لا مطابقة" },
+              ambiguous: match?.ambiguous ?? false,
+              aiClassified: cls.aiClassified,
+              meaningfulTitle: isMeaningfulTitle(cls.title),
+              hasOcrText: !!cls.extractedText.trim(),
+              hasMedia: item.kind !== "text" && item.kind !== "link",
+              isCourse: cls.isCourse,
+            },
+            { isLibrarySource: source.cohortId == null, columnsReady: colsReady }
+          );
+          if (decision === "review") reviewCount += 1;
           const newTitle = cls.title.trim() || item.titleAr;
           const newSearch = buildSearchText(newTitle, cls.extractedText || item.captionText, item.fileName);
-          const newModule = cls.moduleMatch?.id ?? null;
           if (newModule != null) moduleAssigned += 1;
           try {
+            const classMetaJson = {
+              extracted: cls.extracted,
+              matchReason: match?.reason ?? "لا مطابقة",
+              yearAgreement: match?.yearAgreement ?? "unknown",
+              trackAgreement: match?.trackAgreement ?? "unknown",
+              engine: cls.engine,
+              model: cls.model,
+              components: confidence.components,
+            };
             if (isVercel) {
               const supabase = await createSupabaseServerClient();
               const { error } = await supabase
@@ -758,6 +872,13 @@ export async function PATCH(req: NextRequest) {
                 .update({
                   title_ar: newTitle, item_type: cls.itemType, search_text: newSearch,
                   ai_classified: cls.aiClassified, module_id: newModule,
+                  ...(colsReady
+                    ? {
+                        class_confidence: confidence.score,
+                        class_status: decision === "review" ? "review" : "published",
+                        class_meta: classMetaJson,
+                      }
+                    : {}),
                 })
                 .eq("id", item.id);
               if (error) continue;
@@ -767,10 +888,29 @@ export async function PATCH(req: NextRequest) {
                 data: {
                   titleAr: newTitle, itemType: cls.itemType, searchText: newSearch,
                   aiClassified: cls.aiClassified, moduleId: newModule,
+                  classConfidence: confidence.score,
+                  classStatus: decision === "review" ? "review" : "published",
+                  classMeta: JSON.stringify(classMetaJson),
                 } as never,
               });
             }
             updated += 1;
+            // r71: أثر القرار في سجل الذكاء
+            await logAiEvent({
+              stage: "reclassify-source",
+              sourceId: source.id,
+              tgMessageId: item.tgMessageId,
+              model: cls.model,
+              provider: cls.engine,
+              extracted: {
+                title: cls.title, year: cls.extracted.yearOrdinal, track: cls.extracted.trackCode,
+                module: cls.moduleMatch?.name ?? null, item_type: cls.itemType,
+              },
+              decision,
+              confidence: confidence.score,
+              reason: match?.reason ?? "لا مطابقة",
+              detail: `batch reclassify${deep ? " (deep)" : ""} by user ${user.id}`,
+            });
           } catch {
             // فشل كتابة عنصر واحد لا يوقف الدفعة
           }
@@ -799,9 +939,13 @@ export async function PATCH(req: NextRequest) {
         updated,
         moduleAssigned,
         aiClassified: aiCount,
+        reviewCount,
         remaining,
         message:
-          `أُعيد تصنيف ${processed} منشوراً: رُبط ${moduleAssigned} بمقياس${remaining > 0 ? ` — بقي ${remaining} منشوراً بلا مقياس، أعد التشغيل لمعالجة البقية` : " — كل المنشورات صارت مربوطة"}.`,
+          `أُعيد تصنيف ${processed} منشوراً${deep ? " (وضع عميق)" : ""}: رُبط ${moduleAssigned} بمقياس` +
+          (reviewCount > 0 ? ` — ${reviewCount} بانتظار المراجعة (تعارض/غموض)` : "") +
+          (remaining > 0 ? ` — بقي ${remaining} منشوراً بلا مقياس، أعد التشغيل لمعالجة البقية` : " — كل المنشورات صارت مربوطة") +
+          ".",
       });
     }
 
@@ -813,11 +957,67 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "هذا المنشور خارج نطاقك" }, { status: 403 });
     }
 
-    // ---------- إعادة تصنيف (Gemini عند إضافة المفتاح لاحقاً) ----------
-    if (body.action === "reclassify") {
-      if (!isGeminiConfigured()) {
+    // ---------- r71: اعتماد المنشور من قائمة المراجعة ----------
+    // قرار إداري صريح: انتهت المراجعة — يُنشر (ويُطبَّق أي تصحيح مرافق).
+    if (body.action === "approve") {
+      const colsReady = await intelligenceColumnsReady();
+      if (!colsReady) {
         return NextResponse.json(
-          { error: "GEMINI_API_KEY غير مضبوط — أضفه في Vercel ثم أعد المحاولة. التصنيف المحلي متاح دائماً من تعديل المنشور." },
+          { error: "أعمدة الذكاء غير منشأة — نفّذ download/supabase_telegram_intelligence.sql في محرر SQL داخل Supabase أولاً." },
+          { status: 400 }
+        );
+      }
+      const updateFields: Record<string, unknown> = {
+        class_status: "published",
+        // علامة تنقيح إداري: تعديل المشرف يحمي العنوان/النوع/المقياس من
+        // أي إعادة تصنيف آلية لاحقة (المصدر/التعديل الزمني)
+        ai_classified: false,
+      };
+      const prismaFields: Record<string, unknown> = {
+        classStatus: "published",
+        aiClassified: false,
+      };
+      // تصحيحات مرافقة اختيارية (ك PATCH العادي: العنوان/النوع/المقياس)
+      if (body.titleAr !== undefined) {
+        const t = String(body.titleAr).trim();
+        if (!t) return NextResponse.json({ error: "العنوان لا يمكن أن يكون فارغاً" }, { status: 400 });
+        updateFields.title_ar = t;
+        updateFields.search_text = buildSearchText(t, item.captionText, item.fileName);
+        prismaFields.titleAr = t;
+        prismaFields.searchText = buildSearchText(t, item.captionText, item.fileName);
+      }
+      if (body.itemType !== undefined && TG_ITEM_TYPES.includes(body.itemType as never)) {
+        updateFields.item_type = String(body.itemType);
+        prismaFields.itemType = String(body.itemType);
+      }
+      if (body.moduleId !== undefined) {
+        const m = body.moduleId != null && Number(body.moduleId) > 0 ? Number(body.moduleId) : null;
+        updateFields.module_id = m;
+        prismaFields.moduleId = m;
+      }
+      if (isVercel) {
+        const supabase = await createSupabaseServerClient();
+        const { error } = await supabase.from("telegram_items").update(updateFields).eq("id", id);
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      } else {
+        await db.telegramItem.update({ where: { id }, data: prismaFields as never });
+      }
+      await logAiEvent({
+        stage: "approve",
+        sourceId: item.sourceId,
+        tgMessageId: item.tgMessageId,
+        decision: "publish",
+        reason: "اعتماد إداري من قائمة المراجعة",
+        detail: `by user ${user.id}`,
+      });
+      return NextResponse.json({ ok: true, message: "اعتُمد المنشور — صار مرئياً للطلبة في المكتبة" });
+    }
+
+    // ---------- إعادة تصنيف (r71: المسار الكامل — استخراج منظم) ----------
+    if (body.action === "reclassify") {
+      if (!isGeminiConfigured() && !process.env.GROQ_API_KEY?.trim()) {
+        return NextResponse.json(
+          { error: "لا مفتاح ذكاء مضبوط — أضف GEMINI_API_KEY أو GROQ_API_KEY في Vercel ثم أعد المحاولة. التعديل اليدوي متاح دائماً." },
           { status: 400 }
         );
       }
@@ -828,38 +1028,86 @@ export async function PATCH(req: NextRequest) {
         const dl = await downloadFileBase64(item.fileId);
         if (dl) { imageBase64 = dl.base64; imageMime = dl.mime; }
       }
-      // r64: مقاييس تخصص المنشور — ليستنتج الذكاء الاصطناعي المقياس أيضاً
-      // r70: + ممح مصدر المنشور إن وُجد — حتى لا يُربط بمقياس ملمح آخر
-      let reclassifyTrackId: number | null = null;
-      if (item.sourceId != null) {
-        const src = await loadSourceById(item.sourceId);
-        reclassifyTrackId = src?.trackId ?? null;
-      }
-      const candidates = await loadModuleCandidates(item.specialtyId, null, reclassifyTrackId);
+      // r71: القائمة الكاملة لمقاييس التخصص + سياق المصدر (سنة/ملمح الربط)
+      // فيختار النموذج المقياس الصحيح حتى عند تشابه الأسماء بين السنوات.
+      let src: Awaited<ReturnType<typeof loadSourceById>> = null;
+      if (item.sourceId != null) src = await loadSourceById(item.sourceId);
+      const candidates = await loadModuleCandidates(item.specialtyId);
+      const context = src ? `القناة: ${src.titleAr}` : undefined;
       const cls = await classifyItem({
         kind: item.kind,
         caption: item.captionText,
         fileName: item.fileName,
         ...(imageBase64 ? { imageBase64, imageMimeType: imageMime } : {}),
         ...(candidates.length ? { moduleCandidates: candidates } : {}),
+        ...(context ? { context } : {}),
       });
-      if (!cls.aiClassified) {
-        return NextResponse.json(
-          { error: "تعذّر التصنيف عبر Gemini (مهلة/مفتاح). جرّب لاحقاً — أو عدّل النوع يدوياً من تعديل المنشور." },
-          { status: 502 }
-        );
-      }
+      // r71: مطابقة المنهاج + الثقة + القرار — نفس دماغ الاستيراد
+      const scope = await loadScopeContext(src?.yearId ?? null, src?.trackId ?? null);
+      const match = cls.moduleMatch
+        ? matchWithCurriculum(candidates, {
+            moduleName: cls.moduleMatch.name,
+            extracted: cls.extracted,
+            sourceYearOrdinal: scope.yearOrdinal,
+            sourceTrackCode: scope.trackCode,
+          })
+        : { module: null, yearAgreement: "unknown" as const, trackAgreement: "unknown" as const, ambiguous: false, reason: "لا اسم مقياس" };
+      const confidence = scoreConfidence({
+        moduleFromBinding: false,
+        match,
+        ambiguous: match.ambiguous,
+        aiClassified: cls.aiClassified,
+        meaningfulTitle: isMeaningfulTitle(cls.title),
+        hasOcrText: !!cls.extractedText.trim(),
+        hasMedia: item.kind !== "text" && item.kind !== "link",
+        isCourse: cls.isCourse,
+      });
+      const decision = decideModeration(
+        {
+          moduleFromBinding: false,
+          match,
+          ambiguous: match.ambiguous,
+          aiClassified: cls.aiClassified,
+          meaningfulTitle: isMeaningfulTitle(cls.title),
+          hasOcrText: !!cls.extractedText.trim(),
+          hasMedia: item.kind !== "text" && item.kind !== "link",
+          isCourse: cls.isCourse,
+        },
+        { isLibrarySource: item.cohortId == null, columnsReady: await intelligenceColumnsReady() }
+      );
       const newTitle = cls.title.trim() || item.titleAr;
       const newSearch = buildSearchText(newTitle, cls.extractedText || item.captionText, item.fileName);
-      // r64: الربط بالمقياس حين يكون المنشور بلا مقياس — المضبوط يدوياً لا يُمسّ
-      const setModule = item.moduleId == null && cls.moduleMatch ? cls.moduleMatch.id : undefined;
+      // المقياس: إعادة التصنيف استدعاء صريح — يملأ الفراغ أو يصحح ترجيح
+      // السنة (نفس الاسم في سنتين). المضبوط يدوياً (ai_classified=false بعد
+      // تعديل إداري) يُحترم: لا نكتب فوق قرار مشرف إلا إذا طلب هو ذلك
+      // صراحة عبر moduleId في الجسم.
+      const setModule = item.aiClassified || item.moduleId == null
+        ? match.module?.id ?? cls.moduleMatch?.id ?? null
+        : undefined;
+      const colsReady = await intelligenceColumnsReady();
+      const classMetaJson = {
+        extracted: cls.extracted,
+        matchReason: match.reason,
+        yearAgreement: match.yearAgreement,
+        trackAgreement: match.trackAgreement,
+        engine: cls.engine,
+        model: cls.model,
+        components: confidence.components,
+      };
       if (isVercel) {
         const supabase = await createSupabaseServerClient();
         const { error } = await supabase
           .from("telegram_items")
           .update({
-            title_ar: newTitle, item_type: cls.itemType, search_text: newSearch, ai_classified: true,
+            title_ar: newTitle, item_type: cls.itemType, search_text: newSearch, ai_classified: cls.aiClassified,
             ...(setModule !== undefined ? { module_id: setModule } : {}),
+            ...(colsReady
+              ? {
+                  class_confidence: confidence.score,
+                  class_status: decision === "review" ? "review" : "published",
+                  class_meta: classMetaJson,
+                }
+              : {}),
           })
           .eq("id", id);
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -867,20 +1115,42 @@ export async function PATCH(req: NextRequest) {
         await db.telegramItem.update({
           where: { id },
           data: {
-            titleAr: newTitle, itemType: cls.itemType, searchText: newSearch, aiClassified: true,
+            titleAr: newTitle, itemType: cls.itemType, searchText: newSearch, aiClassified: cls.aiClassified,
             ...(setModule !== undefined ? { moduleId: setModule } : {}),
+            classConfidence: confidence.score,
+            classStatus: decision === "review" ? "review" : "published",
+            classMeta: JSON.stringify(classMetaJson),
           } as never,
         });
       }
-      const modInfo = setModule != null ? (await moduleById(setModule))?.name : null;
+      await logAiEvent({
+        stage: "reclassify",
+        sourceId: item.sourceId,
+        tgMessageId: item.tgMessageId,
+        model: cls.model,
+        provider: cls.engine,
+        extracted: {
+          title: cls.title, year: cls.extracted.yearOrdinal, track: cls.extracted.trackCode,
+          semester: cls.extracted.semester, lesson: cls.extracted.lessonHint,
+          module: cls.moduleMatch?.name ?? null, item_type: cls.itemType,
+        },
+        decision,
+        confidence: confidence.score,
+        reason: match.reason,
+        detail: `manual reclassify by user ${user.id}`,
+      });
+      const modName = setModule != null ? (await moduleById(setModule))?.name : null;
       return NextResponse.json({
         ok: true,
         reclassified: true,
-        aiClassified: true,
+        aiClassified: cls.aiClassified,
+        engine: cls.engine,
         itemType: cls.itemType,
         title: newTitle,
-        ...(modInfo ? { moduleName: modInfo } : {}),
-        message: `أُعيد التصنيف عبر Gemini: النوع «${cls.itemType}»${modInfo ? ` — ورُبط بالمقياس «${modInfo}» فيظهر تحت تصفيته` : ""}${cls.extractedText ? " — واستُخرج نص الصورة للبحث" : ""}`,
+        confidence: confidence.score,
+        decision,
+        ...(modName ? { moduleName: modName } : {}),
+        message: `أُعيد التصنيف (${cls.engine === "gemini" ? "Gemini" : cls.engine === "groq" ? "Groq" : "محلي"}): النوع «${cls.itemType}»${modName ? ` — المقياس «${modName}»` : ""} — الثقة ${confidence.score}%${decision === "review" ? " — بانتظار مراجعتك قبل ظهوره للطلبة" : ""}`,
       });
     }
 
@@ -917,6 +1187,13 @@ export async function PATCH(req: NextRequest) {
     if (body.isHidden !== undefined) { patch.is_hidden = !!body.isHidden; prismaPatch.isHidden = !!body.isHidden; }
     if (body.isFeatured !== undefined) { patch.is_featured = !!body.isFeatured; prismaPatch.isFeatured = !!body.isFeatured; }
     if (Object.keys(patch).length === 0) return NextResponse.json({ error: "لا توجد تغييرات" }, { status: 400 });
+
+    // r71: تعديل العنوان/النوع/المقياس يدوياً = قرار إداري — نضع علامة
+    // «منقّح» (ai_classified=false) فلا تطأه إعادة تصنيف آلية لاحقة
+    // (تحرير أصحاب القناة يحدّث المحتوى فقط، وإعادة التصنيف الجماعية
+    // تتخطى المنقّح). الإخفاء/التثبيت وحدهما لا يضع العلامة.
+    const curating = body.titleAr !== undefined || body.itemType !== undefined || body.moduleId !== undefined;
+    if (curating) { patch.ai_classified = false; prismaPatch.aiClassified = false; }
 
     // إعادة بناء نص البحث إذا تغيّر العنوان
     const finalTitle = (patch.title_ar as string) ?? item.titleAr;
@@ -968,18 +1245,7 @@ export async function DELETE(req: NextRequest) {
         const supabase = await createSupabaseServerClient();
         const { data } = await supabase.from("telegram_items").select("*").in("id", ids);
         for (const r of (data ?? []) as unknown[]) {
-          const m = r as Record<string, unknown>;
-          items.push({
-            id: Number(m.id), sourceId: m.source_id == null ? null : Number(m.source_id),
-            tgMessageId: Number(m.tg_message_id ?? 0), mediaGroupId: String(m.media_group_id ?? ""),
-            kind: String(m.kind ?? "text"), titleAr: String(m.title_ar ?? ""), captionText: String(m.caption_text ?? ""),
-            fileName: String(m.file_name ?? ""), mimeType: String(m.mime_type ?? ""), fileId: String(m.file_id ?? ""),
-            sizeBytes: Number(m.size_bytes ?? 0), link: String(m.link ?? ""), specialtyId: Number(m.specialty_id ?? 1),
-            moduleId: m.module_id == null ? null : Number(m.module_id), itemType: String(m.item_type ?? "عام"),
-            origin: String(m.origin ?? "telegram"), postedBy: String(m.posted_by ?? ""),
-            cohortId: m.cohort_id == null ? null : Number(m.cohort_id), isHidden: !!m.is_hidden, isFeatured: !!m.is_featured,
-            aiClassified: !!m.ai_classified, postedAt: (m.posted_at as string | null) ?? null,
-          });
+          items.push(toItemRow(r as Record<string, unknown>));
         }
       } else {
         items.push(...((await db.telegramItem.findMany({ where: { id: { in: ids } } })) as unknown as ItemRow[]));

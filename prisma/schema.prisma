@@ -585,6 +585,13 @@ model TelegramItem {
   aiClassified Boolean  @default(false) // صُنِّف عبر Gemini
   postedAt     DateTime?
 
+  // r71 (content intelligence): confidence + status + explanation.
+  // Production: download/supabase_telegram_intelligence.sql (runtime-probed;
+  // without the DDL the app keeps working exactly as before).
+  classConfidence Int? // 0..100 - components documented in classMeta
+  classStatus    String? @default("published") // published | review
+  classMeta      String? // JSON: extracted year/track/lesson + match reason + engine
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -592,6 +599,35 @@ model TelegramItem {
   @@index([moduleId])
   @@index([cohortId])
   @@index([specialtyId])
+  @@index([classStatus])
+}
+
+// =====================================================
+// 14d. AI event log (AiEvent) - round 71
+// Model-orchestration observability: every classification decision
+// leaves a trace - which model, what was extracted (year/track/lesson/
+// module), confidence, and the reason. OWNER/dev-only (admin panel ->
+// Telegram -> AI log). NEVER contains any secret.
+// Production table: ai_events (download/supabase_telegram_intelligence.sql).
+// =====================================================
+model AiEvent {
+  id           Int      @id @default(autoincrement())
+  stage        String   // ingest | ingest-update | reclassify | probe | error
+  sourceId     Int?
+  tgMessageId  Int?
+  model        String?  // gemini-3.5-flash / llama-3.3-70b-versatile / keywords
+  provider     String?  // gemini | groq | heuristic
+  latencyMs    Int?
+  extracted    String?  // JSON: year/track/semester/lesson/module/item_type/title
+  decision     String?  // publish | review | skip
+  confidence   Int?
+  reason       String?  // match/decision reason (Arabic, for the admin)
+  detail       String?  // extra technical detail
+
+  createdAt DateTime @default(now())
+
+  @@index([sourceId])
+  @@index([createdAt])
 }
 
 // =====================================================
