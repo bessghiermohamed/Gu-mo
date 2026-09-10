@@ -876,3 +876,16 @@ Work Log:
 
 Stage Summary:
 - Owner symptom root-caused and fixed at both layers; ONE owner action required: run supabase_topics_write_policies.sql once — then topic bindings (# dialog, section links, edit, delete) work immediately on production. Optional hardening: set SUPABASE_SERVICE_ROLE_KEY on Vercel; optional: run bot_config/push_subscriptions/course_materials SQL files (still missing, currently graceful-degrade).
+
+---
+Task ID: 3-b (r73b)
+Agent: main (Super Z, this session)
+Task: Post-deploy verification of r73 uncovered a second stacked fault — invalid SUPABASE_SERVICE_ROLE_KEY on Vercel — and self-healing fallback.
+
+Work Log:
+- Pushed 0cbf10e → Vercel auto-deployed. Live polling of POST /api/telegram/topics then returned a DETERMINISTIC «Invalid API key» (9/9 polls) while anon reads stayed healthy 4/4 → SUPABASE_SERVICE_ROLE_KEY exists in Vercel env but its value is invalid for this project (old code never exercised it on this path; the r73 service-role preference exposed it).
+- r73b (commit c3adf56): runTopicWrite helper — every telegram_topics write tries service-role first and silently retries via anon on invalid-key errors (isInvalidKeyError added to table-state.ts as the official classifier; 42501/RLS deliberately does NOT trigger fallback so its honest message surfaces). Same fallback in sources upsertTopicBinding. r73-check extended → 24/24; tsc 0; eslint clean.
+- Deploy verified live: POST now falls back to anon → RLS-blocked (policies not yet applied) → returns the honest «الجدول موجود لكن أذونات الكتابة ناقصة (RLS) — نفّذ ملف supabase_topics_write_policies.sql…» message. Probe session deleted (204 + verified empty; API correctly 403s it afterwards).
+
+Stage Summary:
+- Deployed behavior today: topic writes fail ONLY with the honest policies-file instruction until the owner runs supabase_topics_write_policies.sql ONCE — then add/edit/delete + section links all work with zero further deploys. Separate owner cleanup (not blocking): SUPABASE_SERVICE_ROLE_KEY on Vercel holds an invalid value — correct it (service key of THIS project) or remove it; the app works either way thanks to the fallback.
