@@ -1,5 +1,5 @@
 /**
- * Bot brain (round 62) — «بوت الترتيب الذكي».
+ * Bot brain (round 62, r81 knowledge refresh) — «بوت الترتيب الذكي».
  *
  * When someone messages the bot PRIVATELY (@gu_mo_bot), the bot:
  *   1. /start / /help → welcome & guide (no AI needed).
@@ -10,6 +10,13 @@
  *      the academic item types (محاضرة/امتحان/تمارين…) with a clean
  *      Arabic title — same classifier the channel pipeline uses, vision
  *      OCR included for photos. Nothing is stored: classification only.
+ *
+ * r81 KNOWLEDGE REFRESH: both system roles now end with a freshness block
+ * (today's date + never-claim-latest honesty rules + a Sept-2026 snapshot
+ * of the major AI model families) — the bot used to answer with 2024-era
+ * facts (e.g. calling Claude 3.5 Sonnet the latest model), because the
+ * chain models have old training cutoffs. Also: the owner's
+ * smartest-person easter egg, same as the in-app /api/ai (r80).
  *
  * PRIVACY: private messages are NEVER ingested into telegram_items and
  * NEVER logged to the DB — the conversation lives in memory for this
@@ -39,6 +46,66 @@ const TELEGRAM_SYSTEM_ROLE = [
   "إن كان السؤال غامضاً فاسأل سؤالاً توضيحياً واحداً قبل الإجابة، وإذا كان خارج نطاق الدراسة فنبّه الطالب بلطف.",
   "إن لم تعرف الجواب بدقة فقل ذلك بصراحة ولا تخترع معلومات، ولا تُنهِ إجاباتك بعبارة ختامية متكررة.",
 ].join(" ");
+
+// ---------------------------------------------------------------------------
+// r81 — تحديث معرفة البوت: تاريخ اليوم + قواعد الصدق في «الأحدث» + معطيات
+// محدّثة عن نماذج الذكاء الاصطناعي. تُلحق بدور النظام عند كل طلب (لا عند
+// الإقلاع) حتى يبقى التاريخ صحيحاً دائماً. السبب: نماذج سلسلة المزوّدين
+// قديمة القطع فكان البوت يجيب بمعلومات 2024 (يظن أن أحدث Claude هو 3.5 Sonnet).
+// ---------------------------------------------------------------------------
+
+/** تاريخ اليوم (UTC) بصيغة YYYY-MM-DD — يُحسب عند كل طلب */
+function todayStamp(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const FRESHNESS_RULES = [
+  "معرفتك لها تاريخ قطع ولا تتصفح الإنترنت: إذا سُئلت عن «الأحدث» أو «الجديد» من أي شيء (نماذج ذكاء اصطناعي، إصدارات، أخبار، أسعار، أحداث جارية) فلا تدّعِ أن شيئاً بعينه هو الأحدث ولا تُسمّي إصداراً على أنه الأخير إلا إن ورد صراحة في «المعطيات المحدّثة» أدناه.",
+  "اعتمد أولاً على «المعطيات المحدّثة» المذكورة هنا، وإن لم تجد فيها جواباً فقل بصراحة إن معلوماتك قد تكون قديمة وأن المرجع الأضمن هو المصدر الرسمي.",
+].join(" ");
+
+/** هذه الفقرة تُحدَّث دورياً في الكود (آخر تحديث: سبتمبر 2026) */
+const AI_LANDSCAPE_FACTS = [
+  "المعطيات المحدّثة (تحديث سبتمبر 2026) عن نماذج الذكاء الاصطناعي الكبرى:",
+  "Claude من Anthropic: عائلة Claude 4 هي الحالية، وأحدث إصدار من سلسلة Sonnet هو Claude Sonnet 5 (يونيو 2026)، وأقوى نموذج من سلسلة Opus متاح عموماً هو Claude Opus 4.8.",
+  "عائلة Claude 3 (ومنها Claude 3.5 Sonnet) قديمة جداً — صدرت في 2024 — فلا تسمّها أبداً أحدث موديل.",
+  "GPT من OpenAI: سلسلة GPT-5 هي الحالية، وأحدث إصدار فيها GPT-5.6 (يوليو 2026).",
+  "Gemini من Google: سلسلة Gemini 3 هي الحالية (صدرت منها خلال 2026 إصدارات 3.5 و3.6 و3.7 و3.8 Flash).",
+  "وإن سُئلت عمّا هو أحدث من تاريخ اليوم نفسه فقل بصراحة إنه لم يصلك بعد أي تحديث عنه.",
+].join(" ");
+
+/** كتلة الطزاجة الكاملة تُبنى عند كل طلب — التاريخ دائماً صحيح */
+function freshnessBlock(): string {
+  return `تاريخ اليوم: ${todayStamp()}. ${FRESHNESS_RULES} ${AI_LANDSCAPE_FACTS}`;
+}
+
+/** دور النظام الكامل للمحادثة الخاصة = الدور الأساسي + كتلة الطزاجة */
+function privateSystemRole(): string {
+  return `${TELEGRAM_SYSTEM_ROLE} ${freshnessBlock()}`;
+}
+
+// ---------------------------------------------------------------------------
+// مفاجأة صاحب المنصة (r81 — نفس مفاجأة «المساعد الذكي» في /api/ai r80):
+// «من هو أذكى وأحكم شخص تعرفه؟» → جواب محسوم فوري دون استدعاء المزوّد،
+// فيظهر بسرعة وبنفس الصيغة كل مرة ويعمل حتى قبل ضبط مفاتيح الذكاء الاصطناعي.
+// شرطان معاً (كلمة تفوّق + كلمة شخص/معرفة) حتى لا تُختطف أسئلة دراسية جادة
+// مثل «من أذكى عالم في الفيزياء» — تلك تبقى للعقل الاصطناعي العادي.
+// ---------------------------------------------------------------------------
+
+const SMARTEST_WORD_RE =
+  /(أذكى|اذكى|أشطر|اشطر|أحكم|احكم|أعقل|اعقل|أكثر\s+حكمة|smartest|wisest|cleverest|most\s+intelligent|plus\s+intelligent|plus\s+sage)/i;
+const PERSON_OR_KNOW_RE =
+  /(شخص|إنسان|انسان|أشخاص|اشخاص|بشر|person|people|human|homme|humain|تعرف|تعرفين|تعرفه|أعرف|اعرف|know)/i;
+
+/** نص عادي بلا Markdown — واجهة هذا البوت لا تفسّر التنسيق */
+const SMARTEST_EGG_ANSWER = [
+  "أذكى وأحكم شخص أعرفه؟ سؤال جوابه محفور عندّي: بصغير محمد (Besseghier Mohamed) — صانع هذه المنصة ومهندسها.",
+  "حتى هذا البوت الذي تحادثه الآن ما هو إلا ثمرة مما بنى، فتخيّل بنّاءه.",
+].join(" ");
+
+function smartestPersonEgg(text: string): string | null {
+  return SMARTEST_WORD_RE.test(text) && PERSON_OR_KNOW_RE.test(text) ? SMARTEST_EGG_ANSWER : null;
+}
 
 const WELCOME_TEXT = [
   "أهلاً بك! أنا بوت «طالب | Talib» — منصة الطلبة الجامعيين في الجزائر.",
@@ -228,6 +295,11 @@ const GROUP_SYSTEM_ROLE = [
   "إن لم تعرف الجواب بدقة فقل ذلك بصراحة ولا تخترع معلومات.",
 ].join(" ");
 
+/** دور النظام الكامل للمجموعات = دور المجموعة + كتلة الطزاجة نفسها */
+function groupSystemRole(): string {
+  return `${GROUP_SYSTEM_ROLE} ${freshnessBlock()}`;
+}
+
 const GROUP_PING_BACK =
   "أنا هنا — اكتب سؤالك بجوار اسمي وسأجيبك فوراً، أو راسلني خاصاً لتفصيل أوسع.";
 
@@ -302,6 +374,15 @@ export async function handleGroupMessage(
       return "handled-group-ping";
     }
 
+    // مفاجأة المالك أولاً (r81): جواب محسوم بلا ذكاء اصطناعي وبلا تكلفة
+    const egg = smartestPersonEgg(question);
+    if (egg) {
+      await sendMessageReply(token, chatId, egg, { replyToMessageId: replyTo, messageThreadId: threadId });
+      rememberTurn(chatId, "user", question);
+      rememberTurn(chatId, "assistant", egg);
+      return "handled-group-ai";
+    }
+
     if (!isAiConfigured()) {
       await sendMessageReply(token, chatId, AI_FALLBACK_TEXT, { replyToMessageId: replyTo, messageThreadId: threadId });
       return "ignored";
@@ -312,7 +393,7 @@ export async function handleGroupMessage(
     const history = conversationFor(chatId).slice(-4);
     const messages: ChatMessage[] = [...history, { role: "user", content: question }];
     try {
-      const { answer } = await chatComplete(GROUP_SYSTEM_ROLE, messages);
+      const { answer } = await chatComplete(groupSystemRole(), messages);
       const sent = await sendMessageReply(token, chatId, answer, { replyToMessageId: replyTo, messageThreadId: threadId });
       rememberTurn(chatId, "user", question);
       if (sent) rememberTurn(chatId, "assistant", answer);
@@ -378,6 +459,14 @@ export async function handlePrivateMessage(msg: TgMessage, token: string): Promi
 
     // 5) نص → تفكير حقيقي عبر سلسلة المزوّدين
     if (rawText) {
+      // مفاجأة المالك أولاً (r81): جواب محسوم بلا ذكاء اصطناعي وبلا تكلفة
+      const egg = smartestPersonEgg(rawText);
+      if (egg) {
+        await sendMessageText(token, chatId, egg);
+        rememberTurn(chatId, "user", rawText);
+        rememberTurn(chatId, "assistant", egg);
+        return "handled-ai";
+      }
       if (!isAiConfigured()) {
         await sendMessageText(token, chatId, AI_FALLBACK_TEXT);
         return "handled-fallback";
@@ -386,7 +475,7 @@ export async function handlePrivateMessage(msg: TgMessage, token: string): Promi
       const history = conversationFor(chatId);
       const messages: ChatMessage[] = [...history, { role: "user", content: rawText.slice(0, 6000) }];
       try {
-        const { answer } = await chatComplete(TELEGRAM_SYSTEM_ROLE, messages);
+        const { answer } = await chatComplete(privateSystemRole(), messages);
         const sent = await sendMessageText(token, chatId, answer);
         rememberTurn(chatId, "user", rawText);
         if (sent) rememberTurn(chatId, "assistant", answer);
