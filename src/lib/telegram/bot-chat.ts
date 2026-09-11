@@ -17,6 +17,9 @@
  * facts (e.g. calling Claude 3.5 Sonnet the latest model), because the
  * chain models have old training cutoffs. Also: the owner's
  * smartest-person easter egg, same as the in-app /api/ai (r80).
+ * r82: the freshness block moved to the shared src/lib/ai/knowledge.ts —
+ * now ALSO used by /api/ai — with the verified Sept-2026 lineup (Fable 5.1
+ * is the latest GA Claude) plus an explicit never-deny-existence rule.
  *
  * PRIVACY: private messages are NEVER ingested into telegram_items and
  * NEVER logged to the DB — the conversation lives in memory for this
@@ -30,6 +33,7 @@
 
 import { classifyItem } from "./classify";
 import { isAiConfigured, chatComplete, type ChatMessage } from "@/lib/ai/providers";
+import { freshnessBlock } from "@/lib/ai/knowledge";
 import { sendMessageText, sendMessageReply, sendTyping, downloadFileBase64With } from "./bot-api";
 import type { TgMessage } from "./types";
 
@@ -48,36 +52,12 @@ const TELEGRAM_SYSTEM_ROLE = [
 ].join(" ");
 
 // ---------------------------------------------------------------------------
-// r81 — تحديث معرفة البوت: تاريخ اليوم + قواعد الصدق في «الأحدث» + معطيات
-// محدّثة عن نماذج الذكاء الاصطناعي. تُلحق بدور النظام عند كل طلب (لا عند
-// الإقلاع) حتى يبقى التاريخ صحيحاً دائماً. السبب: نماذج سلسلة المزوّدين
-// قديمة القطع فكان البوت يجيب بمعلومات 2024 (يظن أن أحدث Claude هو 3.5 Sonnet).
+// r82 — تحديث معرفة البوت: كتلة الطزاجة صارت وحدة مشتركة واحدة
+// (src/lib/ai/knowledge.ts) تُستعمل هنا وفي «المساعد الذكي» /api/ai معاً:
+// تاريخ اليوم يُحسب عند كل طلب + قواعد الصدق في «الأحدث» + قاعدة الوجود
+// (عدم إنكار ما هو أحدث من تدريب النموذج) + معطيات 12 سبتمبر 2026
+// المُتحقَّق منها — أحدث Claude متاح للعموم هو Fable 5.1 (1 سبتمبر 2026).
 // ---------------------------------------------------------------------------
-
-/** تاريخ اليوم (UTC) بصيغة YYYY-MM-DD — يُحسب عند كل طلب */
-function todayStamp(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-const FRESHNESS_RULES = [
-  "معرفتك لها تاريخ قطع ولا تتصفح الإنترنت: إذا سُئلت عن «الأحدث» أو «الجديد» من أي شيء (نماذج ذكاء اصطناعي، إصدارات، أخبار، أسعار، أحداث جارية) فلا تدّعِ أن شيئاً بعينه هو الأحدث ولا تُسمّي إصداراً على أنه الأخير إلا إن ورد صراحة في «المعطيات المحدّثة» أدناه.",
-  "اعتمد أولاً على «المعطيات المحدّثة» المذكورة هنا، وإن لم تجد فيها جواباً فقل بصراحة إن معلوماتك قد تكون قديمة وأن المرجع الأضمن هو المصدر الرسمي.",
-].join(" ");
-
-/** هذه الفقرة تُحدَّث دورياً في الكود (آخر تحديث: سبتمبر 2026) */
-const AI_LANDSCAPE_FACTS = [
-  "المعطيات المحدّثة (تحديث سبتمبر 2026) عن نماذج الذكاء الاصطناعي الكبرى:",
-  "Claude من Anthropic: عائلة Claude 4 هي الحالية، وأحدث إصدار من سلسلة Sonnet هو Claude Sonnet 5 (يونيو 2026)، وأقوى نموذج من سلسلة Opus متاح عموماً هو Claude Opus 4.8.",
-  "عائلة Claude 3 (ومنها Claude 3.5 Sonnet) قديمة جداً — صدرت في 2024 — فلا تسمّها أبداً أحدث موديل.",
-  "GPT من OpenAI: سلسلة GPT-5 هي الحالية، وأحدث إصدار فيها GPT-5.6 (يوليو 2026).",
-  "Gemini من Google: سلسلة Gemini 3 هي الحالية (صدرت منها خلال 2026 إصدارات 3.5 و3.6 و3.7 و3.8 Flash).",
-  "وإن سُئلت عمّا هو أحدث من تاريخ اليوم نفسه فقل بصراحة إنه لم يصلك بعد أي تحديث عنه.",
-].join(" ");
-
-/** كتلة الطزاجة الكاملة تُبنى عند كل طلب — التاريخ دائماً صحيح */
-function freshnessBlock(): string {
-  return `تاريخ اليوم: ${todayStamp()}. ${FRESHNESS_RULES} ${AI_LANDSCAPE_FACTS}`;
-}
 
 /** دور النظام الكامل للمحادثة الخاصة = الدور الأساسي + كتلة الطزاجة */
 function privateSystemRole(): string {

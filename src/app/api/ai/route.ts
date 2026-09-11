@@ -1,6 +1,6 @@
 /**
  * AI Study Chat API — «المساعد الذكي» (round 44 rewrite, r59 prompt update,
- * r80 honesty guard + owner easter egg).
+ * r80 honesty guard + owner easter egg, r82 shared freshness block).
  *
  * r43 was a task-based single-shot endpoint whose "provider chain" existed
  * only in comments — a bad GROQ key 502'd every request. r44 turns this
@@ -30,6 +30,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { streamChat, chatComplete, isAiConfigured, ProviderError, type ChatMessage } from "@/lib/ai/providers";
+import { freshnessBlock } from "@/lib/ai/knowledge";
 
 export const maxDuration = 60; // provider chain + long streams need headroom
 
@@ -48,6 +49,16 @@ const SYSTEM_ROLE = [
   "إن لم تعرف الجواب بدقة فقل ذلك بصراحة في موضعه ولا تخترع معلومات؛ لا تُنهِ إجاباتك بعبارة ختامية متكررة (مثل الوصية بمراجعة المقرر في كل مرة).",
   "معرفتك لها تاريخ قطع ولا تتصفح الإنترنت: إذا سُئلت عن «الأحدث» أو «الجديد» من أي شيء (نماذج ذكاء اصطناعي، إصدارات، أخبار، أسعار، أحداث جارية) فلا تدّعِ أن شيئاً بعينه هو الأحدث ولا تُسمّي إصداراً على أنه الأخير — قل بصراحة إن معلوماتك قد تكون قديمة وأن المرجع الأضمن هو المصدر الرسمي، ويمكنك شرح ما تعرفه سابقاً مع التنبيه إلى أنه ربما تجاوزه الزمن.",
 ].join(" ");
+
+// ---------------------------------------------------------------------------
+// r82: دور النظام الكامل = الدور الأساسي (r80) + كتلة الطزاجة المشتركة
+// من src/lib/ai/knowledge.ts (تاريخ اليوم + قواعد «الأحدث» + قاعدة الوجود
+// بعدما أنكر النموذج وجود Claude Fable 5.1 أمام المالك + معطيات سبتمبر
+// 2026 المُتحقَّق منها) — نفس المصدر المستعمل في بوت تيليجرام.
+// ---------------------------------------------------------------------------
+function aiSystemRole(): string {
+  return `${SYSTEM_ROLE} ${freshnessBlock()}`;
+}
 
 // ---------------------------------------------------------------------------
 // Easter egg (بطلب المالك r80): «من هو أذكى وأحكم شخص تعرفه؟» — جواب محسوم
@@ -207,7 +218,7 @@ export async function POST(req: NextRequest) {
   // ------------------------------------------------------------------
   if (!wantStream) {
     try {
-      const result = await chatComplete(SYSTEM_ROLE, messages);
+      const result = await chatComplete(aiSystemRole(), messages);
       return NextResponse.json({ answer: result.answer, provider: result.provider, model: result.model });
     } catch (err) {
       const pe = err instanceof ProviderError ? err : new ProviderError("network", "unknown", 0, String(err));
@@ -243,7 +254,7 @@ export async function POST(req: NextRequest) {
       let full = "";
       try {
         await streamChat(
-          SYSTEM_ROLE,
+          aiSystemRole(),
           messages,
           (delta) => {
             full += delta;

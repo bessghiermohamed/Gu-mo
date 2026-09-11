@@ -24,6 +24,7 @@ import {
   isBotAddressed,
 } from "../src/lib/telegram/bot-chat";
 import type { TgMessage } from "../src/lib/telegram/types";
+import { freshnessBlock } from "../src/lib/ai/knowledge";
 
 type Recorded = { method: string; body: Record<string, unknown> };
 const telegramCalls: Recorded[] = [];
@@ -85,6 +86,15 @@ async function main(): Promise<void> {
   const TOKEN = "test-token";
   const today = new Date().toISOString().slice(0, 10);
 
+  console.log("0) shared freshness block (knowledge.ts)");
+  const kb = freshnessBlock();
+  check("has today's date", kb.includes(`تاريخ اليوم: ${today}`), today);
+  check("mentions Claude Fable 5.1", kb.includes("Fable 5.1"));
+  check("mentions Claude Opus 5", kb.includes("Opus 5"));
+  check("mentions Mythos 5.1", kb.includes("Mythos 5.1"));
+  check("no-denial rule present", kb.includes("لا تنكر"));
+  check("reply-in-user-language rule", kb.includes("بلغة سؤال المستخدم"));
+
   // Start with NO keys at all — commands + egg must work without any provider.
   delete process.env.GROQ_API_KEY;
   delete process.env.GEMINI_API_KEY;
@@ -124,7 +134,10 @@ async function main(): Promise<void> {
   const sys = providerCalls[providerCalls.length - 1]?.system ?? "";
   check("has today's date", sys.includes(`تاريخ اليوم: ${today}`), today);
   check("mentions Claude Sonnet 5", sys.includes("Claude Sonnet 5"));
-  check("mentions Opus 4.8", sys.includes("Opus 4.8"));
+  check("mentions Claude Opus 5", sys.includes("Opus 5"));
+  check("mentions Claude Fable 5.1", sys.includes("Fable 5.1"));
+  check("mentions Mythos 5.1", sys.includes("Mythos 5.1"));
+  check("no-denial rule present", sys.includes("لا تنكر"));
   check("mentions GPT-5.6", sys.includes("GPT-5.6"));
   check("mentions Gemini 3", sys.includes("Gemini 3"));
   check("warns 3.5 Sonnet is old", sys.includes("3.5 Sonnet"));
