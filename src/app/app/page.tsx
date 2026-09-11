@@ -859,14 +859,16 @@ function ShellInner() {
 
         {/* Main content */}
         <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-4 pb-24">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={effectiveScreen}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
+          {/* Screen switching is a plain instant swap. The previous
+              <AnimatePresence mode="wait"> crossfade dissolved the old
+              screen to opacity 0 (200ms), THEN mounted the new one at
+              opacity 0 and faded it in (200ms) — a fully-transparent gap
+              on every navigation that read as a flash/flicker. An instant
+              swap has no transparency phase at all, so it can never flash,
+              and navigation feels snappier (no artificial 400ms delay).
+              The offline/loading banners above keep their animations —
+              they are overlays, not page transitions. */}
+          <div key={effectiveScreen}>
               {effectiveScreen === "HOME" && <TalibHomeScreen />}
               {effectiveScreen === "COURSES" && <TalibCoursesScreen />}
               {effectiveScreen === "SCHEDULE" && <TalibScheduleScreen />}
@@ -896,8 +898,7 @@ function ShellInner() {
               )}
               {effectiveScreen === "SETTINGS" && <TalibSettingsScreen />}
               {effectiveScreen === "ADMIN" && <TalibAdminPanelScreen />}
-            </motion.div>
-          </AnimatePresence>
+          </div>
         </main>
 
         {/* Bottom navigation */}
