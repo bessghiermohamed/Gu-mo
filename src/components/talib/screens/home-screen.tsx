@@ -190,7 +190,7 @@ export function TalibHomeScreen() {
           التدرج مبني على tokens فقط (bg-primary + طبقتا عمق محايدتان)
           ليبقى صحيحاً مع الثلاث هويات (أخضر/بنفسجي/أزرق) وفي الوضعين. */}
       <motion.section
-        initial={{ opacity: 0 }}
+        initial={false}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.35 }}
         className="relative overflow-hidden rounded-3xl bg-primary text-primary-foreground shadow-md"
@@ -270,7 +270,7 @@ export function TalibHomeScreen() {
           to "do I have a pending request?" / "where do I join a group?" */}
       {pendingRequest && (
         <motion.button
-          initial={{ opacity: 0 }}
+          initial={false}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
           onClick={() => navigate("BROWSE_GROUPS")}
@@ -293,7 +293,7 @@ export function TalibHomeScreen() {
       )}
       {!pendingRequest && noGroupNoRequests && (
         <motion.button
-          initial={{ opacity: 0 }}
+          initial={false}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
           onClick={() => navigate("BROWSE_GROUPS")}
@@ -327,7 +327,7 @@ export function TalibHomeScreen() {
           {actions.map((action, i) => (
             <motion.button
               key={action.route}
-              initial={{ opacity: 0 }}
+              initial={false}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.25, delay: action.delay }}
               onClick={() => navigate(action.route)}
@@ -349,7 +349,7 @@ export function TalibHomeScreen() {
 
       {/* Featured: Telegram lessons — full-width card (fixes the orphan 9th tile) */}
       <motion.button
-        initial={{ opacity: 0 }}
+        initial={false}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3, delay: 0.3 }}
         onClick={() => navigate("TELEGRAM")}

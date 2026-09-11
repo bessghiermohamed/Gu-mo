@@ -345,7 +345,7 @@ export function ToolsTab() {
           {matchesAI && (
             <motion.button
               key="ai"
-              initial={{ opacity: 0 }}
+              initial={false}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.25 }}
               onClick={() => setActiveTool("ai")}
@@ -400,7 +400,7 @@ export function ToolsTab() {
             {gridTools.map((tool, i) => (
               <motion.button
                 key={tool.id}
-                initial={{ opacity: 0 }}
+                initial={false}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.22, delay: Math.min(i * 0.04, 0.28) }}
                 onClick={() => setActiveTool(tool.id)}
