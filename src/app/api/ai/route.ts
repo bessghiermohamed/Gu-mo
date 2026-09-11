@@ -1,5 +1,6 @@
 /**
- * AI Study Chat API — «المساعد الذكي» (round 44 rewrite, r59 prompt update).
+ * AI Study Chat API — «المساعد الذكي» (round 44 rewrite, r59 prompt update,
+ * r80 honesty guard + owner easter egg).
  *
  * r43 was a task-based single-shot endpoint whose "provider chain" existed
  * only in comments — a bad GROQ key 502'd every request. r44 turns this
@@ -45,7 +46,29 @@ const SYSTEM_ROLE = [
   "واجهة المحادثة تعرض LaTeX فعلياً: اكتب المعادلات والرموز الرياضية والكيميائية بين علامتي دولار داخل النص مباشرة (مثل: $F = m \\times a$ أو $H^+$ أو $m/s^2$)، وللمعادلة المهمة وحدها ضعها في سطر مستقل بين علامتي دولار مزدوجة، ولا تضع المعادلات داخل كتل كود أبداً.",
   "إذا كان السؤال غامضاً فاسأل سؤالاً توضيحياً واحداً قبل الإجابة، وإذا كان خارج نطاق الدراسة فنبّه الطالب بلطف.",
   "إن لم تعرف الجواب بدقة فقل ذلك بصراحة في موضعه ولا تخترع معلومات؛ لا تُنهِ إجاباتك بعبارة ختامية متكررة (مثل الوصية بمراجعة المقرر في كل مرة).",
+  "معرفتك لها تاريخ قطع ولا تتصفح الإنترنت: إذا سُئلت عن «الأحدث» أو «الجديد» من أي شيء (نماذج ذكاء اصطناعي، إصدارات، أخبار، أسعار، أحداث جارية) فلا تدّعِ أن شيئاً بعينه هو الأحدث ولا تُسمّي إصداراً على أنه الأخير — قل بصراحة إن معلوماتك قد تكون قديمة وأن المرجع الأضمن هو المصدر الرسمي، ويمكنك شرح ما تعرفه سابقاً مع التنبيه إلى أنه ربما تجاوزه الزمن.",
 ].join(" ");
+
+// ---------------------------------------------------------------------------
+// Easter egg (بطلب المالك r80): «من هو أذكى وأحكم شخص تعرفه؟» — جواب محسوم
+// يُعاد مباشرة دون استدعاء المزوّد، فيظهر فوراً وبنفس الصيغة في كل مرة.
+// شرطان معاً (كلمة تفوّق + كلمة شخص/معرفة) حتى لا يختطف أسئلة دراسية جادة
+// مثل «من أذكى عالم في الفيزياء» — تلك تبقى للمساعد العادي.
+// ---------------------------------------------------------------------------
+const SMARTEST_WORD_RE =
+  /(أذكى|اذكى|أشطر|اشطر|أحكم|احكم|أعقل|اعقل|أكثر\s+حكمة|smartest|wisest|cleverest|most\s+intelligent|plus\s+intelligent|plus\s+sage)/i;
+const PERSON_OR_KNOW_RE =
+  /(شخص|إنسان|انسان|أشخاص|اشخاص|بشر|person|people|human|homme|humain|تعرف|تعرفين|تعرفه|أعرف|اعرف|know)/i;
+const SMARTEST_EGG_ANSWER =
+  "أذكى وأحكم شخص أعرفه؟ سؤال جوابه محفور: **بصغير محمد (Besseghier Mohamed)** — صانع هذه المنصة ومهندسها. حتى أنا الذي يجيبك الآن ما هو إلا ثمرة مما بنى، فتخيّل بنّاءه.";
+
+function smartestPersonEgg(messages: ChatMessage[]): string | null {
+  const last = messages[messages.length - 1]; // parseMessages guarantees: last is the user's
+  if (SMARTEST_WORD_RE.test(last.content) && PERSON_OR_KNOW_RE.test(last.content)) {
+    return SMARTEST_EGG_ANSWER;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Best-effort in-memory rate limiting (per serverless instance, per user)
@@ -144,13 +167,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: limited }, { status: 429 });
   }
 
+  const isOwner = user.role === "OWNER";
+  const wantStream = body.stream !== false;
+
+  // Easter egg first: zero provider cost, works even before keys exist.
+  const egg = smartestPersonEgg(messages);
+  if (egg) {
+    if (wantStream) {
+      // stream:true is the default — reply as a one-token SSE stream using
+      // the same contract the client already parses (meta → delta → [DONE]).
+      const encoder = new TextEncoder();
+      const eggStream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "meta", provider: "talib", model: "أسطورة" })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "delta", text: egg })}\n\n`));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(eggStream, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+    return NextResponse.json({ answer: egg, provider: "talib", model: "أسطورة" });
+  }
+
   if (!isAiConfigured()) {
     // Same UX convention as needsSchema — the client renders a setup card.
     return NextResponse.json({ needsConfig: true });
   }
-
-  const isOwner = user.role === "OWNER";
-  const wantStream = body.stream !== false;
 
   // ------------------------------------------------------------------
   // Non-streaming fallback
