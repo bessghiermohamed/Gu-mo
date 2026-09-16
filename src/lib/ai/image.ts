@@ -68,7 +68,12 @@ function chainFor(provider: ImageProviderId): string[] {
   const override = (name: string) => process.env[name]?.trim() || "";
   if (provider === "gemini") {
     const m = override("GEMINI_IMAGE_MODEL");
-    return m ? [m] : ["gemini-2.5-flash-image", "gemini-2.0-flash-exp-image-generation"];
+    // r83b: production probe showed the owner's key 404s on the 2.5/2.0 image
+    // names — its verified text model is 3.5-flash (r71), so the current-gen
+    // image name leads; old names stay as fallbacks. 404 falls through cheaply.
+    return m
+      ? [m]
+      : ["gemini-3.5-flash-image", "gemini-2.5-flash-image", "gemini-2.0-flash-exp-image-generation"];
   }
   const m = override("XAI_IMAGE_MODEL");
   return m ? [m] : ["grok-2-image-1212", "grok-2-image"];
