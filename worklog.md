@@ -910,3 +910,21 @@ Stage Summary:
 - استوديو الصور shipped as round 83: image generation inside أدواتي with the app's full honesty/privacy/security conventions. On production it will use the existing GEMINI_API_KEY immediately if it has image-model access; otherwise the in-tool owner hint explains GEMINI_IMAGE_MODEL. No owner action required for this feature.
 - Verified live today: r73 topics write policies ARE applied (self-cleaning probe) — topic bindings fully functional.
 - Unidentified keys noted for the owner: prj_…/vcp_… match no service the app knows (not Vercel/Groq/Gemini/Grok/Telegram) — awaiting owner clarification if integration is wanted.
+
+---
+Task ID: 4-b (r83b + r83c)
+Agent: main (Super Z, same session)
+Task: Post-deploy live verification of the image chain against the owner's production keys, and iteration on the model-name failures.
+
+Work Log:
+- Live probe #1 (r83 deploy): honest 502 + owner hint — both 2.5/2.0 image names 404 on the owner's restricted Gemini key.
+- r83b: added gemini-3.5-flash-image at the chain head (matching the key's verified 3.5-flash text generation, r71). Pushed ef98c77.
+- Live probe #2: still 404 — the dedicated image name does not exist for this key either.
+- r83c: expanded the chain to 7 candidates (3.5-flash-image, base 3.5-flash with IMAGE modality, 3.5-flash-image-preview, imagen-4.0-generate-001 + imagen-3.0-generate-002 via a NEW :predict caller with the Imagen body shape, then 2.5/2.0). Also fixed a classification subtlety this exposed: a 200 with TEXT-only parts is now "model" (fall through to the next model) instead of "empty" (terminal safety refusal) — with promptFeedback.blockReason/finishReason SAFETY as the true refusal signal. Pushed 1194227.
+- Live probe #3: all 7 rejected in ~1.7s — DEFINITIVE: the current GEMINI_API_KEY has no image-model access at all (consistent with r44's finding that only 3.5-flash/3.1-flash-lite serve text).
+- Final production health check after 3 consecutive deploys: assistant easter-egg 200 (route+session+contract intact), per-user rate limiter verified live (429 on the immediate second call), image studio in its honest 502-with-hint state for the owner, nothing leaked to students.
+- Report updated with the live findings and the single owner action needed (image-capable AI Studio key in GEMINI_API_KEY/GEMINI_IMAGE_MODEL, or an xai- key in XAI_API_KEY).
+
+Stage Summary:
+- Image Studio is complete, tested (28/28), deployed (1194227), and verified end-to-end on production including its honest failure state. It activates the moment an image-capable key lands in Vercel env — zero further deploys needed (env change triggers one).
+- Session artifacts: all temp device_sessions deleted and verified dead; no probe rows remain.
