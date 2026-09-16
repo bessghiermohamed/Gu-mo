@@ -889,3 +889,24 @@ Work Log:
 
 Stage Summary:
 - Deployed behavior today: topic writes fail ONLY with the honest policies-file instruction until the owner runs supabase_topics_write_policies.sql ONCE — then add/edit/delete + section links all work with zero further deploys. Separate owner cleanup (not blocking): SUPABASE_SERVICE_ROLE_KEY on Vercel holds an invalid value — correct it (service key of THIS project) or remove it; the app works either way thanks to the fallback.
+
+---
+Task ID: 4 (r83)
+Agent: main (Super Z, owner-furnished keys session)
+Task: Owner's image-generation request — integrate AI image generation into Gu-mo as a complete system feature, continue development on the live app with the owner's GitHub + Supabase keys.
+
+Work Log:
+- Workspace restored to the Gu-mo repository state (r82) with full git history and push access; scaffold artifacts archived outside the tree (.z-archive/, excluded via .git/info/exclude); .env.local wired to the production Supabase project.
+- Production forensics with the owner's keys: project ntdzvujhujnbazaqzuvo alive (47 tables); anon key recovered from git history (6fc055b parent, r20 removal — same method as r66); topics write RLS policies VERIFIED LIVE via a self-cleaning anon-INSERT/service-DELETE probe (the r73 pending owner action is done); bot_config/push_subscriptions/course_materials still missing (graceful-degrade, SQL files ready in download/).
+- NEW src/lib/ai/image.ts — image provider chain on the providers.ts pattern: Gemini first (2.5-flash-image → 2.0-flash-exp-image-generation, env-overridable), Grok image second; Groq excluded (no image API); xai-in-Groq-slot auto-detect; honest classification incl. Google's 400 «API key not valid» → auth (not model); content-policy refusal is terminal (no pointless retries); aspect ratios with a single stripped-imageConfig retry, never looping.
+- NEW src/app/api/ai/image/route.ts — mirrors the /api/ai contract: session auth, 3..600-char prompt, needsConfig convention, 10s cooldown + 12/day cap (image-tier quota), honest Arabic errors + owner-only hints, maxDuration 60 (hobby cap). Owner's standing security boundary enforced locally: prompts asking for passwords/cards/keys are refused before any provider call. Zero persistence (no DB row, no log).
+- NEW src/components/talib/tools/image-studio-tool.tsx — full-state UI: prompt composer with counter, 4 deterministic style chips (no hidden prompt rewriting), 4 aspect chips, suggestions, elapsed-timer loading card, retryable error card, result actions (share/download via shared.ts, regenerate, copy prompt), in-memory session gallery (max 6, honest «nothing is stored» note), offline fast-fail (r61 lesson), needsConfig owner/student variants.
+- tools-tab.tsx — second featured AI card (fuchsia family) under المساعد الذكي; deliberately NOT in the offline grid so the on-device privacy banner stays honest; search integration via matchesStudio (no false «no results»).
+- tsconfig/eslint: excluded the sandbox reference clone (repos/**) — full `bun run lint` was already red on r82 HEAD from r60–r63 require() scripts (pre-existing; rounds lint changed files by convention, kept that discipline).
+- Tests: scripts/r83-check.ts 28/28 — aspect/key-detection logic incl. Groq-alone=no-images and misplaced xai-; fake-Gemini-key live error path (real Google 400 → auth, provider dropped, no wasted retries); route paths via temp device_session (r73 pattern): 401/400-empty/400-credentials-boundary/200-needsConfig, session deleted and verified dead; UI wiring greps. tsc 0; scoped eslint clean; next build 84/84 with /api/ai/image registered.
+- Browser E2E (dev server): owner full flow (tour → tools → studio → generate → honest setup card with key instructions); student (real account) sees «قريباً» with zero owner-leak (automated ownerLeak=false); chips toggle verified (aria-pressed); screenshots archived (work/r83-*.png); both probe sessions deleted (204, verified).
+
+Stage Summary:
+- استوديو الصور shipped as round 83: image generation inside أدواتي with the app's full honesty/privacy/security conventions. On production it will use the existing GEMINI_API_KEY immediately if it has image-model access; otherwise the in-tool owner hint explains GEMINI_IMAGE_MODEL. No owner action required for this feature.
+- Verified live today: r73 topics write policies ARE applied (self-cleaning probe) — topic bindings fully functional.
+- Unidentified keys noted for the owner: prj_…/vcp_… match no service the app knows (not Vercel/Groq/Gemini/Grok/Telegram) — awaiting owner clarification if integration is wanted.

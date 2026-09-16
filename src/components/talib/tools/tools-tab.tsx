@@ -27,6 +27,11 @@
  *  - cursor-pointer + focus-visible rings on every interactive element,
  *  - entrance animation is opacity-only (respects prefers-reduced-motion
  *    better than scale/spring entrances).
+ *
+ * Round 83: استوديو الصور joins المساعد الذكي as the second ONLINE AI
+ * tool — featured card (fuchsia family) right under it, NOT inside the
+ * offline grid, so the «أدوات تعمل داخل جهازك» privacy banner stays 100%
+ * honest. Search covers it via its own match string, same as the assistant.
  */
 
 import * as React from "react";
@@ -37,6 +42,7 @@ import {
   Coffee,
   Combine,
   ImageDown,
+  ImageIcon,
   Images,
   MessageCircle,
   ScanText,
@@ -46,6 +52,7 @@ import {
   Shrink,
   Sparkles,
   Type,
+  Wand2,
   X,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -62,6 +69,7 @@ import { StudyTimerTool } from "./study-timer-tool";
 import { CompressImageTool } from "./compress-image-tool";
 import { OcrTool } from "./ocr-tool";
 import { AiAssistantTool } from "./ai-assistant-tool";
+import { ImageStudioTool } from "./image-studio-tool";
 
 type ToolId =
   | "gpa"
@@ -73,7 +81,8 @@ type ToolId =
   | "timer"
   | "compress-img"
   | "ocr"
-  | "ai";
+  | "ai"
+  | "studio";
 
 type ToolCategory = "pdf" | "study" | "image";
 
@@ -222,16 +231,21 @@ export function ToolsTab() {
   if (activeTool === "ai") {
     return <AiAssistantTool onBack={() => setActiveTool(null)} />;
   }
+  if (activeTool === "studio") {
+    return <ImageStudioTool onBack={() => setActiveTool(null)} />;
+  }
 
   const q = normalizeArabic(query);
   const matchesAI = !q || normalizeArabic("المساعد الذكي محادثة دراسية بالعربية يلخص ويشرح ويختبرك").includes(q);
+  const matchesStudio =
+    !q || normalizeArabic("استوديو الصور توليد صور ذكي مخططات بطاقات ملصقات غلاف").includes(q);
   const ai = TOOLS.find((t) => t.ai)!;
   const gridTools = GRID_TOOLS.filter((t) => {
     const inCategory = category === "all" || t.category === category;
     const matches = !q || normalizeArabic(`${t.title} ${t.desc}`).includes(q);
     return inCategory && matches;
   });
-  const noResults = !matchesAI && gridTools.length === 0;
+  const noResults = !matchesAI && !matchesStudio && gridTools.length === 0;
 
   return (
     <div className="space-y-4">
@@ -387,6 +401,59 @@ export function ToolsTab() {
                     </div>
                     <div className="w-fit max-w-full ms-auto rounded-2xl rounded-tl-md bg-white/90 text-violet-900 px-3 py-1.5 text-[11px] leading-relaxed">
                       بالتأكيد — السباتة أسبوع واحد من كل سنة، أما العطلة الصيفية فتمتد شهرين…
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </motion.button>
+          )}
+
+          {/* Featured AI card #2 — استوديو الصور (round 83): the owner's
+              image-generation request. Fuchsia family so it reads "AI tool",
+              not offline utility; a mini image-frame preview says "this tool
+              makes pictures" without extra copy. Same a11y/touch rules. */}
+          {matchesStudio && (
+            <motion.button
+              key="studio"
+              initial={false}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.25 }}
+              onClick={() => setActiveTool("studio")}
+              className="group w-full text-right cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-label="استوديو الصور — ولّد صورة"
+            >
+              <Card className="relative overflow-hidden p-0 border-0 bg-gradient-to-l from-fuchsia-600 via-fuchsia-500 to-rose-400 text-white shadow-md transition-shadow duration-200 hover:shadow-lg">
+                <ImageIcon
+                  aria-hidden="true"
+                  className="absolute -bottom-7 -left-6 w-32 h-32 text-white/10 rotate-12 pointer-events-none"
+                />
+                <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-white/10 to-transparent pointer-events-none" />
+                <div className="relative p-4 space-y-3">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/25">
+                      <Wand2 className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-black text-[15px]">استوديو الصور</h3>
+                        <Badge className="text-[10px] px-1.5 py-0 bg-white/20 text-white border-0">جديد</Badge>
+                      </div>
+                      <p className="text-xs text-white/85 mt-0.5 leading-relaxed">
+                        صفها بالعربية — مخططات، بطاقات مراجعة، ملصقات وغلف دراسية
+                      </p>
+                    </div>
+                    <span className="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-white/20 text-white text-xs font-bold backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/30">
+                      ولّد صورة
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                  {/* mini gallery preview — says "this makes pictures" */}
+                  <div className="flex gap-1.5">
+                    <div className="w-12 h-12 rounded-lg bg-white/25 backdrop-blur-sm" />
+                    <div className="w-12 h-12 rounded-lg bg-white/15 backdrop-blur-sm" />
+                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-white/30 to-white/10" />
+                    <div className="flex-1 h-12 rounded-lg border border-dashed border-white/40 flex items-center justify-center">
+                      <Sparkles className="w-4 h-4 text-white/60" />
                     </div>
                   </div>
                 </div>
