@@ -373,6 +373,53 @@ export async function streamChat(
 /** Non-streaming fallback — same chain, single JSON answer.
  *  r85: opts (maxTokens/temperature) اختيارية للنداءات الخاصة كتوليد الصفحات
  *  والنقد — افتراضياً تبقى قيم المحادثة نفسها فلا يتغير سلوك قائم. */
+/** نداء واحد غير متدفق لمحاولة واحدة — مشترك بين سير السلسلة والقارن (r89). */
+async function callAttempt(
+  attempt: Attempt,
+  system: string,
+  messages: ChatMessage[],
+  signal?: AbortSignal,
+  opts?: ChatCompleteOptions
+): Promise<{ answer: string; provider: ProviderId; model: string }> {
+  let res: Response;
+  if (attempt.provider === "gemini") {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${attempt.model}:generateContent?key=${attempt.key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: geminiBody(attempt.model, system, messages, false, opts),
+        signal: signal ?? AbortSignal.timeout(SYSTEM_TIMEOUT_MS),
+      }
+    );
+    if (!res.ok) throw await providerFetchError("gemini", res);
+    const data = (await res.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const answer = data.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text ?? "")
+      .join("")
+      .trim();
+    if (!answer) throw new ProviderError("empty", "gemini", 0, "empty candidates");
+    return { answer, provider: "gemini", model: attempt.model };
+  }
+  const endpoint =
+    attempt.provider === "groq"
+      ? "https://api.groq.com/openai/v1/chat/completions"
+      : "https://api.x.ai/v1/chat/completions";
+  res = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${attempt.key}` },
+    body: openAiBody(attempt.model, system, messages, false, opts),
+    signal: signal ?? AbortSignal.timeout(SYSTEM_TIMEOUT_MS),
+  });
+  if (!res.ok) throw await providerFetchError(attempt.provider, res);
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const answer = data.choices?.[0]?.message?.content?.trim();
+  if (!answer) throw new ProviderError("empty", attempt.provider, 0, "empty choices");
+  return { answer, provider: attempt.provider, model: attempt.model };
+}
+
 export async function chatComplete(
   system: string,
   messages: ChatMessage[],
@@ -384,43 +431,7 @@ export async function chatComplete(
 
   for (const attempt of attempts) {
     try {
-      let res: Response;
-      if (attempt.provider === "gemini") {
-        res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${attempt.model}:generateContent?key=${attempt.key}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: geminiBody(attempt.model, system, messages, false, opts),
-            signal: signal ?? AbortSignal.timeout(SYSTEM_TIMEOUT_MS),
-          }
-        );
-        if (!res.ok) throw await providerFetchError("gemini", res);
-        const data = (await res.json()) as {
-          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-        };
-        const answer = data.candidates?.[0]?.content?.parts
-          ?.map((p) => p.text ?? "")
-          .join("")
-          .trim();
-        if (!answer) throw new ProviderError("empty", "gemini", 0, "empty candidates");
-        return { answer, provider: "gemini", model: attempt.model };
-      }
-      const endpoint =
-        attempt.provider === "groq"
-          ? "https://api.groq.com/openai/v1/chat/completions"
-          : "https://api.x.ai/v1/chat/completions";
-      res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${attempt.key}` },
-        body: openAiBody(attempt.model, system, messages, false, opts),
-        signal: signal ?? AbortSignal.timeout(SYSTEM_TIMEOUT_MS),
-      });
-      if (!res.ok) throw await providerFetchError(attempt.provider, res);
-      const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-      const answer = data.choices?.[0]?.message?.content?.trim();
-      if (!answer) throw new ProviderError("empty", attempt.provider, 0, "empty choices");
-      return { answer, provider: attempt.provider, model: attempt.model };
+      return await callAttempt(attempt, system, messages, signal, opts);
     } catch (err) {
       if (signal?.aborted) throw err;
       lastError =
@@ -436,4 +447,35 @@ export async function chatComplete(
   }
 
   throw lastError ?? new ProviderError("server", "unknown", 0, "no providers configured");
+}
+
+/**
+ * r89 — نداء لمزوّد محدّد بالاسم (يستعمله «قارن النماذج» في الاستوديو):
+ * أول نموذج متاح في سلسلة ذلك المزوّد بنفس تصنيف الأخطاء، مع تجاوز بقية
+ * نماذجه عند فشل واحد. لا يغيّر سلوك سلسلة chatComplete إطلاقاً.
+ */
+export async function chatWithProvider(
+  provider: ProviderId,
+  system: string,
+  messages: ChatMessage[],
+  signal?: AbortSignal,
+  opts?: ChatCompleteOptions
+): Promise<{ answer: string } & StreamResult> {
+  const attempts = buildAttempts().filter((a) => a.provider === provider);
+  if (attempts.length === 0) {
+    throw new ProviderError("auth", provider, 0, `provider ${provider} not configured`);
+  }
+  let lastError: ProviderError | null = null;
+  for (const attempt of attempts) {
+    try {
+      return await callAttempt(attempt, system, messages, signal, opts);
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      lastError =
+        err instanceof ProviderError
+          ? err
+          : new ProviderError("network", attempt.provider, 0, err instanceof Error ? err.message : String(err));
+    }
+  }
+  throw lastError ?? new ProviderError("server", provider, 0, "no attempts left");
 }
