@@ -891,40 +891,19 @@ Stage Summary:
 - Deployed behavior today: topic writes fail ONLY with the honest policies-file instruction until the owner runs supabase_topics_write_policies.sql ONCE — then add/edit/delete + section links all work with zero further deploys. Separate owner cleanup (not blocking): SUPABASE_SERVICE_ROLE_KEY on Vercel holds an invalid value — correct it (service key of THIS project) or remove it; the app works either way thanks to the fallback.
 
 ---
-Task ID: 4 (r83)
-Agent: main (Super Z, owner-furnished keys session)
-Task: Owner's image-generation request — integrate AI image generation into Gu-mo as a complete system feature, continue development on the live app with the owner's GitHub + Supabase keys.
+Task ID: 5 (r83-revert)
+Agent: main (Super Z, this session)
+Task: «تراجع عن هذه التغييرات» — full rollback of the latest round (r83 Image Studio) from the live app, per owner request.
 
 Work Log:
-- Workspace restored to the Gu-mo repository state (r82) with full git history and push access; scaffold artifacts archived outside the tree (.z-archive/, excluded via .git/info/exclude); .env.local wired to the production Supabase project.
-- Production forensics with the owner's keys: project ntdzvujhujnbazaqzuvo alive (47 tables); anon key recovered from git history (6fc055b parent, r20 removal — same method as r66); topics write RLS policies VERIFIED LIVE via a self-cleaning anon-INSERT/service-DELETE probe (the r73 pending owner action is done); bot_config/push_subscriptions/course_materials still missing (graceful-degrade, SQL files ready in download/).
-- NEW src/lib/ai/image.ts — image provider chain on the providers.ts pattern: Gemini first (2.5-flash-image → 2.0-flash-exp-image-generation, env-overridable), Grok image second; Groq excluded (no image API); xai-in-Groq-slot auto-detect; honest classification incl. Google's 400 «API key not valid» → auth (not model); content-policy refusal is terminal (no pointless retries); aspect ratios with a single stripped-imageConfig retry, never looping.
-- NEW src/app/api/ai/image/route.ts — mirrors the /api/ai contract: session auth, 3..600-char prompt, needsConfig convention, 10s cooldown + 12/day cap (image-tier quota), honest Arabic errors + owner-only hints, maxDuration 60 (hobby cap). Owner's standing security boundary enforced locally: prompts asking for passwords/cards/keys are refused before any provider call. Zero persistence (no DB row, no log).
-- NEW src/components/talib/tools/image-studio-tool.tsx — full-state UI: prompt composer with counter, 4 deterministic style chips (no hidden prompt rewriting), 4 aspect chips, suggestions, elapsed-timer loading card, retryable error card, result actions (share/download via shared.ts, regenerate, copy prompt), in-memory session gallery (max 6, honest «nothing is stored» note), offline fast-fail (r61 lesson), needsConfig owner/student variants.
-- tools-tab.tsx — second featured AI card (fuchsia family) under المساعد الذكي; deliberately NOT in the offline grid so the on-device privacy banner stays honest; search integration via matchesStudio (no false «no results»).
-- tsconfig/eslint: excluded the sandbox reference clone (repos/**) — full `bun run lint` was already red on r82 HEAD from r60–r63 require() scripts (pre-existing; rounds lint changed files by convention, kept that discipline).
-- Tests: scripts/r83-check.ts 28/28 — aspect/key-detection logic incl. Groq-alone=no-images and misplaced xai-; fake-Gemini-key live error path (real Google 400 → auth, provider dropped, no wasted retries); route paths via temp device_session (r73 pattern): 401/400-empty/400-credentials-boundary/200-needsConfig, session deleted and verified dead; UI wiring greps. tsc 0; scoped eslint clean; next build 84/84 with /api/ai/image registered.
-- Browser E2E (dev server): owner full flow (tour → tools → studio → generate → honest setup card with key instructions); student (real account) sees «قريباً» with zero owner-leak (automated ownerLeak=false); chips toggle verified (aria-pressed); screenshots archived (work/r83-*.png); both probe sessions deleted (204, verified).
+- Verified state first: Gu-mo at r83 — 4 pushed commits (c2fde56 r83, ef98c77 r83b, 1194227 r83c, a2ff626 docs) + 1 unpushed PNG-only commit; tree otherwise clean; the earlier sandbox experiment confirmed absent from the tree (archived in .z-archive/, never pushed to the app).
+- Baseline production probe: /api/ai/image → 405 (route live on gu-mo.vercel.app), / → 200.
+- Dropped the unpushed PNG commit (work/r83-*.png only) via reset to origin/main.
+- Single revert commit for all four r83 commits; proved byte-identical r82 restoration via empty `git diff 25512e5` (0 bytes); tools-tab grep clean (no studio/matchesStudio references).
+- Removed the local reference clone repos/ (git-ignored restoration artifact; its tsconfig/eslint exclusions were r83-only and left with it).
+- Pushed → Vercel auto-deploy → live-verified: /api/ai/image now 404 (route gone), homepage 200.
 
 Stage Summary:
-- استوديو الصور shipped as round 83: image generation inside أدواتي with the app's full honesty/privacy/security conventions. On production it will use the existing GEMINI_API_KEY immediately if it has image-model access; otherwise the in-tool owner hint explains GEMINI_IMAGE_MODEL. No owner action required for this feature.
-- Verified live today: r73 topics write policies ARE applied (self-cleaning probe) — topic bindings fully functional.
-- Unidentified keys noted for the owner: prj_…/vcp_… match no service the app knows (not Vercel/Groq/Gemini/Grok/Telegram) — awaiting owner clarification if integration is wanted.
-
----
-Task ID: 4-b (r83b + r83c)
-Agent: main (Super Z, same session)
-Task: Post-deploy live verification of the image chain against the owner's production keys, and iteration on the model-name failures.
-
-Work Log:
-- Live probe #1 (r83 deploy): honest 502 + owner hint — both 2.5/2.0 image names 404 on the owner's restricted Gemini key.
-- r83b: added gemini-3.5-flash-image at the chain head (matching the key's verified 3.5-flash text generation, r71). Pushed ef98c77.
-- Live probe #2: still 404 — the dedicated image name does not exist for this key either.
-- r83c: expanded the chain to 7 candidates (3.5-flash-image, base 3.5-flash with IMAGE modality, 3.5-flash-image-preview, imagen-4.0-generate-001 + imagen-3.0-generate-002 via a NEW :predict caller with the Imagen body shape, then 2.5/2.0). Also fixed a classification subtlety this exposed: a 200 with TEXT-only parts is now "model" (fall through to the next model) instead of "empty" (terminal safety refusal) — with promptFeedback.blockReason/finishReason SAFETY as the true refusal signal. Pushed 1194227.
-- Live probe #3: all 7 rejected in ~1.7s — DEFINITIVE: the current GEMINI_API_KEY has no image-model access at all (consistent with r44's finding that only 3.5-flash/3.1-flash-lite serve text).
-- Final production health check after 3 consecutive deploys: assistant easter-egg 200 (route+session+contract intact), per-user rate limiter verified live (429 on the immediate second call), image studio in its honest 502-with-hint state for the owner, nothing leaked to students.
-- Report updated with the live findings and the single owner action needed (image-capable AI Studio key in GEMINI_API_KEY/GEMINI_IMAGE_MODEL, or an xai- key in XAI_API_KEY).
-
-Stage Summary:
-- Image Studio is complete, tested (28/28), deployed (1194227), and verified end-to-end on production including its honest failure state. It activates the moment an image-capable key lands in Vercel env — zero further deploys needed (env change triggers one).
-- Session artifacts: all temp device_sessions deleted and verified dead; no probe rows remain.
+- Production returned exactly to r82: no Image Studio card in أدواتي, no /api/ai/image, no image provider chain, r83 report/tests removed.
+- Zero data impact (the studio was no-persistence by design — nothing was ever stored).
+- Fully recoverable: git history keeps c2fde56..a2ff626; whenever an image-capable key is available the feature can be restored with a single revert-of-the-revert.

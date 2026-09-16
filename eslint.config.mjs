@@ -46,8 +46,7 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
 }, {
   // round 56: public/** added — vendored minified assets (pdf.worker.min.mjs)
   // are not lintable source and were polluting the error count since r31.
-  // round 83: repos/** — sandbox reference clones (not app source).
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "public/**", "next-env.d.ts", "examples/**", "skills", "repos/**"]
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "public/**", "next-env.d.ts", "examples/**", "skills"]
 }];
 
 export default eslintConfig;
