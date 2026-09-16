@@ -1,14 +1,14 @@
 /**
  * Shared knowledge freshness module (round 82) — «كتلة الطزاجة».
  *
- * WHY THIS EXISTS: both AI brains (the in-app assistant /api/ai and the
- * Telegram bot brain lib/telegram/bot-chat.ts) answer «what is the latest…?»
+ * WHY THIS EXISTS: the AI brains that answer «what is the latest…?»
  * questions with the TRAINING-CUTOFF facts of whatever model the provider
- * chain picks (Groq's llama-3.3 has a 2023-era cutoff). r81 gave the
- * Telegram brain a per-request freshness block, but its Sept-2026 snapshot
- * was INCOMPLETE (no Fable 5.1) — so when a user asked about
- * «Claude Fable 5.1» the old-cutoff model confidently DENIED its
- * existence, the mirror-image failure of calling 3.5 Sonnet "the latest".
+ * chain picks (Groq's llama-3.3 has a 2023-era cutoff) need a per-request
+ * freshness block. r81 gave the Telegram brain a per-request freshness
+ * block, but its Sept-2026 snapshot was INCOMPLETE (no Fable 5.1) — so
+ * when a user asked about «Claude Fable 5.1» the old-cutoff model
+ * confidently DENIED its existence, the mirror-image failure of calling
+ * 3.5 Sonnet "the latest".
  *
  * r82 CHANGES (verified this round via Anthropic/AWS/Wikipedia/OpenRouter
  * search results):
@@ -17,13 +17,14 @@
  *     Mythos 5.1 beside it (restricted access, not public).
  *   • EXISTENCE RULE: never deny the existence of something you don't
  *     know — say it may be newer than your cutoff instead.
- *   • Single source of truth: /api/ai now appends this same block, so
- *     both brains drift together, never apart.
+ *   • Single source of truth: every brain appends this same block (the
+ *     in-app assistant did until r88 removed it; the Telegram bot
+ *     brain still does), so they drift together, never apart.
  *
  * MAINTENANCE: only AI_LANDSCAPE_FACTS below needs periodic editing —
  * the date is computed per request, never cached at module load.
- * PURITY: no imports — safe for both the Next.js route and the pure
- * Telegram brain (bun-testable outside Next.js).
+ * PURITY: no imports — safe for the pure Telegram brain (bun-testable
+ * outside Next.js).
  */
 
 /** تاريخ اليوم (UTC) بصيغة YYYY-MM-DD — يُحسب عند كل طلب لا عند الإقلاع */

@@ -261,10 +261,10 @@ export function TalibHomeScreen() {
         </div>
       </motion.section>
 
-      {/* round 57 (owner: «أزل بانر المساعد الذكي من الواجهة») — بطاقة
-          المساعد الذكي البنفسجية أُزيلت من الرئيسية. المساعد يبقى متاحاً
-          من بطاقته داخل «أدواتي» (أول أداة، بمعاينة المحادثة وزر «ابدأ
-          محادثة») — والرئيسية تعود متمركزة على الخدمات. */}
+      {/* round 57 removed the assistant banner from home; round 88 removed
+          the assistant itself (owner: «احذف المساعد الذكي»). Online study
+          help now lives in دفتر طالب (أدواتي) + the Telegram bot. The
+          home screen stays centered on the academic services. */}
 
       {/* round 10 (review §4): join-request status banner — visible answer
           to "do I have a pending request?" / "where do I join a group?" */}

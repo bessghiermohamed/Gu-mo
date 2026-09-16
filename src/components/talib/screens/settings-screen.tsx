@@ -213,7 +213,15 @@ export function TalibSettingsScreen() {
       const kill = new Set<string>(["talib-assignments-completed"]);
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && (key.startsWith("talib-ai-chat-v1-") || kill.has(key))) {
+        // r88: the assistant is gone — its orphaned talib-ai-chat-v1-* keys
+        // are still wiped; the notebook (talib-notebook-v1-*) is now the
+        // main local dataset this button is about.
+        if (
+          key &&
+          (key.startsWith("talib-ai-chat-v1-") ||
+            key.startsWith("talib-notebook-v1-") ||
+            kill.has(key))
+        ) {
           localStorage.removeItem(key);
           cleared++;
           i--; // removing shifts indices
@@ -532,8 +540,9 @@ export function TalibSettingsScreen() {
         </div>
       </Card>
 
-      {/* round 56 — البيانات المحلية على هذا الجهاز: محادثات المساعد
-          الذكي وذاكرة الواجبات المنجزة. إعداد جديد كلياً. */}
+      {/* round 56, text r88 — البيانات المحلية على هذا الجهاز: دفتر
+          طالب (مصادره وحديثه ومخرجاته) وذاكرة الواجبات المنجزة، وأثر
+          محادثات المساعد القديمة (r88 أزال المساعد). إعداد جديد كلياً. */}
       <Card className="p-4 space-y-3">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
@@ -542,8 +551,8 @@ export function TalibSettingsScreen() {
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-sm">بيانات جهازك</h3>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              محادثاتك مع المساعد الذكي وذاكرة الواجبات المنجزة محفوظة على هذا
-              الجهاز فقط — امسحها متى شئت
+              دفتر طالب (مصادرك وحديثه ومخرجاته) وذاكرة الواجبات المنجزة
+              محفوظة على هذا الجهاز فقط — امسحها متى شئت
             </p>
           </div>
         </div>
@@ -562,7 +571,8 @@ export function TalibSettingsScreen() {
             <DialogHeader>
               <DialogTitle>مسح بيانات هذا الجهاز؟</DialogTitle>
               <DialogDescription className="leading-relaxed">
-                سيُمسح من جهازك: سجل محادثاتك مع المساعد الذكي، وذاكرة الواجبات
+                سيُمسح من جهازك: دفتر طالب بمصادره وحديثه ومخرجاته، وأثر
+                محادثات المساعد القديمة إن وُجد، وذاكرة الواجبات
                 التي علّمتها كمنجزة. بياناتك الأكاديمية على الخادم لا تُمسح،
                 ولا يمكن التراجع عن هذا الإجراء.
               </DialogDescription>

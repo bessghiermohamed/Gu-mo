@@ -379,7 +379,8 @@
   animation: shimmer 2s infinite linear;
 }
 
-/* r59 — المساعد الذكي: KaTeX math inside RTL chat bubbles.
+/* r59 — AI chat bubbles (دفتر طالب since r88): KaTeX math inside RTL
+ * chat bubbles.
  * Math is always LTR; display math gets horizontal scroll on narrow phones
  * instead of overflowing the bubble. Slightly larger than body text so
  * fractions/exponents stay legible at chat sizes. */

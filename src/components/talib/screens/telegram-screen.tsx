@@ -527,7 +527,7 @@ function SmartBotCard() {
           </div>
           {open && (
             <div className="mt-2.5 rounded-lg bg-muted/50 border border-border/60 p-3 text-xs leading-relaxed space-y-1.5">
-              <p>• <strong>سؤال دراسي؟</strong> اكتبه مباشرة في الخاص — نفس عقل «المساعد الذكي» داخل التطبيق.</p>
+              <p>• <strong>سؤال دراسي؟</strong> اكتبه مباشرة في الخاص — ولمصادرك الدراسية واستخراج الملخصات والاختبارات استعمل «دفتر طالب» داخل التطبيق.</p>
               <p>• <strong>ملف أو صورة؟</strong> أرسلها في الخاص فيصنّفها: محاضرة، TD، تمارين، امتحان… مع عنوان مقترح — لا يُحفظ منها شيء.</p>
               <p>• <strong>داخل مجموعة طلابية مربوطة؟</strong> اكتب سؤالك مسبوقاً باسم البوت (مثال: <span dir="ltr" className="font-mono">@gu_mo_bot ما هو النحو؟</span>) أو ردّ على رسالة البوت.</p>
               <p className="text-muted-foreground">خصوصيتك محفوظة: رسائلك الخاصة لا تدخل التطبيق ولا تُسجّل أبداً.</p>

@@ -6,20 +6,17 @@
  * their own screen via tools-screen.tsx).
  *
  * Round 43: 7 → 10 — ضغط الصور and صورة إلى نص (both on-device, same
- * privacy contract) plus المساعد الذكي: the first ONLINE tool, visually
- * distinct (violet accent + «جديد» badge) with its own honest privacy note.
+ * privacy contract) plus المساعد الذكي: the first ONLINE tool.
  *
- * Round 44: المساعد الذكي became a full ChatGPT-style conversation —
- * same entry point here, the redesign lives inside ai-assistant-tool.tsx.
+ * Round 87: دفتر طالب joined as a second full-width featured card —
+ * a NotebookLM-style study space (sources + grounded chat + 8 outputs).
  *
- * Round 47 (UI/UX Pro Max redesign): the flat 10-row list became a
- * structured directory —
- *  - category chips (أدوات PDF / الدراسة / الصور) fixing the skill's
- *    «no filtering» anti-pattern, with live counts (aria-pressed),
- *  - Arabic-normalized search (diacritics stripped, alef/ya/ta unified)
- *    with a real empty state + reset,
- *  - المساعد الذكي promoted to a full-width featured card (its violet
- *    identity preserved) instead of a row among ten,
+ * Round 88 (owner: «احذف المساعد الذكي وأبقِ دفتر طالب»): the Smart
+ * Assistant chatbot is REMOVED entirely — component, /api/ai route,
+ * featured card, search entry, settings copy, bot fallback copy. The
+ * violet card is gone; دفتر طالب (emerald) is now the only featured
+ * online tool. Study help online lives in دفتر طالب and the Telegram
+ * bot's tool suite (r85/r86).
  *  - 2-column touch grid: ≥44px targets, ≥12px gaps (ux-guidelines:
  *    touch-spacing + touch-target-size),
  *  - hover feedback via color/shadow ONLY (no translate/scale — the
@@ -38,14 +35,12 @@ import {
   Combine,
   ImageDown,
   Images,
-  MessageCircle,
   NotebookPen,
   ScanText,
   Scissors,
   Search,
   ShieldCheck,
   Shrink,
-  Sparkles,
   Type,
   X,
 } from "lucide-react";
@@ -62,7 +57,6 @@ import { WordCounterTool } from "./word-counter-tool";
 import { StudyTimerTool } from "./study-timer-tool";
 import { CompressImageTool } from "./compress-image-tool";
 import { OcrTool } from "./ocr-tool";
-import { AiAssistantTool } from "./ai-assistant-tool";
 import { NotebookTool } from "./notebook-tool";
 
 type ToolId =
@@ -75,7 +69,6 @@ type ToolId =
   | "timer"
   | "compress-img"
   | "ocr"
-  | "ai"
   | "notebook";
 
 type ToolCategory = "pdf" | "study" | "image";
@@ -104,10 +97,6 @@ const TOOLS: Array<{
   title: string;
   desc: string;
   category: ToolCategory;
-  /** round 43 — AI helper: online, distinct accent + badge so it never
-   *  hides behind the offline promise of the file tools. */
-  ai?: boolean;
-  badge?: string;
 }> = [
   {
     id: "gpa",
@@ -172,28 +161,17 @@ const TOOLS: Array<{
     desc: "صوّر السبورة أو الورقة — انسخ النص عربياً أو فرنسياً",
     category: "image",
   },
-  {
-    id: "ai",
-    icon: <Sparkles className="w-6 h-6" />,
-    title: "المساعد الذكي",
-    desc: "محادثة دراسية بالعربية — يلخّص ويشرح ويختبرك ويجيب أسئلتك",
-    category: "study",
-    ai: true,
-    badge: "جديد",
-  },
 ];
 
-const GRID_TOOLS = TOOLS.filter((t) => !t.ai);
+const GRID_TOOLS = TOOLS;
 
 export function ToolsTab() {
   const [activeTool, setActiveTool] = React.useState<ToolId | null>(null);
   const [query, setQuery] = React.useState("");
   const [category, setCategory] = React.useState<ToolCategory | "all">("all");
 
-  // round 57: the r56 home-screen deep link (talib-open-ai sessionStorage +
-  // window event) was removed together with the home banner — its only
-  // dispatcher. The featured card below opens the assistant directly via
-  // setActiveTool("ai"), so no bridge is needed.
+  // round 57 removed the r56 home-screen deep link (talib-open-ai bridge)
+  // together with the home banner; round 88 removed the assistant itself.
 
   if (activeTool === "gpa") {
     return <GpaTool onBack={() => setActiveTool(null)} />;
@@ -222,24 +200,19 @@ export function ToolsTab() {
   if (activeTool === "ocr") {
     return <OcrTool onBack={() => setActiveTool(null)} />;
   }
-  if (activeTool === "ai") {
-    return <AiAssistantTool onBack={() => setActiveTool(null)} />;
-  }
   if (activeTool === "notebook") {
     return <NotebookTool onBack={() => setActiveTool(null)} />;
   }
 
   const q = normalizeArabic(query);
-  const matchesAI = !q || normalizeArabic("المساعد الذكي محادثة دراسية بالعربية يلخص ويشرح ويختبرك").includes(q);
   const matchesNotebook =
     !q || normalizeArabic("دفتر طالب مصادر ملخص صوتي اختبار بطاقات خريطة ذهنية خط زمني دراسة استرجاع NotebookLM").includes(q);
-  const ai = TOOLS.find((t) => t.ai)!;
   const gridTools = GRID_TOOLS.filter((t) => {
     const inCategory = category === "all" || t.category === category;
     const matches = !q || normalizeArabic(`${t.title} ${t.desc}`).includes(q);
     return inCategory && matches;
   });
-  const noResults = !matchesAI && !matchesNotebook && gridTools.length === 0;
+  const noResults = !matchesNotebook && gridTools.length === 0;
 
   return (
     <div className="space-y-4">
@@ -345,63 +318,6 @@ export function ToolsTab() {
         </div>
       ) : (
         <>
-          {/* Featured AI card — round 56 redesign: the owner said the old
-              card «لا يوحي بوجوده». It now SHOWS the product: a mini
-              chat-bubble preview (assistant explaining + user question)
-              inside the violet identity, plus a clear «ابدأ محادثة» CTA —
-              no one can mistake it for a plain utility row anymore. */}
-          {matchesAI && (
-            <motion.button
-              key="ai"
-              initial={false}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.25 }}
-              onClick={() => setActiveTool("ai")}
-              className="group w-full text-right cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              aria-label="المساعد الذكي — ابدأ محادثة"
-            >
-              <Card className="relative overflow-hidden p-0 border-0 bg-gradient-to-l from-violet-600 via-violet-500 to-fuchsia-500 text-white shadow-md transition-shadow duration-200 hover:shadow-lg">
-                <MessageCircle
-                  aria-hidden="true"
-                  className="absolute -bottom-7 -left-6 w-32 h-32 text-white/10 -rotate-12 pointer-events-none"
-                />
-                <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-white/10 to-transparent pointer-events-none" />
-                <div className="relative p-4 space-y-3">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/25">
-                      <Sparkles className="w-6 h-6" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-black text-[15px]">المساعد الذكي</h3>
-                        <Badge className="text-[10px] px-1.5 py-0 bg-white/20 text-white border-0">
-                          {ai.badge}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-white/85 mt-0.5 leading-relaxed">
-                        {ai.desc}
-                      </p>
-                    </div>
-                    <span className="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-white/20 text-white text-xs font-bold backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/30">
-                      ابدأ محادثة
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
-                  {/* mini conversation preview — says "this is a chat"
-                      without a single extra word of copy */}
-                  <div className="space-y-1.5 max-w-[85%] mx-1">
-                    <div className="w-fit max-w-full rounded-2xl rounded-tr-md bg-white/15 backdrop-blur-sm px-3 py-1.5 text-[11px] text-white/90 leading-relaxed">
-                      اشرح لي الفرق بين السباتة والعطلة الصيفية بإيجاز
-                    </div>
-                    <div className="w-fit max-w-full ms-auto rounded-2xl rounded-tl-md bg-white/90 text-violet-900 px-3 py-1.5 text-[11px] leading-relaxed">
-                      بالتأكيد — السباتة أسبوع واحد من كل سنة، أما العطلة الصيفية فتمتد شهرين…
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </motion.button>
-          )}
-
           {matchesNotebook && (
             <motion.button
               key="notebook"

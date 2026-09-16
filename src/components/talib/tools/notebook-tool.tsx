@@ -13,11 +13,11 @@
  *     المتصفح speechSynthesis — صفر مزوّد صوت)، وخريطة ذهنية Mermaid.
  *
  * الخصوصية: المصادر والحديث يعيشان في localStorage على جهاز الطالب فقط
- * (نفس فلسفة تاريخ المساعد الذكي) — صفر حمل على Supabase، وحذف المصدر
- * يُطفئ أثره نهائياً من الجهاز.
+ * (نفس فلسفة الخصوصية المعتمدة في أدوات المنصة) — صفر حمل على Supabase،
+ * وحذف المصدر يُطفئ أثره نهائياً من الجهاز.
  *
- * needsConfig بنفس عُرف المساعد: بلا مفاتيح على الخادم → المالك يرى
- * تعليمات الإعداد والطالب يرى «قريباً».
+ * needsConfig بعُرف r44 (المساعد سابقاً ثم الدفتر بعد r88): بلا مفاتيح
+ * على الخادم → المالك يرى تعليمات الإعداد والطالب يرى «قريباً».
  */
 
 import * as React from "react";
@@ -229,8 +229,8 @@ function NeedsConfigCard({ isOwner }: { isOwner: boolean }) {
           <>
             <p className="text-xs text-muted-foreground leading-relaxed">
               الدفتر يعمل بسلسلة المزوّدين نفسها (Groq ← Gemini ← Grok). أضف أحد المفاتيح في Vercel
-              (Settings → Environment Variables) ثم أعد النشر — إن كان المساعد الذكي يعمل فالدفتر
-              يعمل فوراً بلا أي إعداد إضافي.
+              (Settings → Environment Variables) ثم أعد النشر — يعمل الدفتر
+              فوراً بلا أي إعداد إضافي.
             </p>
             <div className="text-right space-y-2">
               <pre dir="ltr" className="text-[11px] font-mono bg-muted/60 rounded-lg p-2 overflow-x-auto">
