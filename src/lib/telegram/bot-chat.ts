@@ -1,5 +1,5 @@
 /**
- * Bot brain (round 62, r81 knowledge refresh, r85 html studio) — «بوت الترتيب الذكي».
+ * Bot brain (round 62, r81 knowledge refresh, r85 html studio, r86 study tools) — «بوت الترتيب الذكي».
  *
  * When someone messages the bot PRIVATELY (@gu_mo_bot), the bot:
  *   1. /start / /help → welcome & guide (no AI needed).
@@ -9,10 +9,21 @@
  *      delivered as an .html document. Own quotas (20s gap, 8/day),
  *      owner's credentials/phishing guard BEFORE any provider call,
  *      zero storage.
- *   3. Text → a real THINKING answer via the same provider chain as the
+ *   3. /مخطط /ترجم /تحليل /كشف /مراجعة → the study tools (r86), inspired
+ *      by generation-platform services (Alborihi AI et al.) on the same
+ *      provider chain: Mermaid diagrams (.mmd file, syntax-checked with
+ *      one correction round), academic translation with auto language
+ *      detection (ar→fr, non-ar→ar), Arabic language analysis (correction,
+ *      tashkeel, i'rab, morphology, meanings), honest probabilistic
+ *      AI-writing detection with tangible signals (never a proof), and
+ *      Karpathy-style code review (real bugs only, improved version when
+ *      it earns one). Generation tools guard (studyGuard) BEFORE any
+ *      provider call; own quotas: diagram 15s/12 per day, light tools
+ *      10s/24 per day. Zero storage everywhere.
+ *   4. Text → a real THINKING answer via the same provider chain as the
  *      in-app assistant (lib/ai/providers — Groq → Gemini → xAI chain),
  *      with short conversation memory per chat.
- *   4. File/photo/video → the bot SORTS it: classifies the content into
+ *   5. File/photo/video → the bot SORTS it: classifies the content into
  *      the academic item types (محاضرة/امتحان/تمارين…) with a clean
  *      Arabic title — same classifier the channel pipeline uses, vision
  *      OCR included for photos. Nothing is stored: classification only.
@@ -50,6 +61,38 @@ import {
   HTML_PROMPT_MAX,
   type HtmlStudioResult,
 } from "@/lib/ai/html-studio";
+import {
+  parseDiagramCommand,
+  runDiagramStudio,
+  diagramHelpText,
+  diagramCaption,
+  diagramFileName,
+  studyGuard,
+  DIAGRAM_ERROR_TEXT,
+  DIAGRAM_PROMPT_MAX,
+  type DiagramStudioResult,
+  parseTranslateCommand,
+  runTranslateStudio,
+  translateHelpText,
+  TRANSLATE_ERROR_TEXT,
+  TRANSLATE_PROMPT_MAX,
+  parseAnalyzeCommand,
+  runAnalyzeStudio,
+  analyzeHelpText,
+  ANALYZE_ERROR_TEXT,
+  ANALYZE_PROMPT_MAX,
+  parseDetectCommand,
+  runDetectStudio,
+  formatDetectMessage,
+  detectHelpText,
+  DETECT_ERROR_TEXT,
+  DETECT_PROMPT_MAX,
+  parseReviewCommand,
+  runReviewStudio,
+  reviewHelpText,
+  REVIEW_ERROR_TEXT,
+  REVIEW_PROMPT_MAX,
+} from "@/lib/ai/study-tools";
 import {
   sendMessageText,
   sendMessageReply,
@@ -114,7 +157,7 @@ const WELCOME_TEXT = [
   "",
   "ماذا أستطيع أن أفعل من أجلك؟",
   "• أجيب عن أسئلتك الدراسية والعلمية — اكتب سؤالك مباشرة وسأفكّر فيه وأجيبك.",
-  "• أبني لك صفحة ويب عربية كاملة من وصف قصير: اكتب /html لترى كيف.",
+  "• أدوات دراسية سريعة: /ترجم (ترجمة أكاديمية)، /تحليل (نحو وصرف)، /مخطط (Mermaid)، /كشف (تقدير كتابة آلية)، /مراجعة (مراجعة كود)، /html (صفحة ويب).",
   "• أرسل لي ملفاً أو صورة (درس، تمرين، امتحان…) وسأخبرك بنوعه وعنوانه المناسب — هذا «الترتيب الذكي» نفسه الذي أستعمله في قنوات المنصة.",
   "• في القنوات الجامعية المرتبطة بالمنصة أرتّب المنشورات تلقائياً (محاضرات، تمارين، امتحانات…) داخل تطبيق طالب.",
   "",
@@ -126,7 +169,12 @@ const HELP_TEXT = [
   "كيف تستعمل البوت؟",
   "",
   "• سؤال دراسي؟ اكتبه مباشرة (بالعربية أو الفرنسية) وسأجيبك خطوة بخطوة.",
-  "• صفحة ويب جاهزة (بطاقة مراجعة، صفحة درس، ملخص امتحان…)؟ اكتب /html مع وصف مختصر — أستطيع أيضاً ضبط النمط، وسيعرض /html لك كل الأنماط.",
+  "• /ترجم <نص> — ترجمة أكاديمية أمينة: تلقائية (عربي→فرنسي والعكس) أو بلغة صريحة: /ترجم en النص.",
+  "• /تحليل <نص عربي> — تصحيح، تشكيل، إعراب، صرف، معاني في جواب واحد.",
+  "• /مخطط <فكرة> — مخطط Mermaid جاهز (انسيابي، خريطة ذهنية، تسلسل…) يصلك ملفاً .mmd — اختر النوع: /مخطط ذهنية <فكرتك>.",
+  "• /كشف <نص ≥ ١٢٠ حرفاً> — تقدير احتمالي صادق أن النص مولّد آلياً + إشارات ونصيحة (تقدير لا دليل).",
+  "• /مراجعة <كود> — مراجعة كودك: مشاكل حقيقية، تبسيط، نسخة محسّنة إن استحق.",
+  "• /html <وصف> — صفحة ويب عربية كاملة (بطاقة مراجعة، صفحة درس، ملخص امتحان…) تصلك ملفاً.",
   "• ملف أو صورة ولا تعرف ما هي بالضبط؟ أرسلها وسأصنّفها: محاضرة، أعمال موجهة TD، تمارين، امتحان، ملخص، كتاب… مع عنوان مقترح.",
   "• لسماع المنشورات المرتبة في قنواتك الجامعية: افتح تطبيق طالب ← دروس تيليجرام.",
   "",
@@ -162,25 +210,75 @@ const HTML_GAP_MS = 20_000;
 const HTML_DAILY_CAP = 8;
 const htmlUsers = new Map<number, { last: number; day: string; count: number }>();
 
+// الأدوات الدراسية (r86): مخطط (نداء إلى نداءان) والأدوات الخفيفة الأربع
+// (نداء واحد) — لكل عائلة حدودها المستقلة عن الدردشة وعن /html.
+const DIAGRAM_GAP_MS = 15_000;
+const DIAGRAM_DAILY_CAP = 12;
+const diagramUsers = new Map<number, { last: number; day: string; count: number }>();
+const LIGHT_TOOLS_GAP_MS = 10_000;
+const LIGHT_TOOLS_DAILY_CAP = 24;
+const lightToolUsers = new Map<number, { last: number; day: string; count: number }>();
+
 const HTML_GAP_TEXT = "انتظر ~٢٠ ثانية بين كل صفحة وأخرى — بناء الصفحة ونقدها يحتاج وقتاً وحصة أثقل من الدردشة.";
 const HTML_DAILY_TEXT = "وصلت إلى حد الصفحات اليومي (٨) — عُد غداً أو استعمل النتائج التي بناها لك اليوم.";
 
 function htmlLimitCheck(userId: number): string | null {
+  return limitCheck(
+    userId,
+    htmlUsers,
+    HTML_GAP_MS,
+    HTML_DAILY_CAP,
+    "انتظر ~٢٠ ثانية بين كل صفحة وأخرى — بناء الصفحة ونقدها يحتاج وقتاً وحصة أثقل من الدردشة.",
+    "وصلت إلى حد الصفحات اليومي (٨) — عُد غداً أو استعمل النتائج التي بناها لك اليوم."
+  );
+}
+
+const DIAGRAM_GAP_TEXT = "انتظر ~١٥ ثانية بين كل مخطط وآخر — بناء المخطط وفحص صياغته يحتاج وقتاً وحصة.";
+const DIAGRAM_DAILY_TEXT = "وصلت إلى حد المخططات اليومي (١٢) — عُد غداً أو استعمل المخططات التي بناها لك اليوم.";
+const LIGHT_GAP_TEXT = "انتظر بضع ثوانٍ بين كل أداة وأخرى — كل طلب يستهلك حصة ذكاء اصطناعي حقيقية.";
+const LIGHT_DAILY_TEXT = "وصلت إلى حد الأدوات اليومي (٢٤) — عُد غداً أو استعمل نتائج اليوم.";
+
+function diagramLimitCheck(userId: number): string | null {
+  return limitCheck(userId, diagramUsers, DIAGRAM_GAP_MS, DIAGRAM_DAILY_CAP, DIAGRAM_GAP_TEXT, DIAGRAM_DAILY_TEXT);
+}
+
+function lightToolLimitCheck(userId: number): string | null {
+  return limitCheck(userId, lightToolUsers, LIGHT_TOOLS_GAP_MS, LIGHT_TOOLS_DAILY_CAP, LIGHT_GAP_TEXT, LIGHT_DAILY_TEXT);
+}
+
+/** عدة الفحص المشتركة (r86 — استُخلصت من htmlLimitCheck): تعدّل الخريطة في مكانها. */
+function limitCheck(
+  userId: number,
+  store: Map<number, { last: number; day: string; count: number }>,
+  gapMs: number,
+  dailyCap: number,
+  gapText: string,
+  dailyText: string
+): string | null {
   const now = Date.now();
   const day = dayStamp();
-  const rec = htmlUsers.get(userId) ?? { last: 0, day, count: 0 };
+  const rec = store.get(userId) ?? { last: 0, day, count: 0 };
   if (rec.day !== day) {
     rec.day = day;
     rec.count = 0;
   }
-  const gapOk = now - rec.last >= HTML_GAP_MS;
+  const gapOk = now - rec.last >= gapMs;
   rec.count += 1;
   rec.last = now;
-  htmlUsers.set(userId, rec);
-  if (rec.count > HTML_DAILY_CAP) return HTML_DAILY_TEXT;
+  store.set(userId, rec);
+  if (rec.count > dailyCap) return dailyText;
   if (gapOk) return null;
-  return HTML_GAP_TEXT;
+  return gapText;
 }
+
+// رافقة اختبار (r86) — تُستعمل في scripts/r86-check.ts لضبط الحصص بين
+// الفحوص: الخرائط في الذاكرة لكل نسخة، والفحص المتسلسل يحتاج صفحة بيضاء.
+export function __resetToolLimits(): void {
+  htmlUsers.clear();
+  diagramUsers.clear();
+  lightToolUsers.clear();
+}
+export { limitCheck as __limitCheck };
 
 function safeFileName(title: string): string {
   const base = (title || "talib-page")
@@ -189,6 +287,20 @@ function safeFileName(title: string): string {
     .slice(0, 48)
     .replace(/^-+|-+$/g, "");
   return `${base || "talib-page"}.html`;
+}
+
+/** يفحص صلاحية المفاتيح مرة واحدة لكل أداة — رسالة صادقة موحدة. */
+async function ensureAiForTool(token: string, chatId: number): Promise<boolean> {
+  if (isAiConfigured()) return true;
+  await sendMessageText(token, chatId, AI_FALLBACK_TEXT);
+  return false;
+}
+
+/** منع التكرار للرسائل الطويلة: كيف تُعرض معلومات الوصف المرفوض في كل أداة */
+function promptLengthWhy(reason: "short" | "long", max: number): string {
+  return reason === "short"
+    ? "النص قصير جداً — اكتب جملة أو أكثر تشرح طلبك."
+    : `النص طويل جداً — الخلاصة أصدق من الإحالة: اكتب الجوهر في ${max} حرفاً كحد أقصى.`;
 }
 
 const users = new Map<number, { last: number; lastNotice: number; day: string; count: number }>();
@@ -520,6 +632,217 @@ export async function handleHtmlCommand(msg: TgMessage, token: string): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// الأدوات الدراسية (r86) — خمس أدوات مستلهمة من خدمات منصات التوليد
+// (Alborihi AI نموذجاً) على سلسلة المزوّدين نفسها: مخطط (Mermaid)، ترجم،
+// تحليل، كشف، مراجعة. كل أداة: محلّل أمر → حرس (التوليد فقط) → حصة
+// مستقلة → نداء واحد إلى نداءين → تسليم صادق. صفر تخزين في الكل.
+// ---------------------------------------------------------------------------
+
+const DIAGRAM_DEADLINE_MS = 52_000;
+
+export async function handleDiagramCommand(msg: TgMessage, token: string): Promise<PrivateChatOutcome> {
+  const chatId = msg.chat.id;
+  const rest = (msg.text ?? "").trim().replace(/^\/(مخطط|diagram)(@\S+)?\s*/i, "");
+
+  const parsed = parseDiagramCommand(rest);
+  if (parsed.kind === "help") {
+    await sendMessageText(token, chatId, diagramHelpText());
+    return "handled-command";
+  }
+  if (parsed.kind === "bad-prompt") {
+    await sendMessageText(token, chatId, promptLengthWhy(parsed.reason, DIAGRAM_PROMPT_MAX));
+    return "handled-fallback";
+  }
+
+  // حرس المالك الأمني — قبل أي مزوّد وقبل احتساب أي حصة
+  const refused = studyGuard(parsed.prompt);
+  if (refused) {
+    await sendMessageText(token, chatId, refused);
+    return "handled-fallback";
+  }
+
+  if (msg.from?.id) {
+    const limited = diagramLimitCheck(msg.from.id);
+    if (limited) {
+      await sendMessageText(token, chatId, limited);
+      return "rate-limited";
+    }
+  }
+  if (!(await ensureAiForTool(token, chatId))) return "handled-fallback";
+
+  await sendTyping(token, chatId);
+  try {
+    const result: DiagramStudioResult = await runDiagramStudio({
+      prompt: parsed.prompt,
+      type: parsed.type,
+      deadlineMs: Date.now() + DIAGRAM_DEADLINE_MS,
+    });
+    await sendTyping(token, chatId);
+    const sent = await sendDocumentWith(
+      token,
+      chatId,
+      diagramFileName(parsed.prompt),
+      result.code,
+      diagramCaption(result),
+      "text/plain; charset=utf-8"
+    );
+    return sent ? "handled-tool" : "handled-fallback";
+  } catch (e) {
+    const honest = e instanceof Error && e.message ? e.message : DIAGRAM_ERROR_TEXT;
+    await sendMessageText(token, chatId, honest);
+    return "handled-fallback";
+  }
+}
+
+export async function handleTranslateCommand(msg: TgMessage, token: string): Promise<PrivateChatOutcome> {
+  const chatId = msg.chat.id;
+  const rest = (msg.text ?? "").trim().replace(/^\/(ترجم|translate)(@\S+)?\s*/i, "");
+
+  const parsed = parseTranslateCommand(rest);
+  if (parsed.kind === "help") {
+    await sendMessageText(token, chatId, translateHelpText());
+    return "handled-command";
+  }
+  if (parsed.kind === "bad-prompt") {
+    await sendMessageText(token, chatId, promptLengthWhy(parsed.reason, TRANSLATE_PROMPT_MAX));
+    return "handled-fallback";
+  }
+
+  if (msg.from?.id) {
+    const limited = lightToolLimitCheck(msg.from.id);
+    if (limited) {
+      await sendMessageText(token, chatId, limited);
+      return "rate-limited";
+    }
+  }
+  if (!(await ensureAiForTool(token, chatId))) return "handled-fallback";
+
+  await sendTyping(token, chatId);
+  try {
+    const r = await runTranslateStudio(parsed.text, parsed.target);
+    const sent = await sendMessageText(token, chatId, r.translation);
+    return sent ? "handled-tool" : "handled-fallback";
+  } catch {
+    await sendMessageText(token, chatId, TRANSLATE_ERROR_TEXT);
+    return "handled-fallback";
+  }
+}
+
+export async function handleAnalyzeCommand(msg: TgMessage, token: string): Promise<PrivateChatOutcome> {
+  const chatId = msg.chat.id;
+  const rest = (msg.text ?? "").trim().replace(/^\/(تحليل|analyze)(@\S+)?\s*/i, "");
+
+  const parsed = parseAnalyzeCommand(rest);
+  if (parsed.kind === "help") {
+    await sendMessageText(token, chatId, analyzeHelpText());
+    return "handled-command";
+  }
+  if (parsed.kind === "bad-prompt") {
+    await sendMessageText(token, chatId, promptLengthWhy(parsed.reason, ANALYZE_PROMPT_MAX));
+    return "handled-fallback";
+  }
+
+  if (msg.from?.id) {
+    const limited = lightToolLimitCheck(msg.from.id);
+    if (limited) {
+      await sendMessageText(token, chatId, limited);
+      return "rate-limited";
+    }
+  }
+  if (!(await ensureAiForTool(token, chatId))) return "handled-fallback";
+
+  await sendTyping(token, chatId);
+  try {
+    const r = await runAnalyzeStudio(parsed.text);
+    const sent = await sendMessageText(token, chatId, r.analysis);
+    return sent ? "handled-tool" : "handled-fallback";
+  } catch {
+    await sendMessageText(token, chatId, ANALYZE_ERROR_TEXT);
+    return "handled-fallback";
+  }
+}
+
+export async function handleDetectCommand(msg: TgMessage, token: string): Promise<PrivateChatOutcome> {
+  const chatId = msg.chat.id;
+  const rest = (msg.text ?? "").trim().replace(/^\/(كشف|detect|scan)(@\S+)?\s*/i, "");
+
+  const parsed = parseDetectCommand(rest);
+  if (parsed.kind === "help") {
+    await sendMessageText(token, chatId, detectHelpText());
+    return "handled-command";
+  }
+  if (parsed.kind === "bad-prompt") {
+    const why =
+      parsed.reason === "short"
+        ? "النص أقصر من ١٢٠ حرفاً — النص القصير لا يحمل إشارات كافية، والحكم بلا إشارات ظنٌّ لا تحليل. أرسل نصاً أطول."
+        : `النص طويل جداً — الخلاصة أصدق من الإحالة: اكتب الجوهر في ${DETECT_PROMPT_MAX} حرفاً كحد أقصى.`;
+    await sendMessageText(token, chatId, why);
+    return "handled-fallback";
+  }
+
+  if (msg.from?.id) {
+    const limited = lightToolLimitCheck(msg.from.id);
+    if (limited) {
+      await sendMessageText(token, chatId, limited);
+      return "rate-limited";
+    }
+  }
+  if (!(await ensureAiForTool(token, chatId))) return "handled-fallback";
+
+  await sendTyping(token, chatId);
+  try {
+    const r = await runDetectStudio(parsed.text);
+    const sent = await sendMessageText(token, chatId, formatDetectMessage(r.verdict));
+    return sent ? "handled-tool" : "handled-fallback";
+  } catch (e) {
+    const honest = e instanceof Error && e.message ? e.message : DETECT_ERROR_TEXT;
+    await sendMessageText(token, chatId, honest);
+    return "handled-fallback";
+  }
+}
+
+export async function handleReviewCommand(msg: TgMessage, token: string): Promise<PrivateChatOutcome> {
+  const chatId = msg.chat.id;
+  const rest = (msg.text ?? "").trim().replace(/^\/(مراجعة|review)(@\S+)?\s*/i, "");
+
+  const parsed = parseReviewCommand(rest);
+  if (parsed.kind === "help") {
+    await sendMessageText(token, chatId, reviewHelpText());
+    return "handled-command";
+  }
+  if (parsed.kind === "bad-prompt") {
+    await sendMessageText(token, chatId, promptLengthWhy(parsed.reason, REVIEW_PROMPT_MAX));
+    return "handled-fallback";
+  }
+
+  // حرس المالك الأمني — قبل أي مزوّد وقبل احتساب أي حصة
+  const refused = studyGuard(parsed.code + " " + parsed.note);
+  if (refused) {
+    await sendMessageText(token, chatId, refused);
+    return "handled-fallback";
+  }
+
+  if (msg.from?.id) {
+    const limited = lightToolLimitCheck(msg.from.id);
+    if (limited) {
+      await sendMessageText(token, chatId, limited);
+      return "rate-limited";
+    }
+  }
+  if (!(await ensureAiForTool(token, chatId))) return "handled-fallback";
+
+  await sendTyping(token, chatId);
+  try {
+    const r = await runReviewStudio(parsed.code, parsed.note);
+    const sent = await sendMessageText(token, chatId, r.review);
+    return sent ? "handled-tool" : "handled-fallback";
+  } catch {
+    await sendMessageText(token, chatId, REVIEW_ERROR_TEXT);
+    return "handled-fallback";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main entry — called by processTelegramUpdate for chat.type === "private"
 // ---------------------------------------------------------------------------
 
@@ -527,6 +850,7 @@ export type PrivateChatOutcome =
   | "handled-command"
   | "handled-ai"
   | "handled-html"
+  | "handled-tool"
   | "handled-classify"
   | "handled-fallback"
   | "rate-limited"
@@ -551,6 +875,23 @@ export async function handlePrivateMessage(msg: TgMessage, token: string): Promi
     if (command === "/html") {
       // الاستوديو يفحص حرسه وحصّته بنفسه (قبل حدود الدردشة العامة)
       return await handleHtmlCommand(msg, token);
+    }
+    // الأدوات الدراسية (r86) — كل أداة تفحص حرسها وحصّتها بنفسها
+    // (قبل حدود الدردشة العامة) مثل /html تماماً.
+    if (command === "/مخطط" || command === "/diagram") {
+      return await handleDiagramCommand(msg, token);
+    }
+    if (command === "/ترجم" || command === "/translate") {
+      return await handleTranslateCommand(msg, token);
+    }
+    if (command === "/تحليل" || command === "/analyze") {
+      return await handleAnalyzeCommand(msg, token);
+    }
+    if (command === "/كشف" || command === "/detect" || command === "/scan") {
+      return await handleDetectCommand(msg, token);
+    }
+    if (command === "/مراجعة" || command === "/review") {
+      return await handleReviewCommand(msg, token);
     }
 
     // 2) حدود الاستخدام (أفضل جهد — لكل نسخة خادم)

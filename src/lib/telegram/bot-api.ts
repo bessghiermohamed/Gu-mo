@@ -160,14 +160,15 @@ export async function sendDocumentWith(
   chatId: number,
   fileName: string,
   content: string | Uint8Array,
-  caption?: string
+  caption?: string,
+  mime = "text/html; charset=utf-8"
 ): Promise<boolean> {
   if (!token) return false;
   try {
     const form = new FormData();
     form.append("chat_id", String(chatId));
     if (caption && caption.trim()) form.append("caption", caption.trim().slice(0, 1024));
-    const blob = new Blob([content as BlobPart], { type: "text/html; charset=utf-8" });
+    const blob = new Blob([content as BlobPart], { type: mime });
     form.append("document", blob, fileName);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);

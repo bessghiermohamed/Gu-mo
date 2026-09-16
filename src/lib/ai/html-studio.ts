@@ -220,13 +220,19 @@ const CREDENTIAL_PAGE_RE =
 /** يرجّع رسالة الرفض إن كان الطلب يحاول أداة لالتقاط أسرار، أو null إن سلم. */
 export function credentialsGuard(prompt: string): string | null {
   const p = prompt ?? "";
-  if (HARVEST_RE.test(p) || CREDENTIAL_PAGE_RE.test(p)) {
+  if (isHarvestOrPhish(p)) {
     return "لا أستطيع بناء صفحة تجمع كلمات المرور أو بيانات البطاقات أو المفاتيح — هذا خارج حدودي الأمنية مهما كان الغرض. اعرض لي موضوعاً دراسياً وسأبني لك صفحة نظيفة له.";
   }
-  if (PHISHING_RE.test(p)) {
-    return "طلب صفحة تصيّد أو تسجيل دخول مزيف مرفوض نهائياً. إن كنت تدرس أمن المعلومات فاطلب مثلاً: «صفحة تشرح كيف يكتشف الطالب مواقع التصيّد» — وسأبنيها لك بكل سرور.";
-  }
   return null;
+}
+
+/**
+ * منطق الحرس بلا رسالة — للأدوات الأخرى (r86) التي تحتاج الحد نفسه
+ * برسالة تناسب سياقها. صحيح = الطلب يحاول حصاد أسرار أو تصيّداً.
+ */
+export function isHarvestOrPhish(prompt: string): boolean {
+  const p = prompt ?? "";
+  return HARVEST_RE.test(p) || PHISHING_RE.test(p) || CREDENTIAL_PAGE_RE.test(p);
 }
 
 // ---------------------------------------------------------------------------
