@@ -39,6 +39,7 @@ import {
   ImageDown,
   Images,
   MessageCircle,
+  NotebookPen,
   ScanText,
   Scissors,
   Search,
@@ -62,6 +63,7 @@ import { StudyTimerTool } from "./study-timer-tool";
 import { CompressImageTool } from "./compress-image-tool";
 import { OcrTool } from "./ocr-tool";
 import { AiAssistantTool } from "./ai-assistant-tool";
+import { NotebookTool } from "./notebook-tool";
 
 type ToolId =
   | "gpa"
@@ -73,7 +75,8 @@ type ToolId =
   | "timer"
   | "compress-img"
   | "ocr"
-  | "ai";
+  | "ai"
+  | "notebook";
 
 type ToolCategory = "pdf" | "study" | "image";
 
@@ -222,16 +225,21 @@ export function ToolsTab() {
   if (activeTool === "ai") {
     return <AiAssistantTool onBack={() => setActiveTool(null)} />;
   }
+  if (activeTool === "notebook") {
+    return <NotebookTool onBack={() => setActiveTool(null)} />;
+  }
 
   const q = normalizeArabic(query);
   const matchesAI = !q || normalizeArabic("المساعد الذكي محادثة دراسية بالعربية يلخص ويشرح ويختبرك").includes(q);
+  const matchesNotebook =
+    !q || normalizeArabic("دفتر طالب مصادر ملخص صوتي اختبار بطاقات خريطة ذهنية خط زمني دراسة استرجاع NotebookLM").includes(q);
   const ai = TOOLS.find((t) => t.ai)!;
   const gridTools = GRID_TOOLS.filter((t) => {
     const inCategory = category === "all" || t.category === category;
     const matches = !q || normalizeArabic(`${t.title} ${t.desc}`).includes(q);
     return inCategory && matches;
   });
-  const noResults = !matchesAI && gridTools.length === 0;
+  const noResults = !matchesAI && !matchesNotebook && gridTools.length === 0;
 
   return (
     <div className="space-y-4">
@@ -387,6 +395,55 @@ export function ToolsTab() {
                     </div>
                     <div className="w-fit max-w-full ms-auto rounded-2xl rounded-tl-md bg-white/90 text-violet-900 px-3 py-1.5 text-[11px] leading-relaxed">
                       بالتأكيد — السباتة أسبوع واحد من كل سنة، أما العطلة الصيفية فتمتد شهرين…
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </motion.button>
+          )}
+
+          {matchesNotebook && (
+            <motion.button
+              key="notebook"
+              initial={false}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.25 }}
+              onClick={() => setActiveTool("notebook")}
+              className="group w-full text-right cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-label="دفتر طالب — افتح دفترك الدراسي"
+            >
+              <Card className="relative overflow-hidden p-0 border-0 bg-gradient-to-l from-emerald-600 via-emerald-500 to-teal-500 text-white shadow-md transition-shadow duration-200 hover:shadow-lg">
+                <NotebookPen
+                  aria-hidden="true"
+                  className="absolute -bottom-7 -left-6 w-32 h-32 text-white/10 -rotate-12 pointer-events-none"
+                />
+                <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-white/10 to-transparent pointer-events-none" />
+                <div className="relative p-4 space-y-3">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/25">
+                      <NotebookPen className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-black text-[15px]">دفتر طالب</h3>
+                        <Badge className="text-[10px] px-1.5 py-0 bg-white/20 text-white border-0">جديد</Badge>
+                      </div>
+                      <p className="text-xs text-white/85 mt-0.5 leading-relaxed">
+                        حوّل دروسك إلى مساعد شخصي — أضف مصادرك ثم لخّص، اختبر نفسك، واسمع ملخصاً صوتياً
+                      </p>
+                    </div>
+                    <span className="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-white/20 text-white text-xs font-bold backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/30">
+                      افتح الدفتر
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                  {/* mini notebook preview — مصدر ← جواب موثّق */}
+                  <div className="space-y-1.5 max-w-[85%] mx-1">
+                    <div className="w-fit max-w-full rounded-2xl rounded-tr-md bg-white/15 backdrop-blur-sm px-3 py-1.5 text-[11px] text-white/90 leading-relaxed">
+                      من ملخص المحاضرة: ما الفرق بين السباتة والعطلة؟
+                    </div>
+                    <div className="w-fit max-w-full ms-auto rounded-2xl rounded-tl-md bg-white/90 text-emerald-900 px-3 py-1.5 text-[11px] leading-relaxed">
+                      حسب مصادرك [م1]: السباتة أسبوع واحد كل سنة، أما العطلة فشهران…
                     </div>
                   </div>
                 </div>
