@@ -68,12 +68,24 @@ function chainFor(provider: ImageProviderId): string[] {
   const override = (name: string) => process.env[name]?.trim() || "";
   if (provider === "gemini") {
     const m = override("GEMINI_IMAGE_MODEL");
-    // r83b: production probe showed the owner's key 404s on the 2.5/2.0 image
-    // names — its verified text model is 3.5-flash (r71), so the current-gen
-    // image name leads; old names stay as fallbacks. 404 falls through cheaply.
+    // r83c: production probes showed the owner's restricted key 404s on the
+    // 2.5/2.0 image names (its verified text model is 3.5-flash, r71/r44).
+    // The chain now covers every plausible current-gen name: the dedicated
+    // image models, the base model with IMAGE modality (some keys allow
+    // image output from the general model), and the Imagen line (different
+    // API shape — see imagenImage). 404/400 falls through cheaply (~0.7s
+    // per hop) and the honest owner hint remains the last resort.
     return m
       ? [m]
-      : ["gemini-3.5-flash-image", "gemini-2.5-flash-image", "gemini-2.0-flash-exp-image-generation"];
+      : [
+          "gemini-3.5-flash-image",
+          "gemini-3.5-flash",
+          "gemini-3.5-flash-image-preview",
+          "imagen-4.0-generate-001",
+          "imagen-3.0-generate-002",
+          "gemini-2.5-flash-image",
+          "gemini-2.0-flash-exp-image-generation",
+        ];
   }
   const m = override("XAI_IMAGE_MODEL");
   return m ? [m] : ["grok-2-image-1212", "grok-2-image"];
@@ -149,11 +161,45 @@ async function geminiImage(
     signal: AbortSignal.timeout(90_000),
   });
   if (!res.ok) throw await fetchError("gemini", res);
-  const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: GeminiPart[] } }> };
+  const data = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: GeminiPart[] }; finishReason?: string }>;
+    promptFeedback?: { blockReason?: string };
+  };
+  // Honest refusal — safety block on the request or the candidate.
+  if (data.promptFeedback?.blockReason || data.candidates?.[0]?.finishReason === "SAFETY") {
+    throw new ProviderError("empty", "gemini", 200, `blocked: ${data.promptFeedback?.blockReason ?? "SAFETY"}`);
+  }
   const parts = data.candidates?.[0]?.content?.parts ?? [];
   const imagePart = parts.find((p) => p.inlineData?.data);
-  if (!imagePart?.inlineData?.data) throw new ProviderError("empty", "gemini", 200, "no inlineData part");
+  // r83c: a 200 with TEXT-only parts means this model can't emit images
+  // (e.g. the base 3.5-flash) — that's a wrong-model signal ("model"),
+  // NOT a safety refusal, so the chain falls through instead of stopping.
+  if (!imagePart?.inlineData?.data) {
+    throw new ProviderError("model", "gemini", 200, "no inlineData part (text-only response)");
+  }
   return imagePart.inlineData.data;
+}
+
+// ---------------------------------------------------------------------------
+// Imagen call — different API shape (:predict with instances/parameters)
+// ---------------------------------------------------------------------------
+
+async function imagenImage(key: string, model: string, prompt: string, aspect: ImageAspect): Promise<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${key}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      instances: [{ prompt }],
+      parameters: { sampleCount: 1, aspectRatio: aspect },
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!res.ok) throw await fetchError("gemini", res);
+  const data = (await res.json()) as { predictions?: Array<{ bytesBase64Encoded?: string }> };
+  const b64 = data.predictions?.[0]?.bytesBase64Encoded;
+  if (!b64) throw new ProviderError("empty", "gemini", 200, "no prediction bytes");
+  return b64;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,20 +255,25 @@ export async function generateImage(
     try {
       let b64: string;
       if (attempt.provider === "gemini") {
-        try {
-          b64 = await geminiImage(attempt.key, attempt.model, prompt, aspect, true);
-        } catch (err) {
-          // Older Gemini image models 400 on imageConfig — retry once without it.
-          if (
-            err instanceof ProviderError &&
-            err.kind === "model" &&
-            !aspectStripped &&
-            aspect !== "1:1"
-          ) {
-            aspectStripped = true;
-            b64 = await geminiImage(attempt.key, attempt.model, prompt, aspect, false);
-          } else {
-            throw err;
+        if (attempt.model.startsWith("imagen")) {
+          // Imagen line — :predict API shape, aspect always supported.
+          b64 = await imagenImage(attempt.key, attempt.model, prompt, aspect);
+        } else {
+          try {
+            b64 = await geminiImage(attempt.key, attempt.model, prompt, aspect, true);
+          } catch (err) {
+            // Older Gemini image models 400 on imageConfig — retry once without it.
+            if (
+              err instanceof ProviderError &&
+              err.kind === "model" &&
+              !aspectStripped &&
+              aspect !== "1:1"
+            ) {
+              aspectStripped = true;
+              b64 = await geminiImage(attempt.key, attempt.model, prompt, aspect, false);
+            } else {
+              throw err;
+            }
           }
         }
       } else {
