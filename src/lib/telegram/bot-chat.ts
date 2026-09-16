@@ -1,12 +1,18 @@
 /**
- * Bot brain (round 62, r81 knowledge refresh) — «بوت الترتيب الذكي».
+ * Bot brain (round 62, r81 knowledge refresh, r85 html studio) — «بوت الترتيب الذكي».
  *
  * When someone messages the bot PRIVATELY (@gu_mo_bot), the bot:
  *   1. /start / /help → welcome & guide (no AI needed).
- *   2. Text → a real THINKING answer via the same provider chain as the
+ *   2. /html → the HTML studio (r85): a complete Arabic RTL page from a
+ *      short description via the two-pass generate-critique pipeline —
+ *      four archetypes × five critique dimensions, one refine round max,
+ *      delivered as an .html document. Own quotas (20s gap, 8/day),
+ *      owner's credentials/phishing guard BEFORE any provider call,
+ *      zero storage.
+ *   3. Text → a real THINKING answer via the same provider chain as the
  *      in-app assistant (lib/ai/providers — Groq → Gemini → xAI chain),
  *      with short conversation memory per chat.
- *   3. File/photo/video → the bot SORTS it: classifies the content into
+ *   4. File/photo/video → the bot SORTS it: classifies the content into
  *      the academic item types (محاضرة/امتحان/تمارين…) with a clean
  *      Arabic title — same classifier the channel pipeline uses, vision
  *      OCR included for photos. Nothing is stored: classification only.
@@ -25,8 +31,8 @@
  * NEVER logged to the DB — the conversation lives in memory for this
  * process only (same stance as the in-app assistant).
  *
- * PURITY: imports only pure modules (bot-api / classify / providers) —
- * unit-testable with bun + patched fetch, outside Next.js.
+ * PURITY: imports only pure modules (bot-api / classify / providers /
+ * html-studio) — unit-testable with bun + patched fetch, outside Next.js.
  *
  * Never throws; failures degrade to a friendly fallback message.
  */
@@ -34,7 +40,23 @@
 import { classifyItem } from "./classify";
 import { isAiConfigured, chatComplete, type ChatMessage } from "@/lib/ai/providers";
 import { freshnessBlock } from "@/lib/ai/knowledge";
-import { sendMessageText, sendMessageReply, sendTyping, downloadFileBase64With } from "./bot-api";
+import {
+  parseHtmlCommand,
+  credentialsGuard,
+  runHtmlStudio,
+  htmlHelpText,
+  htmlCaption,
+  HTML_ERROR_TEXT,
+  HTML_PROMPT_MAX,
+  type HtmlStudioResult,
+} from "@/lib/ai/html-studio";
+import {
+  sendMessageText,
+  sendMessageReply,
+  sendTyping,
+  sendDocumentWith,
+  downloadFileBase64With,
+} from "./bot-api";
 import type { TgMessage } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -92,6 +114,7 @@ const WELCOME_TEXT = [
   "",
   "ماذا أستطيع أن أفعل من أجلك؟",
   "• أجيب عن أسئلتك الدراسية والعلمية — اكتب سؤالك مباشرة وسأفكّر فيه وأجيبك.",
+  "• أبني لك صفحة ويب عربية كاملة من وصف قصير: اكتب /html لترى كيف.",
   "• أرسل لي ملفاً أو صورة (درس، تمرين، امتحان…) وسأخبرك بنوعه وعنوانه المناسب — هذا «الترتيب الذكي» نفسه الذي أستعمله في قنوات المنصة.",
   "• في القنوات الجامعية المرتبطة بالمنصة أرتّب المنشورات تلقائياً (محاضرات، تمارين، امتحانات…) داخل تطبيق طالب.",
   "",
@@ -103,6 +126,7 @@ const HELP_TEXT = [
   "كيف تستعمل البوت؟",
   "",
   "• سؤال دراسي؟ اكتبه مباشرة (بالعربية أو الفرنسية) وسأجيبك خطوة بخطوة.",
+  "• صفحة ويب جاهزة (بطاقة مراجعة، صفحة درس، ملخص امتحان…)؟ اكتب /html مع وصف مختصر — أستطيع أيضاً ضبط النمط، وسيعرض /html لك كل الأنماط.",
   "• ملف أو صورة ولا تعرف ما هي بالضبط؟ أرسلها وسأصنّفها: محاضرة، أعمال موجهة TD، تمارين، امتحان، ملخص، كتاب… مع عنوان مقترح.",
   "• لسماع المنشورات المرتبة في قنواتك الجامعية: افتح تطبيق طالب ← دروس تيليجرام.",
   "",
@@ -131,6 +155,41 @@ const DAILY_CAP = 40; // رسائل الذكاء الاصطناعي لكل مس�
 const MEMORY_TTL_MS = 30 * 60 * 1000; // ذاكرة المحادثة: ٣٠ دقيقة
 const MEMORY_TURNS = 8; // آخر ٨ أدوار تُرسل كسياق
 const MAX_CHATS = 2000;
+
+// استوديو HTML (r85): كل طلب صفحة = ٢ إلى ٤ نداءات مزوّد — أثقل بكثير من
+// رسالة دردشة، فلحدود مستقلة تليق بذلك: فاصل ٢٠ ثانية وسقف ٨ صفحات يومياً.
+const HTML_GAP_MS = 20_000;
+const HTML_DAILY_CAP = 8;
+const htmlUsers = new Map<number, { last: number; day: string; count: number }>();
+
+const HTML_GAP_TEXT = "انتظر ~٢٠ ثانية بين كل صفحة وأخرى — بناء الصفحة ونقدها يحتاج وقتاً وحصة أثقل من الدردشة.";
+const HTML_DAILY_TEXT = "وصلت إلى حد الصفحات اليومي (٨) — عُد غداً أو استعمل النتائج التي بناها لك اليوم.";
+
+function htmlLimitCheck(userId: number): string | null {
+  const now = Date.now();
+  const day = dayStamp();
+  const rec = htmlUsers.get(userId) ?? { last: 0, day, count: 0 };
+  if (rec.day !== day) {
+    rec.day = day;
+    rec.count = 0;
+  }
+  const gapOk = now - rec.last >= HTML_GAP_MS;
+  rec.count += 1;
+  rec.last = now;
+  htmlUsers.set(userId, rec);
+  if (rec.count > HTML_DAILY_CAP) return HTML_DAILY_TEXT;
+  if (gapOk) return null;
+  return HTML_GAP_TEXT;
+}
+
+function safeFileName(title: string): string {
+  const base = (title || "talib-page")
+    .replace(/[\\/:*?"<>|]+/g, " ")
+    .replace(/\s+/g, "-")
+    .slice(0, 48)
+    .replace(/^-+|-+$/g, "");
+  return `${base || "talib-page"}.html`;
+}
 
 const users = new Map<number, { last: number; lastNotice: number; day: string; count: number }>();
 const chats = new Map<number, { messages: ChatMessage[]; at: number }>();
@@ -388,12 +447,86 @@ export async function handleGroupMessage(
 }
 
 // ---------------------------------------------------------------------------
+// استوديو HTML (r85) — أمر /html في المحادثة الخاصة
+//
+// خط الممرّين نفسه الذي يعرضه مولّد HTML في منصات التوليد (توليد تحت قيود
+// نمط ← نقد خماسي الأبعاد ← تحسين واحد كحد أقصى) — بمفاتيح المنصة نفسها
+// وسلسلة المزوّدين نفسها، بلا أي خدمة خارجية ولا أي تخزين. ميزانية وقت
+// صارمة (٥٢ ثانية) لتبقى داخل سقف الدالة (٦٠ ث) حتى مع جولة التحسين.
+// ---------------------------------------------------------------------------
+
+const HTML_DEADLINE_MS = 52_000;
+
+export async function handleHtmlCommand(msg: TgMessage, token: string): Promise<PrivateChatOutcome> {
+  const chatId = msg.chat.id;
+  const rest = (msg.text ?? "").trim().replace(/^\/html(@\S+)?\s*/i, "");
+
+  const parsed = parseHtmlCommand(rest);
+  if (parsed.kind === "help") {
+    await sendMessageText(token, chatId, htmlHelpText());
+    return "handled-command";
+  }
+  if (parsed.kind === "bad-prompt") {
+    const why =
+      parsed.reason === "short"
+        ? "الوصف قصير جداً — اكتب جملة أو أكثر تشرح ماذا تريد في الصفحة."
+        : `الوصف طويل جداً — الخلاصة أصدق من الإحالة: اكتب الجوهر في ${HTML_PROMPT_MAX} حرفاً كحد أقصى.`;
+    await sendMessageText(token, chatId, why);
+    return "handled-fallback";
+  }
+
+  // حرس المالك الأمني — قبل أي مزوّد وقبل احتساب أي حصة
+  const refused = credentialsGuard(parsed.prompt);
+  if (refused) {
+    await sendMessageText(token, chatId, refused);
+    return "handled-fallback";
+  }
+
+  // حدود الاستخدام الخاصة بالاستوديو (غير حدود الدردشة)
+  if (msg.from?.id) {
+    const limited = htmlLimitCheck(msg.from.id);
+    if (limited) {
+      await sendMessageText(token, chatId, limited);
+      return "rate-limited";
+    }
+  }
+
+  if (!isAiConfigured()) {
+    await sendMessageText(token, chatId, AI_FALLBACK_TEXT);
+    return "handled-fallback";
+  }
+
+  await sendTyping(token, chatId);
+  try {
+    const result: HtmlStudioResult = await runHtmlStudio({
+      prompt: parsed.prompt,
+      archetype: parsed.archetype,
+      deadlineMs: Date.now() + HTML_DEADLINE_MS,
+    });
+    await sendTyping(token, chatId);
+    const sent = await sendDocumentWith(
+      token,
+      chatId,
+      safeFileName(result.title),
+      result.html,
+      htmlCaption(result)
+    );
+    return sent ? "handled-html" : "handled-fallback";
+  } catch (e) {
+    const honest = e instanceof Error && e.message ? e.message : HTML_ERROR_TEXT;
+    await sendMessageText(token, chatId, honest);
+    return "handled-fallback";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main entry — called by processTelegramUpdate for chat.type === "private"
 // ---------------------------------------------------------------------------
 
 export type PrivateChatOutcome =
   | "handled-command"
   | "handled-ai"
+  | "handled-html"
   | "handled-classify"
   | "handled-fallback"
   | "rate-limited"
@@ -414,6 +547,10 @@ export async function handlePrivateMessage(msg: TgMessage, token: string): Promi
     if (command === "/help") {
       await sendMessageText(token, chatId, HELP_TEXT);
       return "handled-command";
+    }
+    if (command === "/html") {
+      // الاستوديو يفحص حرسه وحصّته بنفسه (قبل حدود الدردشة العامة)
+      return await handleHtmlCommand(msg, token);
     }
 
     // 2) حدود الاستخدام (أفضل جهد — لكل نسخة خادم)

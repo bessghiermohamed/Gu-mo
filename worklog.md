@@ -907,3 +907,18 @@ Stage Summary:
 - Production returned exactly to r82: no Image Studio card in أدواتي, no /api/ai/image, no image provider chain, r83 report/tests removed.
 - Zero data impact (the studio was no-persistence by design — nothing was ever stored).
 - Fully recoverable: git history keeps c2fde56..a2ff626; whenever an image-capable key is available the feature can be restored with a single revert-of-the-revert.
+
+---
+Task ID: r85
+Agent: main (Super Z, this session)
+Task: استوديو HTML في بوت طالب — /html يبني صفحة عربية كاملة من وصف قصير (خط توليد–نقد ذو ممرّين).
+
+Work Log:
+- انطلاقاً من حالة r82 (بعد تراجع r83 في r84 بطلب المالك): وحدة نقية جديدة src/lib/ai/html-studio.ts — 4 أنماط (بطاقة مراجعة/صفحة درس/ملخص امتحان/صفحة عرض) بلوحات ألوان وسلّم خطوط ومفردات مكوّنات صريحة، محلّل أمر بأول كلمة (عربي/لاتيني)، حرس أمني محلي قبل أي مزوّد (حصاد كلمات مرور/تصيّد → رفض)، ممرّ توليد بعقد مخرجات صارم (HTML واحد، RTL، Tailwind CDN، بلا صور/جافاسكربت خارجي/نماذج)، ممرّ نقد خماسي (خطوط/تنسيق/ألوان/أمانة/إتاحة) بتحسين واحد كحد أقصى، وميزانية وقت 52ث داخل سقف الويبهوك.
+- providers.ts: ChatCompleteOptions {maxTokens?, temperature?} اختيارية في chatComplete — الافتراضيات قيم المحادثة نفسها فلا يتغير سلوك قائم.
+- bot-api.ts: sendDocumentWith (multipart، مهلة 30ث، بلا رمي). bot-chat.ts: handleHtmlCommand بحدود مستقلة (20ث فاصل، 8 صفحات يومياً) وتذييل تسليم صادق (اجتاز النقد من أول جولة/بعد تحسين/النقد غير متاح).
+- scripts/r85-check.ts: 38/38 ببُنٍّ معقّم — المحلّل، الحرس (بأمثلة عربية طبيعية: «تجمع كلمات المرور»، «صفحة تسجيل دخول مزيفة»)، الاستخراج، الناقد، خط الأنابيب (PASS/REFINE→تحسين/فشل صادق)، والربط بالبوت (بلا مفاتيح → صفر نداءات). انحدار r81: 13/13.
+- tsc 0؛ eslint نظيف. تقرير: تقرير-الجولة-85.md.
+
+Stage Summary:
+- الطالب يستلم ملف .html كاملاً في المحادثة الخاصة بلا تخزين ولا خدمات خارجية — تقنيتا «النمط كتوليد مقيّد» و«التوليد–النقد» محليتان على مفاتيح المنصة. الحدود: 20ث/8 يومياً. الحرس الأمني يسبق أي مزوّد واحتساب أي حصة.

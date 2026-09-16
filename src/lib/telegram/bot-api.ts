@@ -149,6 +149,46 @@ export function splitForTelegram(text: string): string[] {
   return chunks;
 }
 
+/**
+ * إرسال ملف مستند (r85 — استوديو HTML): رفع multipart/form-data إلى
+ * sendDocument. تيليجرام يطلب حقل الملف باسم document داخل FormData —
+ * لا يمكن تمريره عبر telegramApi (JSON)، فلها مسار fetch مستقل بنفس
+ * العهد: نتيجة لا رمي، مهلة صريحة، ولا تسريب لوصف الأخطاء.
+ */
+export async function sendDocumentWith(
+  token: string,
+  chatId: number,
+  fileName: string,
+  content: string | Uint8Array,
+  caption?: string
+): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    if (caption && caption.trim()) form.append("caption", caption.trim().slice(0, 1024));
+    const blob = new Blob([content as BlobPart], { type: "text/html; charset=utf-8" });
+    form.append("document", blob, fileName);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    let ok = false;
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+        method: "POST",
+        body: form,
+        signal: controller.signal,
+      });
+      const data = (await res.json().catch(() => null)) as { ok?: boolean } | null;
+      ok = !!data?.ok;
+    } finally {
+      clearTimeout(timer);
+    }
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 /** تنزيل مؤقت لملف (لتحليل الصور فقط — لا يُخزَّن) */
 export async function downloadFileBase64With(
   token: string,

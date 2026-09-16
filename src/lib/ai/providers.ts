@@ -142,12 +142,25 @@ async function providerFetchError(provider: ProviderId, res: Response): Promise<
 
 const SYSTEM_TIMEOUT_MS = 45_000;
 
-function openAiBody(model: string, system: string, messages: ChatMessage[], stream: boolean) {
+/** خيارات لكل نداء — افتراضات المحادثة نفسها إن حُذفت (r85: مولّد HTML يحتاج
+ *  سقف مخرجات أعلى بكثير من دردشة 2048، والناقد يريد حرارة أثبت). */
+export interface ChatCompleteOptions {
+  maxTokens?: number;
+  temperature?: number;
+}
+
+function openAiBody(
+  model: string,
+  system: string,
+  messages: ChatMessage[],
+  stream: boolean,
+  opts?: ChatCompleteOptions
+) {
   return JSON.stringify({
     model,
     stream,
-    temperature: 0.5,
-    max_tokens: 2048,
+    temperature: opts?.temperature ?? 0.5,
+    max_tokens: opts?.maxTokens ?? 2048,
     messages: [{ role: "system", content: system }, ...messages],
   });
 }
@@ -156,12 +169,21 @@ function openAiBody(model: string, system: string, messages: ChatMessage[], stre
  *  returns empty answers unless thinking is disabled (same fix as classify.ts). */
 const GEMINI_THINKING_RE = /^gemini-2\.5/;
 
-function geminiBody(model: string, system: string, messages: ChatMessage[], stream: boolean) {
+function geminiBody(
+  model: string,
+  system: string,
+  messages: ChatMessage[],
+  stream: boolean,
+  opts?: ChatCompleteOptions
+) {
   const contents = messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
   }));
-  const generationConfig: Record<string, unknown> = { temperature: 0.5, maxOutputTokens: 8192 };
+  const generationConfig: Record<string, unknown> = {
+    temperature: opts?.temperature ?? 0.5,
+    maxOutputTokens: opts?.maxTokens ?? 8192,
+  };
   if (GEMINI_THINKING_RE.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
   return JSON.stringify({
     systemInstruction: { parts: [{ text: system }] },
@@ -348,11 +370,14 @@ export async function streamChat(
   throw lastError ?? new ProviderError("server", "unknown", 0, "no providers configured");
 }
 
-/** Non-streaming fallback — same chain, single JSON answer. */
+/** Non-streaming fallback — same chain, single JSON answer.
+ *  r85: opts (maxTokens/temperature) اختيارية للنداءات الخاصة كتوليد الصفحات
+ *  والنقد — افتراضياً تبقى قيم المحادثة نفسها فلا يتغير سلوك قائم. */
 export async function chatComplete(
   system: string,
   messages: ChatMessage[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  opts?: ChatCompleteOptions
 ): Promise<{ answer: string } & StreamResult> {
   const attempts = buildAttempts();
   let lastError: ProviderError | null = null;
@@ -366,7 +391,7 @@ export async function chatComplete(
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: geminiBody(attempt.model, system, messages, false),
+            body: geminiBody(attempt.model, system, messages, false, opts),
             signal: signal ?? AbortSignal.timeout(SYSTEM_TIMEOUT_MS),
           }
         );
@@ -388,7 +413,7 @@ export async function chatComplete(
       res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${attempt.key}` },
-        body: openAiBody(attempt.model, system, messages, false),
+        body: openAiBody(attempt.model, system, messages, false, opts),
         signal: signal ?? AbortSignal.timeout(SYSTEM_TIMEOUT_MS),
       });
       if (!res.ok) throw await providerFetchError(attempt.provider, res);
