@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Megaphone } from "lucide-react";
 import { ADSENSE_CLIENT } from "@/lib/ads";
+import { useAdsHostAllowed } from "./use-ads-host-allowed";
 
 declare global {
   interface Window {
@@ -53,6 +54,11 @@ type AdSlotProps = {
  * itself once filled.
  */
 export function AdSlot({ adSlot, adTest = false, showSlotId = false, className }: AdSlotProps) {
+  // r90 host gate — on Vercel preview/deployment URLs this renders NOTHING
+  // (no script, no container, no «إعلان» chip): ad requests must come from
+  // declared hosts only. Hooks stay unconditional; the early return sits
+  // AFTER every hook call so the hook order never changes between renders.
+  const adsAllowed = useAdsHostAllowed();
   const containerRef = useRef<HTMLDivElement>(null);
   const pushed = useRef(false);
   const [state, setState] = useState<AdState>("loading");
@@ -108,6 +114,8 @@ export function AdSlot({ adSlot, adTest = false, showSlotId = false, className }
       window.clearTimeout(timer);
     };
   }, []);
+
+  if (!adsAllowed) return null;
 
   const collapsed = state === "empty";
 

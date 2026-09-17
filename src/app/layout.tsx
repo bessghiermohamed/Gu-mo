@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Cairo, Geist, Geist_Mono } from "next/font/google";
@@ -12,9 +11,13 @@ import { ThemeProvider } from "@/components/talib/theme-provider";
 import { I18nProvider } from "@/components/talib/i18n-provider";
 import { ADSENSE_CLIENT } from "@/lib/ads";
 import { SITE_URL } from "@/lib/site";
-// AdSense loader is global (afterInteractive, non-blocking) — publisher id in
-// src/lib/ads.ts, verified via public/ads.txt. NOTE: browser-only; if Talib is
-// ever wrapped in an APK/WebView (TWA), switch to AdMob or risk account ban.
+import { AdsenseGate } from "@/components/ads/adsense-gate";
+// AdSense loader moved behind the r90 honest-declarations host gate
+// (<AdsenseGate /> — src/components/ads/adsense-gate.tsx): the script now
+// loads ONLY on hosts the AdSense account declares, never on Vercel
+// per-deployment/preview URLs. Publisher id in src/lib/ads.ts, verified via
+// public/ads.txt. NOTE: browser-only; if Talib is ever wrapped in an
+// APK/WebView (TWA), switch to AdMob or risk account ban.
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -72,12 +75,7 @@ export default function RootLayout({
         >
           <I18nProvider>{children}</I18nProvider>
         </ThemeProvider>
-        <Script
-          id="google-adsense"
-          src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`}
-          crossOrigin="anonymous"
-          strategy="afterInteractive"
-        />
+        <AdsenseGate />
         {/* Vercel native add-ons: Web Analytics (audience, referrers, paths) +
             Speed Insights (Core Web Vitals — page-experience signal for
             AdSense). Both defer to Vercel's edge, zero config, Hobby-free. */}
