@@ -33,6 +33,8 @@ import { Progress } from "@/components/ui/progress";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
+import { useAuth } from "@/components/talib/auth-provider";
+import { canUploadContent } from "@/lib/auth/permissions";
 import {
   DriveError, ensureDriveToken, findOrCreateCourseFolder,
   findOrCreateDriveFolder, findOrCreateLibraryFolder, getDriveShareLinks,
@@ -115,6 +117,12 @@ export function PublishToLibraryDialog({
   courseName?: string | null;
 }) {
   const [open, setOpen] = React.useState(false);
+  // round 93 (طلب المالك: «تمكين الطلبة من رفع الملفات لكن تتم مراجعتها
+  // من طرف المشرف أولاً») — the SAME dialog serves students: their row
+  // lands as «pending» server-side and only reaches other students after
+  // a supervisor approves it. The copy below reflects that honestly.
+  const { user } = useAuth();
+  const needsReview = !!user && !canUploadContent(user);
   // round 38: default to the REAL upload (رفع ملف إلى Drive) — the link
   // form used to open first and read as «the app stores files itself».
   const [mode, setMode] = React.useState<"link" | "upload">("upload");
@@ -155,19 +163,20 @@ export function PublishToLibraryDialog({
           </Button>
         </div>
         {mode === "link"
-          ? <LinkMode onDone={close} onSwitchToUpload={() => setMode("upload")} defaultCategory={defaultCategory} moduleId={moduleId} />
-          : <UploadMode onDone={close} onSwitchToLink={() => setMode("link")} defaultCategory={defaultCategory} moduleId={moduleId} courseName={courseName} />}
+          ? <LinkMode onDone={close} onSwitchToUpload={() => setMode("upload")} defaultCategory={defaultCategory} moduleId={moduleId} needsReview={needsReview} />
+          : <UploadMode onDone={close} onSwitchToLink={() => setMode("link")} defaultCategory={defaultCategory} moduleId={moduleId} courseName={courseName} needsReview={needsReview} />}
       </DialogContent>
     </Dialog>
   );
 }
 
-/** Original link-only form (fix ج). */
+/** Original link-only form (fix ج). round 93: needsReview switches the
+ *  copy + success toast to the supervisor-review contract. */
 function LinkMode({
-  onDone, onSwitchToUpload, defaultCategory, moduleId,
+  onDone, onSwitchToUpload, defaultCategory, moduleId, needsReview,
 }: {
   onDone: () => void; onSwitchToUpload: () => void;
-  defaultCategory?: string; moduleId?: number | null;
+  defaultCategory?: string; moduleId?: number | null; needsReview?: boolean;
 }) {
   const [title, setTitle] = React.useState("");
   const [author, setAuthor] = React.useState("");
@@ -195,7 +204,11 @@ function LinkMode({
         if (data.needsSchema) { setNeedsSchemaSql(data.sql); return; }
         toast.error(data.error ?? "فشل الحفظ"); return;
       }
-      toast.success(moduleId ? "تمت إضافة المادة للمقياس" : "تمت إضافة الملف للمكتبة");
+      toast.success(
+        needsReview
+          ? "أُرسل الملف — سيظهر للطلبة بعد موافقة المشرف عليه"
+          : moduleId ? "تمت إضافة المادة للمقياس" : "تمت إضافة الملف للمكتبة"
+      );
       onDone();
     } finally { setSaving(false); }
   }
@@ -210,6 +223,11 @@ function LinkMode({
 
   return (
     <div className="space-y-3 py-2">
+      {needsReview && (
+        <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 leading-relaxed">
+          ملفك سيُراجع من طرف المشرف أولاً — لن يراه الطلبة إلا بعد موافقته.
+        </p>
+      )}
       <div className="space-y-1.5">
         <Label htmlFor="libTitle">العنوان</Label>
         <Input id="libTitle" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: ملخص الأدب الجاهلي" />
@@ -266,12 +284,14 @@ function LinkMode({
 
 /** Publish a real file from the supervisor's own Google Drive (round 32).
  *  Round 41: course-scoped uploads go to the COURSE's own Drive folder
- *  «📘 {اسم المقياس}» — the Drive mirrors the app's structure. */
+ *  «📘 {اسم المقياس}» — the Drive mirrors the app's structure.
+ *  Round 93: students publish from THEIR OWN Drive the same way — the
+ *  row just waits for the supervisor's approval before it goes public. */
 function UploadMode({
-  onDone, onSwitchToLink, defaultCategory, moduleId, courseName,
+  onDone, onSwitchToLink, defaultCategory, moduleId, courseName, needsReview,
 }: {
   onDone: () => void; onSwitchToLink: () => void;
-  defaultCategory?: string; moduleId?: number | null; courseName?: string | null;
+  defaultCategory?: string; moduleId?: number | null; courseName?: string | null; needsReview?: boolean;
 }) {
   const hasClientId = getGoogleClientId() !== null;
   const isCourseScoped = moduleId != null && !!courseName?.trim();
@@ -353,9 +373,12 @@ function UploadMode({
       }
       // round 52: the success message follows the category — واجب/اختبار
       // files land in the course's own tabs, everything else in ملفاتي.
+      // round 93: a student's upload always waits for the supervisor.
       const cat = category.trim();
       toast.success(
-        isCourseScoped && cat === "واجب" ? `أُضيف ملف واجب إلى مقياس «${courseName!.trim()}» — في تبويب الواجبات ولدى كل الطلبة`
+        needsReview
+          ? `أُرسل «${title.trim()}» — سيظهر للطلبة بعد موافقة المشرف عليه`
+        : isCourseScoped && cat === "واجب" ? `أُضيف ملف واجب إلى مقياس «${courseName!.trim()}» — في تبويب الواجبات ولدى كل الطلبة`
         : isCourseScoped && cat === "اختبار" ? `أُضيف ملف اختبار إلى مقياس «${courseName!.trim()}» — في تبويب الاختبارات ولدى كل الطلبة`
         : isCourseScoped ? `أُضيف الملف إلى مقياس «${courseName!.trim()}» — في «ملفاتي» لدى كل الطلبة`
         : "تم نشر الملف في ملفات التخصص — أصبح متاحاً للطلبة للتنزيل"
@@ -437,6 +460,12 @@ function UploadMode({
         accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.webp"
         onChange={pickFile}
       />
+
+      {needsReview && (
+        <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 leading-relaxed">
+          ملفك سيُراجع من طرف المشرف أولاً — لن يراه الطلبة إلا بعد موافقته.
+        </p>
+      )}
 
       {/* round 52 — الحقول اليدوية أولاً ثم الملف: العنوان (حقل الكتابة)
           يأتي قبل بطاقة اختيار الملف/الصورة، فلا تستقبل النافذةُ المالكَ

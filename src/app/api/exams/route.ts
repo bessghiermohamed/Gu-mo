@@ -22,6 +22,22 @@ import { notifyContentPublished } from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
+/** round 93 — «سمّ الاختبارات»: a named kind for every assessment —
+ *  اختبار / اختبار قصير / عمل موجه. The column is optional at runtime:
+ *  until the owner runs this one-time SQL in Supabase, inserts PATCH to
+ *  the old shape and every row reads as «اختبار» (same degrade pattern
+ *  as module_id in the library API). */
+const EXAM_KIND_SQL =
+  "ALTER TABLE exams ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'اختبار';";
+
+function isMissingKindColumn(e: unknown): boolean {
+  const msg = String((e as Error)?.message ?? "");
+  return (
+    /\bkind\b/i.test(msg) &&
+    /no such column|Unknown argument|does not exist in the current database|Could not find the 'kind'|column/i.test(msg)
+  );
+}
+
 async function scopedModuleIds(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>> | null,
   specialtyId: number,
@@ -67,6 +83,8 @@ export async function GET() {
       const exams = (data ?? []).map((e: Record<string, unknown>) => ({
         id: Number(e.id), moduleId: Number(e.module_id ?? 0),
         moduleName: String(e.module_name ?? ""), title: String(e.title ?? ""),
+        // round 93 — named kind (missing column → pre-r93 rows = «اختبار»)
+        kind: String(e.kind ?? "اختبار"),
         examDate: String(e.exam_date ?? ""), time: String(e.time ?? ""),
         room: String(e.room ?? ""), coefficient: Number(e.coefficient ?? 2),
         isFinished: Boolean(e.is_finished ?? false),
@@ -86,6 +104,7 @@ export async function GET() {
     return NextResponse.json({
       exams: items.map((e) => ({
         id: e.id, moduleId: e.moduleId, moduleName: e.moduleName, title: e.title,
+        kind: e.kind ?? "اختبار",
         examDate: e.examDate, time: e.time, room: e.room,
         coefficient: e.coefficient, isFinished: e.isFinished,
       })),
@@ -102,10 +121,14 @@ export async function POST(req: NextRequest) {
   }
   try {
     const body = await req.json();
-    const { moduleId, title, examDate, time, room, coefficient } = body;
+    const { moduleId, title, kind, examDate, time, room, coefficient } = body;
     if (!moduleId || !title?.trim() || !examDate?.trim()) {
       return NextResponse.json({ error: "المقياس، العنوان، والتاريخ مطلوبة" }, { status: 400 });
     }
+    // round 93 — normalize the named kind; anything unknown falls back
+    const examKind = ["اختبار", "اختبار قصير", "عمل موجه"].includes(String(kind))
+      ? String(kind)
+      : "اختبار";
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       // verify the module is inside the caller's specialty scope
@@ -118,21 +141,42 @@ export async function POST(req: NextRequest) {
       if (Number(module.specialty_id) !== user.assignedSpecialtyId) {
         return NextResponse.json({ error: "هذا المقياس خارج نطاق تخصصك" }, { status: 403 });
       }
-      const { data, error } = await supabase.from("exams").insert({
-        module_id: moduleId, module_name: String(module.name ?? ""),
-        title: title.trim(), exam_date: examDate.trim(),
-        time: time?.trim() || "—", room: room?.trim() || "—",
-        coefficient: coefficient ?? 2,
-      }).select().single();
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      // round 93 — kind is optional at runtime: try WITH the named kind
+      // first; a pre-SQL database (column missing) falls back to the old
+      // shape and the row simply reads as «اختبار».
+      let data: Record<string, unknown> | null = null;
+      let error: { message: string } | null = null;
+      const attempts: Array<Record<string, unknown>> = [
+        { module_id: moduleId, module_name: String(module.name ?? ""),
+          title: title.trim(), kind: examKind, exam_date: examDate.trim(),
+          time: time?.trim() || "—", room: room?.trim() || "—",
+          coefficient: coefficient ?? 2 },
+        { module_id: moduleId, module_name: String(module.name ?? ""),
+          title: title.trim(), exam_date: examDate.trim(),
+          time: time?.trim() || "—", room: room?.trim() || "—",
+          coefficient: coefficient ?? 2 },
+      ];
+      for (const payload of attempts) {
+        const full = await supabase.from("exams").insert(payload).select().single();
+        if (!full.error) { data = full.data; break; }
+        error = full.error;
+        if (error && !isMissingKindColumn(error)) break; // real error — stop
+      }
+      if (!data) {
+        return NextResponse.json(
+          { error: error?.message ?? "فشل الحفظ — لنوع الاختبار نُفّذ تحديث قاعدة البيانات لمرة واحدة", needsSchema: true, sql: EXAM_KIND_SQL },
+          { status: 500 }
+        );
+      }
       // round 24: a scheduled exam announces itself to the students of
       // that specialty — exams are the highest-stakes content in the app.
+      // round 93 — the announcement names the KIND (a عمل موجه is not an اختبار)
       await notifyContentPublished({
         actorId: user.id,
         actorName: user.fullName,
         specialtyId: Number(module.specialty_id),
         type: "content_exam",
-        title: "اختبار جديد",
+        title: examKind === "عمل موجه" ? "عمل موجه جديد" : examKind === "اختبار قصير" ? "اختبار قصير جديد" : "اختبار جديد",
         body: `«${title.trim()}» في ${module.name} — ${examDate.trim()}${time?.trim() ? ` الساعة ${time.trim()}` : ""}`,
         meta: { examId: data?.id, moduleId: Number(moduleId), examDate: examDate.trim(), urgency: "هام" },
       });
@@ -146,6 +190,7 @@ export async function POST(req: NextRequest) {
     const exam = await db.exam.create({
       data: {
         moduleId, moduleName: courseModule.name, title: title.trim(),
+        kind: examKind,
         examDate: examDate.trim(), time: time?.trim() || "—",
         room: room?.trim() || "—", coefficient: coefficient ?? 2,
       },
@@ -155,7 +200,7 @@ export async function POST(req: NextRequest) {
       actorName: user.fullName,
       specialtyId: courseModule.specialtyId,
       type: "content_exam",
-      title: "اختبار جديد",
+      title: examKind === "عمل موجه" ? "عمل موجه جديد" : examKind === "اختبار قصير" ? "اختبار قصير جديد" : "اختبار جديد",
       body: `«${title.trim()}» في ${courseModule.name} — ${examDate.trim()}${time?.trim() ? ` الساعة ${time.trim()}` : ""}`,
       meta: { examId: exam.id, moduleId: Number(moduleId), examDate: examDate.trim(), urgency: "هام" },
     });
@@ -172,8 +217,12 @@ export async function PATCH(req: NextRequest) {
   }
   try {
     const body = await req.json();
-    const { id, moduleId, title, examDate, time, room, coefficient } = body;
+    const { id, moduleId, title, kind, examDate, time, room, coefficient } = body;
     if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+    // round 93 — normalize a kind edit when one is supplied
+    const examKind = kind !== undefined && ["اختبار", "اختبار قصير", "عمل موجه"].includes(String(kind))
+      ? String(kind)
+      : undefined;
 
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
@@ -213,12 +262,21 @@ export async function PATCH(req: NextRequest) {
       const patch: Record<string, unknown> = {};
       if (moduleId !== undefined && newModuleName !== null) { patch.module_id = Number(moduleId); patch.module_name = newModuleName; }
       if (t) patch.title = t;
+      if (examKind) patch.kind = examKind;
       if (d) patch.exam_date = d;
       if (time !== undefined) patch.time = time?.trim() || "—";
       if (room !== undefined) patch.room = room?.trim() || "—";
       if (coefficient !== undefined) patch.coefficient = coefficient ?? 2;
       if (Object.keys(patch).length === 0) return NextResponse.json({ error: "لا توجد تغييرات" }, { status: 400 });
-      const { data, error } = await supabase.from("exams").update(patch).eq("id", Number(id)).select().single();
+      let { data, error } = await supabase.from("exams").update(patch).eq("id", Number(id)).select().single();
+      // round 93 — a pre-SQL database lacks the kind column: retry the same
+      // patch without it so a kind-only edit degrades to a no-op, not a 500.
+      if (error && isMissingKindColumn(error)) {
+        const { kind: _k, ...patchWithoutKind } = patch;
+        void _k;
+        const retry = await supabase.from("exams").update(patchWithoutKind).eq("id", Number(id)).select().single();
+        data = retry.data; error = retry.error;
+      }
       if (error || !data) return NextResponse.json({ error: `فشل التحديث: ${error?.message ?? "خطأ"}` }, { status: 500 });
       // round 24: a changed exam date is news in itself — students who
       // already noted the old date must learn it moved.
@@ -260,6 +318,7 @@ export async function PATCH(req: NextRequest) {
       data: {
         ...(newModuleName !== null ? { moduleId: Number(moduleId), moduleName: newModuleName } : {}),
         ...(t ? { title: t } : {}),
+        ...(examKind ? { kind: examKind } : {}),
         ...(d ? { examDate: d } : {}),
         ...(time !== undefined ? { time: time?.trim() || "—" } : {}),
         ...(room !== undefined ? { room: room?.trim() || "—" } : {}),

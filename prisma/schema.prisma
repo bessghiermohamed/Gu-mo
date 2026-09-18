@@ -315,6 +315,10 @@ model Exam {
   moduleId        Int
   moduleName     String
   title          String
+  // round 93 — نوع الاختبار المُسمّى (طلب المالك: «سمّ الاختبارات»):
+  // اختبار | اختبار قصير | عمل موجه — rows created before this round
+  // default to «اختبار» so nothing breaks.
+  kind           String        @default("اختبار")
   examDate       String
   time           String
   room           String
@@ -446,6 +450,12 @@ model LibraryReference {
   // round 33 — المواد: optional course link; when set, the material shows
   // in that course's المواد tab (تفاصيل المقياس) as well as the library.
   moduleId        Int?
+
+  // round 93 — مراجعة المشرف: student uploads land as «pending» and stay
+  // invisible to other students until a supervisor approves them. Existing
+  // rows and supervisor uploads default to «approved» — zero migration pain.
+  reviewStatus    String   @default("approved") // approved | pending | rejected
+  uploaderId      Int?     // who added the row (own pending items stay visible to their uploader)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

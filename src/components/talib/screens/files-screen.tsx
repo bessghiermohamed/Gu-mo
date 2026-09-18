@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   BookMarked, Download, ExternalLink, HardDrive,
   Loader2, Pencil, Plus, StickyNote, Trash2, Search, CheckSquare,
-  FlaskConical, BookOpen, FileText, Dumbbell, Folder,
+  FlaskConical, BookOpen, FileText, Dumbbell, Folder, Clock, CheckCircle, XCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,9 @@ import { toast } from "sonner";
 // keeps only the metadata row — zero file bytes.
 // round 33: the dialog moved to cloud/publish-dialog.tsx (shared with the
 // course detail screen's new المواد tab — single source, no duplication).
+// round 93 (طلب المالك): EVERYONE can add files now — students' rows wait
+// for a supervisor's approval («بانتظار المراجعة») before anyone else sees
+// them, and supervisors get an inline review strip (approve/reject) here.
 
 interface Note {
   id: number;
@@ -58,6 +61,9 @@ interface LibraryItem {
   // too, badged with their course name and filterable by category.
   moduleId?: number | null;
   moduleName?: string | null;
+  // round 93 — supervisor review state of the file (student uploads)
+  reviewStatus?: string; // approved | pending | rejected
+  uploaderId?: number | null;
 }
 
 // round 52 — ثوابت التصنيف (مطابقة لنافذة الرفع) — الفلاتر تُبنى ديناميكياً
@@ -101,6 +107,32 @@ export function TalibFilesScreen() {
   const [deleteItem, setDeleteItem] = React.useState<LibraryItem | null>(null);
   const [deletingItem, setDeletingItem] = React.useState(false);
   const canManage = canManageRoles(user ?? null);
+
+  // round 93 — مراجعة ملفات الطلبة: supervisors review pending submissions
+  // right here; approving publishes the file, rejecting keeps it hidden.
+  const pendingItems = React.useMemo(
+    () => library.filter((i) => i.reviewStatus === "pending"),
+    [library]
+  );
+  const [reviewBusyId, setReviewBusyId] = React.useState<number | null>(null);
+
+  async function reviewItem(id: number, reviewAction: "approve" | "reject") {
+    setReviewBusyId(id);
+    try {
+      const res = await fetch("/api/library", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, reviewAction }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
+      toast.success(reviewAction === "approve" ? "وُافق الملف — أصبح ظاهراً للطلبة" : "لم تتم الموافقة على الملف — لا يراه الطلبة");
+      fetchLibrary();
+    } catch {
+      toast.error("فشل الاتصال");
+    } finally {
+      setReviewBusyId(null);
+    }
+  }
 
   // round 52: derive the visible list from the category filter
   // round 55: + free-text search across title/description/module/author
@@ -209,7 +241,14 @@ export function TalibFilesScreen() {
 
   // round 55 — بطاقة الملف مستخرجة كدالة ليُعاد استخدامها في العرضين:
   // المجمّع تحت رؤوس التصنيفات، والمسطّح عند فلتر/بحث محدد.
-  const renderItemCard = (item: LibraryItem) => (
+  const renderItemCard = (item: LibraryItem) => {
+    // round 93 — a student can delete their OWN file while it is not yet
+    // public (pending/rejected); editing stays supervisor-only.
+    const isOwnUnapproved =
+      !canManage &&
+      item.uploaderId != null && item.uploaderId === user?.id &&
+      item.reviewStatus != null && item.reviewStatus !== "approved";
+    return (
     <Card className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
@@ -230,13 +269,23 @@ export function TalibFilesScreen() {
                 <HardDrive className="w-3 h-3 ml-1" />على Drive
               </Badge>
             )}
+            {item.reviewStatus === "pending" && (
+              <Badge className="text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                بانتظار مراجعة المشرف
+              </Badge>
+            )}
+            {item.reviewStatus === "rejected" && (
+              <Badge className="text-[10px] bg-red-500/15 text-red-600 dark:text-red-300 border border-red-500/30">
+                لم تتم الموافقة
+              </Badge>
+            )}
           </div>
           {item.description && (
             <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{item.description}</p>
           )}
           <p className="text-xs text-muted-foreground mt-2">بواسطة: {item.author}</p>
         </div>
-        {item.downloadUrl && (
+        {item.downloadUrl && item.reviewStatus !== "pending" && item.reviewStatus !== "rejected" && (
           <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
             {item.driveFileId ? (
               <Button size="sm" variant="outline"><Download className="w-3.5 h-3.5 ml-1" />تنزيل</Button>
@@ -245,11 +294,13 @@ export function TalibFilesScreen() {
             )}
           </a>
         )}
-        {canManage && (
+        {(canManage || isOwnUnapproved) && (
           <div className="flex flex-col gap-1 shrink-0">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditItem(item)} aria-label="تعديل الملف">
-              <Pencil className="w-3.5 h-3.5" />
-            </Button>
+            {canManage && (
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditItem(item)} aria-label="تعديل الملف">
+                <Pencil className="w-3.5 h-3.5" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10 h-8 w-8" onClick={() => setDeleteItem(item)} aria-label="حذف الملف">
               <Trash2 className="w-3.5 h-3.5" />
             </Button>
@@ -257,7 +308,8 @@ export function TalibFilesScreen() {
         )}
       </div>
     </Card>
-  );
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -282,7 +334,50 @@ export function TalibFilesScreen() {
         </TabsList>
 
         <TabsContent value="library" className="mt-4 space-y-3">
-          {canManage && <PublishToLibraryDialog onCreated={fetchLibrary} />}
+          {/* round 93 — the upload trigger is for EVERYONE now: supervisors
+              publish directly, students submit for supervisor review. */}
+          <PublishToLibraryDialog onCreated={fetchLibrary} />
+
+          {/* round 93 — شريط المراجعة للمشرفين: ملفات الطلبة المعلّقة تُقرأ
+              وتُقبل أو تُرفض من هنا دون مغادرة «ملفاتي» */}
+          {canManage && pendingItems.length > 0 && (
+            <Card className="p-4 border-amber-500/30 bg-amber-500/5">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-4 h-4 text-amber-600 dark:text-amber-300" />
+                <h3 className="font-bold text-sm text-amber-700 dark:text-amber-300">
+                  {pendingItems.length} {pendingItems.length === 1 ? "ملف بانتظار المراجعة" : "ملفات بانتظار المراجعة"}
+                </h3>
+              </div>
+              <div className="space-y-2">
+                {pendingItems.map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 rounded-lg bg-background/70 p-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold truncate">{item.title}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        بواسطة: {item.author}{item.moduleName ? ` — ${item.moduleName}` : ""}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-8 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 shrink-0"
+                      disabled={reviewBusyId === item.id}
+                      onClick={() => reviewItem(item.id, "approve")}
+                    >
+                      <CheckCircle className="w-3.5 h-3.5 ml-1" />موافقة
+                    </Button>
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-8 border-red-500/40 text-red-600 dark:text-red-300 hover:bg-red-500/10 shrink-0"
+                      disabled={reviewBusyId === item.id}
+                      onClick={() => reviewItem(item.id, "reject")}
+                    >
+                      <XCircle className="w-3.5 h-3.5 ml-1" />رفض
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {/* round 55 — بحث فوري فوق الفلاتر: بالعنوان أو الوصف أو اسم
               المقياس أو المُعد — يُصفّي القائمة مع أي فلتر تصنيف. */}
@@ -366,7 +461,7 @@ export function TalibFilesScreen() {
               <p className="text-xs text-muted-foreground">
                 {canManage
                   ? "أضف ملفات ومراجع عامة لتخصصك بزر «إضافة ملف» — وملفات المقاييس تُرفع من داخل المقياس فتظهر هنا مصنّفة."
-                  : "ستظهر ملفات تخصصك هنا عند رفعها من طرف الممثل أو الإدارة — وملفات كل مقياس تجدها في صفحة المقياس وفي هذه القائمة أيضاً."}
+                  : "ستظهر ملفات تخصصك هنا عند رفعها من طرف الممثل أو الإدارة — ويمكنك أنت أيضاً رفع ملف بزر «إضافة ملف»، فيظهر للطلبة بعد موافقة المشرف."}
               </p>
             </Card>
           ) : filteredLibrary.length === 0 ? (

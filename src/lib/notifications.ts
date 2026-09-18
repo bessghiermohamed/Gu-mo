@@ -514,3 +514,58 @@ export async function notifyContentPublished(opts: {
     console.error("[notifications] content fan-out failed:", (e as Error).message);
   }
 }
+
+/** round 93 — مراجعة ملفات الطلبة: a student upload lands as «pending»,
+ *  so every supervisor of that specialty is told there is something to
+ *  review (minus the uploader). Delivered as «generic» — never muteable,
+ *  it is a task for the supervisor, not bulk content. Never throws. */
+export async function notifyFileReviewRequested(opts: {
+  uploaderId: number;
+  uploaderName: string;
+  specialtyId: number;
+  fileTitle: string;
+  referenceId: number;
+}): Promise<void> {
+  try {
+    const supervisors = await loadSupervisors(opts.uploaderId);
+    const recipients = supervisors.filter(
+      (u) => canManageRoles(u as AuthUser) && u.assignedSpecialtyId === opts.specialtyId
+    );
+    await createNotifications(
+      recipients.map((u) => ({
+        userId: u.id,
+        type: "generic" as const,
+        title: "ملف جديد بانتظار المراجعة",
+        body: `رفع ${opts.uploaderName} ملفاً: «${opts.fileTitle}». راجعه من «ملفاتي» لتوافقه على الطلبة.`,
+        meta: { referenceId: opts.referenceId },
+      }))
+    );
+  } catch (e) {
+    console.error("[notifications] file review fan-out failed:", (e as Error).message);
+  }
+}
+
+/** round 93 — the UPLOADER is told the outcome of their own submission
+ *  (approval → visible to everyone; rejection → stays hidden). Own-action
+ *  outcome → «generic», always delivered, like report_resolved. */
+export async function notifyFileReviewed(opts: {
+  uploaderId: number;
+  fileTitle: string;
+  approved: boolean;
+}): Promise<void> {
+  try {
+    await createNotifications([
+      {
+        userId: opts.uploaderId,
+        type: "generic" as const,
+        title: opts.approved ? "تمت الموافقة على ملفك" : "لم تتم الموافقة على ملفك",
+        body: opts.approved
+          ? `«${opts.fileTitle}» — وافق المشرف على ملفك وأصبح ظاهراً للطلبة.`
+          : `«${opts.fileTitle}» — لم توافق عليه المراجعة، ولا يراه الطلبة. يمكنك حذفه وإعادة رفع نسخة محسّنة.`,
+        meta: {},
+      },
+    ]);
+  } catch (e) {
+    console.error("[notifications] file reviewed notice failed:", (e as Error).message);
+  }
+}

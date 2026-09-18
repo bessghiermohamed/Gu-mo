@@ -21,12 +21,20 @@ import { toast } from "sonner";
 // fix ج: the Exams screen was a static placeholder with no data, no API,
 // and no button. Now it reads real exams scoped to the student's
 // specialty + year, and supervisors can add/delete exams.
+//
+// round 93 (طلب المالك: «سمّ الاختبارات… الاختبار القصير مع العمل الموجه»):
+// every assessment carries a NAMED kind — اختبار / اختبار قصير / عمل موجه —
+// chosen in the add/edit dialog and badged on the card, so a «عمل موجه»
+// never masquerades as an «اختبار» in the list.
+
+const EXAM_KINDS = ["اختبار", "اختبار قصير", "عمل موجه"] as const;
 
 interface Exam {
   id: number;
   moduleId: number;
   moduleName: string;
   title: string;
+  kind: string;
   examDate: string;
   time: string;
   room: string;
@@ -182,6 +190,11 @@ function ExamsList({ exams, loading, canManage, onDelete, onEdit, emptyText }: {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <h3 className="font-bold text-sm">{exam.title}</h3>
+                {exam.kind && exam.kind !== "اختبار" && (
+                  <Badge className="text-[10px] bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30">
+                    {exam.kind}
+                  </Badge>
+                )}
                 <Badge variant="secondary" className="text-xs"><BookOpen className="w-3 h-3 ml-1" />{exam.moduleName}</Badge>
               </div>
               <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
@@ -213,6 +226,8 @@ function AddExamDialog({ onCreated }: { onCreated: () => void }) {
   const [courses, setCourses] = React.useState<Course[]>([]);
   const [moduleId, setModuleId] = React.useState("");
   const [title, setTitle] = React.useState("");
+  // round 93 — النوع المُسمّى للاختبار
+  const [kind, setKind] = React.useState<string>("اختبار");
   const [examDate, setExamDate] = React.useState("");
   const [time, setTime] = React.useState("09:00");
   const [room, setRoom] = React.useState("");
@@ -240,14 +255,14 @@ function AddExamDialog({ onCreated }: { onCreated: () => void }) {
       const res = await fetch("/api/exams", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          moduleId: parseInt(moduleId), title: title.trim(), examDate,
+          moduleId: parseInt(moduleId), title: title.trim(), kind, examDate,
           time, room: room.trim(), coefficient: parseFloat(coefficient) || 2,
         }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "فشل الحفظ"); return; }
-      toast.success("تمت إضافة الاختبار");
-      setOpen(false); setTitle(""); setExamDate(""); setTime("09:00"); setRoom("");
+      toast.success(kind === "عمل موجه" ? "تمت إضافة العمل الموجه" : "تمت إضافة الاختبار");
+      setOpen(false); setTitle(""); setExamDate(""); setTime("09:00"); setRoom(""); setKind("اختبار");
       onCreated();
     } finally { setSaving(false); }
   }
@@ -270,9 +285,16 @@ function AddExamDialog({ onCreated }: { onCreated: () => void }) {
               </select>
             )}
           </div>
+          {/* round 93 — النوع المُسمّى: اختبار / اختبار قصير / عمل موجه */}
           <div className="space-y-1.5">
-            <Label htmlFor="examTitle">عنوان الاختبار</Label>
-            <Input id="examTitle" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: امتحان منتصف السداسي" />
+            <Label htmlFor="examKind">النوع</Label>
+            <select id="examKind" value={kind} onChange={(e) => setKind(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+              {EXAM_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="examTitle">عنوان {kind}</Label>
+            <Input id="examTitle" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={kind === "عمل موجه" ? "مثال: العمل الموجه الأول — الوحدة الثانية" : "مثال: امتحان منتصف السداسي"} />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
@@ -309,6 +331,8 @@ function EditExamDialog({ exam, onClose, onSaved }: { exam: Exam; onClose: () =>
   const [courses, setCourses] = React.useState<Course[]>([]);
   const [moduleId, setModuleId] = React.useState(String(exam.moduleId));
   const [title, setTitle] = React.useState(exam.title);
+  // round 93 — النوع المُسمّى قابل للتعديل أيضاً
+  const [kind, setKind] = React.useState<string>(exam.kind ?? "اختبار");
   const [examDate, setExamDate] = React.useState(exam.examDate);
   const [time, setTime] = React.useState(exam.time === "—" ? "09:00" : exam.time);
   const [room, setRoom] = React.useState(exam.room === "—" ? "" : exam.room);
@@ -332,7 +356,7 @@ function EditExamDialog({ exam, onClose, onSaved }: { exam: Exam; onClose: () =>
         body: JSON.stringify({
           id: exam.id,
           moduleId: moduleId ? parseInt(moduleId) : exam.moduleId,
-          title: title.trim(), examDate, time,
+          title: title.trim(), kind, examDate, time,
           room: room.trim(), coefficient: parseFloat(coefficient) || 2,
         }),
       });
@@ -357,8 +381,15 @@ function EditExamDialog({ exam, onClose, onSaved }: { exam: Exam; onClose: () =>
             </select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="editExamTitle">عنوان الاختبار</Label>
+            <Label htmlFor="editExamTitle">عنوان {kind}</Label>
             <Input id="editExamTitle" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          {/* round 93 — النوع المُسمّى */}
+          <div className="space-y-1.5">
+            <Label htmlFor="editExamKind">النوع</Label>
+            <select id="editExamKind" value={kind} onChange={(e) => setKind(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm">
+              {EXAM_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+            </select>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BookOpen, Plus, Flag, Loader2, ChevronDown, Send, AlertTriangle, RefreshCw, Pencil, Trash2 } from "lucide-react";
+import { BookOpen, Plus, Flag, Loader2, ChevronDown, AlertTriangle, RefreshCw, Pencil, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,10 @@ import { useAuth } from "@/components/talib/auth-provider";
 import { useShell, type CourseSummary } from "@/app/app/page";
 import { canCreateModules } from "@/lib/auth/permissions";
 import { toast } from "sonner";
+
+// round 93 (طلب المالك: «في قسم الدروس لا تظهر دروس تيليجرام»): the
+// round-7 Telegram-lessons gateway card is REMOVED — the Courses section
+// lists مقاييس only. The Telegram screen stays as its own section.
 
 interface Course extends CourseSummary {
   academicYearId: number;
@@ -77,25 +81,6 @@ export function TalibCoursesScreen() {
 
       {/* round 61 — served from the device cache while offline */}
       {savedAt != null && <StaleDataChip savedAt={savedAt} />}
-
-      {/* round 7: بوابة دروس تيليجرام — المحتوى المرتبط بالمقاييس من القنوات */}
-      <Card
-        role="button"
-        tabIndex={0}
-        onClick={() => navigate("TELEGRAM")}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("TELEGRAM"); } }}
-        className="p-3.5 cursor-pointer hover:border-primary/40 hover:shadow-md transition-all flex items-center gap-3 bg-primary/5 border-primary/20"
-        aria-label="فتح دروس تيليجرام"
-      >
-        <div className="w-10 h-10 rounded-xl bg-primary/15 text-primary flex items-center justify-center shrink-0">
-          <Send className="w-5 h-5" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-sm">دروس تيليجرام</p>
-          <p className="text-xs text-muted-foreground">محاضرات وتمارين القنوات مرتبة حسب المقياس — انقر للتصفّح</p>
-        </div>
-        <ChevronDown className="w-4 h-4 text-muted-foreground -rotate-90 shrink-0" />
-      </Card>
 
       <Tabs defaultValue="s1">
         <TabsList className="grid w-full grid-cols-2">

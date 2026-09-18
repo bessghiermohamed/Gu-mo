@@ -11,9 +11,15 @@
  * NOW: every course card opens this screen — the product's new center of
  * gravity — assembling everything already linked to the module in the
  * database (all three sources carry the FKs needed, zero schema changes):
- *   • الدروس والمحاضرات  ← telegram_items linked by module_id
- *   • الاختبارات         ← exams linked by module_id
- *   • الواجبات           ← assignments linked by module_id
+ *   • ملفات المقياس       ← library_references linked by module_id
+ *   • الاختبارات          ← exams linked by module_id
+ *   • الواجبات            ← assignments linked by module_id
+ *
+ * Round 93 (طلب المالك: «في قسم الدروس لا تظهر دروس تيليجرام»): the
+ * Telegram lessons are REMOVED from the course screen entirely — the old
+ * «الدروس» tab (telegram_items + its gateway buttons) is gone; the tab is
+ * now «الملفات» holding only the supervisor/student-uploaded files. The
+ * Telegram screen itself is untouched as its own section.
  *
  * Every section has explicit loading / error+retry / empty states — no more
  * "error === empty" (R12 data-layer audit).
@@ -32,10 +38,10 @@
 
 import * as React from "react";
 import {
-  BookOpen, FlaskConical, CheckSquare, Send, Loader2, ExternalLink,
+  BookOpen, FlaskConical, CheckSquare, Loader2, ExternalLink,
   FileText, ImageIcon, Video, Headphones, File, MessageSquare, LinkIcon,
   CalendarDays, Clock, MapPin, User, GraduationCap, AlertTriangle,
-  RefreshCw, ChevronLeft, Star, Sparkles, Download, HardDrive, CloudUpload,
+  RefreshCw, ChevronLeft, Download, HardDrive, CloudUpload,
   Pencil, Trash2, Copy, CalendarPlus, Eye, Square, Check, Flag,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -55,28 +61,13 @@ import { canManageRoles } from "@/lib/auth/permissions";
 import { PublishToLibraryDialog, NeedsSchemaCard } from "@/components/talib/cloud/publish-dialog";
 import { cn, formatBytes } from "@/lib/utils";
 
-// Mirror of /api/telegram/items response (module-filtered)
-interface TgItem {
-  id: number;
-  kind: string;
-  titleAr: string;
-  captionText: string;
-  fileName: string;
-  mimeType: string;
-  fileId: string;
-  sizeBytes: number;
-  link: string;
-  itemType: string;
-  origin: string;
-  postedBy: string;
-  isFeatured: boolean;
-  postedAt: string | null;
-}
-
+// Mirror of /api/library response for THIS module (round 93 review state)
 interface ExamItem {
   id: number;
   moduleId: number; // /api/exams returns it on both layers; was missing from this mirror (tsc error + cast hack)
   title: string;
+  // round 93 — النوع المُسمّى: اختبار / اختبار قصير / عمل موجه
+  kind?: string;
   examDate: string;
   time: string;
   room: string;
@@ -108,19 +99,9 @@ interface MaterialItem {
   downloadUrl: string;
   fileSize: number | null;
   driveFileId: string | null;
-}
-
-function kindIcon(kind: string, className = "w-4 h-4") {
-  switch (kind) {
-    case "pdf": return <FileText className={className} />;
-    case "image": return <ImageIcon className={className} />;
-    case "video": return <Video className={className} />;
-    case "audio": return <Headphones className={className} />;
-    case "doc": case "ppt": return <File className={className} />;
-    case "text": return <MessageSquare className={className} />;
-    case "link": return <LinkIcon className={className} />;
-    default: return <File className={className} />;
-  }
+  // round 93 — review state (student uploads wait for the supervisor)
+  reviewStatus?: string;
+  uploaderId?: number | null;
 }
 
 function formatDateAr(raw: string): string {
@@ -172,11 +153,6 @@ function SectionEmpty({ icon, title, hint }: { icon: React.ReactNode; title: str
 export function TalibCourseDetailScreen({ course }: { course: CourseSummary | null }) {
   const { navigate, navigateBack } = useShell();
 
-  // ---- الدروس (telegram items linked to this module) ----
-  const [lessons, setLessons] = React.useState<TgItem[]>([]);
-  const [lessonsState, setLessonsState] = React.useState<"loading" | "ok" | "error">("loading");
-  const [lessonsTick, setLessonsTick] = React.useState(0);
-
   // ---- الاختبارات ----
   const [exams, setExams] = React.useState<ExamItem[]>([]);
   const [examsState, setExamsState] = React.useState<"loading" | "ok" | "error">("loading");
@@ -190,8 +166,9 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
   // round 24 — "جديد" tracking: which lesson items arrived since THIS
   // user's last visit to this course. Key is per-user (the round-12
   // lesson: browser-global keys leak across accounts on shared devices).
+  // round 93 — the Telegram-lessons view is gone from the course, so the
+  // per-course visit baseline tracked those items and was removed with it.
   const { user } = useAuth();
-  const [newLessonIds, setNewLessonIds] = React.useState<Set<number>>(new Set());
   const canManage = canManageRoles(user ?? null);
 
   // round 33 — المواد (library references linked to this module).
@@ -229,45 +206,6 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
       // private mode — toggles still work, they just start unchecked
     }
   }, []);
-
-  React.useEffect(() => {
-    if (!moduleId) return;
-    let alive = true;
-    setLessonsState("loading");
-    fetch(`/api/telegram/items?moduleId=${moduleId}`, { cache: "no-store" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => {
-        if (!alive) return;
-        const items: TgItem[] = d.items ?? [];
-        setLessons(items);
-        setLessonsState("ok");
-        // mark what is new since the last visit, THEN advance the baseline
-        const visitKey = `talib-course-visit-${user?.id ?? 0}-${moduleId}`;
-        let lastVisit: string | null = null;
-        try {
-          lastVisit = localStorage.getItem(visitKey);
-        } catch {
-          // private mode — badges simply never show
-        }
-        const fresh = new Set<number>();
-        if (lastVisit) {
-          for (const it of items) {
-            if (it.postedAt && String(it.postedAt) > lastVisit) fresh.add(it.id);
-          }
-        }
-        setNewLessonIds(fresh);
-        try {
-          localStorage.setItem(visitKey, new Date().toISOString());
-        } catch {
-          // private mode — nothing to remember
-        }
-      })
-      .catch(() => alive && setLessonsState("error"));
-    return () => { alive = false; };
-  }, [moduleId, lessonsTick, user?.id]);
 
   React.useEffect(() => {
     if (!moduleId) return;
@@ -449,18 +387,12 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
     );
   }
 
-  const featured = lessons.filter((l) => l.isFeatured);
-  const sortedLessons = [...lessons].sort((a, b) => {
-    if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
-    return (b.postedAt ?? "").localeCompare(a.postedAt ?? "");
-  });
-
   // round 52 — ملفات هذا المقياس المرفوعة تُقسّم بحسب تصنيفها: ملف «واجب»
   // يظهر في تبويب الواجبات، وملف «اختبار» في تبويب الاختبارات، وكل ما عدا
   // ذلك يُقرأ من «ملفاتي» (المكتبة المصنّفة) — لم تعد هناك قائمة «مواد»
   // منفصلة داخل المقياس.
   // round 54 — طلب المالك: ملف «محاضرة/درس» يُرفع ويُعرض داخل تبويب
-  // الدروس أيضاً، مطابقًا لتبويبَي الواجبات والاختبارات.
+  // الملفات أيضاً، مطابقًا لتبويبَي الواجبات والاختبارات.
   const assignmentFiles = materials.filter((m) => m.category === "واجب");
   const examFiles = materials.filter((m) => m.category === "اختبار");
   const lectureFiles = materials.filter((m) => m.category === "محاضرة");
@@ -501,9 +433,9 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
             <p className="text-lg font-black text-primary">{course.coefficient}</p>
           </div>
           <div className="border-x border-border/70">
-            <p className="text-[11px] text-muted-foreground mb-0.5">الدروس</p>
+            <p className="text-[11px] text-muted-foreground mb-0.5">الملفات</p>
             <p className="text-lg font-black text-primary">
-              {lessonsState === "loading" ? "…" : lessons.length + lectureFiles.length}
+              {materialsState === "loading" ? "…" : lectureFiles.length}
             </p>
           </div>
           <div className="border-x border-border/70">
@@ -539,46 +471,43 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
       ) : null}
 
       {/* Round 40 — the upload entry lives at the COURSE level, not buried
-          in one tab: a supervisor opening ANY course sees the upload
-          immediately on every tab («some courses have no upload buttons»).
-          round 53 (طلب المالك): الزر بلغة «رفع ملف» الموحّدة بلا هوية
-          Drive في التسمية — مطابق لأزرار تبويبَي الواجبات والاختبارات؛
-          التخزين السحابي يبقى كما هو ويُشرح داخل النافذة نفسها.
-          Students never see this row (canManage gates it). */}
-      {canManage && (
-        <Card className="p-3 border-primary/25 bg-primary/5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs font-bold flex items-center gap-1.5">
-                <CloudUpload className="w-3.5 h-3.5 text-primary shrink-0" />
-                رفع ملف لهذا المقياس
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                ارفع ملفاً من جهازك أو أضف رابطاً — يظهر لدى الطلبة في
-                «ملفاتي» مصنّفاً، وملف الدرس داخل تبويب الدروس، وملف الواجب
-                داخل تبويب الواجبات، وملف الاختبار داخل تبويب الاختبارات، دون أن يُخزَّن
-                شيء على السيرفر.
-              </p>
-            </div>
-            <PublishToLibraryDialog
-              onCreated={() => setMaterialsTick((n) => n + 1)}
-              moduleId={course.id}
-              defaultCategory="محاضرة"
-              triggerLabel="رفع ملف"
-              triggerClassName="shrink-0"
-              courseName={course.name}
-            />
+          in one tab. Round 93 (طلب المالك: «تمكين الطلبة من رفع الملفات
+          لكن تتم مراجعتها من طرف المشرف أولاً»): the row is for EVERYONE
+          now — supervisors publish directly, students submit for review. */}
+      <Card className={cn("p-3 border", canManage ? "border-primary/25 bg-primary/5" : "border-amber-500/30 bg-amber-500/5")}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-bold flex items-center gap-1.5">
+              <CloudUpload className={cn("w-3.5 h-3.5 shrink-0", canManage ? "text-primary" : "text-amber-600 dark:text-amber-300")} />
+              {canManage ? "رفع ملف لهذا المقياس" : "ارفع ملفاً لهذا المقياس"}
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+              {canManage
+                ? "ارفع ملفاً من جهازك أو أضف رابطاً — يظهر لدى الطلبة في «ملفاتي» مصنّفاً، وملف الدرس داخل تبويب الملفات، وملف الواجب داخل تبويب الواجبات، وملف الاختبار داخل تبويب الاختبارات، دون أن يُخزَّن شيء على السيرفر."
+                : "ارفع ملفاً من جهازك أو أضف رابطاً — يظهر للطلبة بعد موافقة المشرف عليه، وتجده أنت في «ملفاتي» وهي بانتظار المراجعة."}
+            </p>
           </div>
-        </Card>
-      )}
+          <PublishToLibraryDialog
+            onCreated={() => setMaterialsTick((n) => n + 1)}
+            moduleId={course.id}
+            defaultCategory="محاضرة"
+            triggerLabel="رفع ملف"
+            triggerClassName="shrink-0"
+            courseName={course.name}
+          />
+        </div>
+      </Card>
 
       {/* Content tabs — round 52: تبويب «المواد» أُلغي (ملاحظة المالك:
           «الدروس موجودة للمقاييس، فلماذا قسم للمواد؟»). ملفات الواجب
-          والاختبار تُعرض داخل تبويبيهما، وكل الملفات في «ملفاتي». */}
-      <Tabs defaultValue="lessons">
+          والاختبار تُعرض داخل تبويبيهما، وكل الملفات في «ملفاتي».
+          Round 93 (طلب المالك: «في قسم الدروس لا تظهر دروس تيليجرام»):
+          تبويب «الدروس» بمنشورات تيليجرام أُزيل كلياً — تبويب «الملفات»
+          يعرض ملفات المقياس المرفوعة فقط، وشاشة تيليجرام مستقلة كما هي. */}
+      <Tabs defaultValue="files">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="lessons" className="data-[state=active]:font-bold text-xs px-1">
-            <Send className="w-3.5 h-3.5 ml-1" />الدروس
+          <TabsTrigger value="files" className="data-[state=active]:font-bold text-xs px-1">
+            <FileText className="w-3.5 h-3.5 ml-1" />الملفات
           </TabsTrigger>
           <TabsTrigger value="exams" className="data-[state=active]:font-bold text-xs px-1">
             <FlaskConical className="w-3.5 h-3.5 ml-1" />الاختبارات
@@ -588,19 +517,8 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
           </TabsTrigger>
         </TabsList>
 
-        {/* ---- Lessons ---- */}
-        <TabsContent value="lessons" className="mt-4 space-y-3">
-          {/* round 54 — طلب المالك «في الدروس أضف زر رفع»: ملف الدرس
-              يُرفع مباشرة من تبويبه ويظهر داخله، مطابقًا للواجبات والاختبارات */}
-          {canManage && (
-            <PublishToLibraryDialog
-              onCreated={() => setMaterialsTick((n) => n + 1)}
-              moduleId={course.id}
-              defaultCategory="محاضرة"
-              triggerLabel="رفع ملف درس"
-              courseName={course.name}
-            />
-          )}
+        {/* ---- Files (round 93: كانت «الدروس» بمنشورات تيليجرام — أُزالت) ---- */}
+        <TabsContent value="files" className="mt-4 space-y-3">
           {materialsState === "error" && (
             <SectionError onRetry={() => setMaterialsTick((n) => n + 1)} />
           )}
@@ -616,43 +534,12 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
               ))}
             </div>
           )}
-          {lessonsState === "loading" && <SectionLoading />}
-          {lessonsState === "error" && (
-            <SectionError onRetry={() => setLessonsTick((n) => n + 1)} />
-          )}
-          {lessonsState === "ok" && sortedLessons.length === 0 && lectureFiles.length === 0 && (
-            <>
-              <SectionEmpty
-                icon={<GraduationCap className="w-10 h-10" />}
-                title="لا توجد دروس منشورة لهذا المقياس بعد"
-                hint="الدروس المنشورة في قنوات تيليجرام ومساحة الفوج ومرتبطة بهذا المقياس ستظهر هنا تلقائياً، ويمكن للمشرفين رفع ملفات الدروس من الزر أعلاه."
-              />
-              <Button variant="outline" className="w-full" onClick={() => navigate("TELEGRAM")}>
-                <Send className="w-4 h-4 ml-1" />تصفّح دروس تيليجرام الكاملة
-              </Button>
-            </>
-          )}
-          {lessonsState === "ok" && sortedLessons.length > 0 && (
-            <>
-              {newLessonIds.size > 0 && (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  {newLessonIds.size} درساً جديداً منذ آخر زيارة
-                </p>
-              )}
-              {featured.length > 0 && (
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Star className="w-3 h-3 text-amber-500" />
-                  {featured.length} درس مُميَّز من المشرفين
-                </p>
-              )}
-              {sortedLessons.map((item) => (
-                <LessonCard key={item.id} item={item} isNew={newLessonIds.has(item.id)} />
-              ))}
-              <Button variant="outline" className="w-full" onClick={() => navigate("TELEGRAM")}>
-                <Send className="w-4 h-4 ml-1" />تصفّح دروس تيليجرام الكاملة
-              </Button>
-            </>
+          {materialsState === "ok" && lectureFiles.length === 0 && (
+            <SectionEmpty
+              icon={<GraduationCap className="w-10 h-10" />}
+              title="لا توجد ملفات دروس لهذا المقياس بعد"
+              hint="ملفات الدروس التي يرفعها المشرفون — والطلبة بعد موافقة المشرف — تظهر هنا، وتُقرأ أيضاً من «ملفاتي» في المكتبة المصنّفة."
+            />
           )}
         </TabsContent>
 
@@ -697,7 +584,15 @@ export function TalibCourseDetailScreen({ course }: { course: CourseSummary | nu
           {examsState === "ok" && exams.length > 0 && exams.map((e) => (
             <Card key={e.id} className="p-4">
               <div className="flex items-start justify-between gap-2 mb-2">
-                <p className="font-bold text-sm">{e.title}</p>
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                  <p className="font-bold text-sm">{e.title}</p>
+                  {/* round 93 — النوع المُسمّى للظهرات غير «اختبار» */}
+                  {e.kind && e.kind !== "اختبار" && (
+                    <Badge className="text-[10px] bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30 shrink-0">
+                      {e.kind}
+                    </Badge>
+                  )}
+                </div>
                 {e.isFinished ? (
                   <Badge variant="secondary" className="text-[10px] shrink-0">انتهى</Badge>
                 ) : (
@@ -978,6 +873,17 @@ function CourseFileCard({ m, canManage, onEdit, onDelete, onCopy }: {
             )}
             <Badge variant="secondary" className="text-xs">{m.category}</Badge>
             <Badge variant="outline" className="text-xs">{m.fileFormat}</Badge>
+            {/* round 93 — حالة المراجعة للملفات المرفوعة من الطلبة */}
+            {m.reviewStatus === "pending" && (
+              <Badge className="text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                بانتظار مراجعة المشرف
+              </Badge>
+            )}
+            {m.reviewStatus === "rejected" && (
+              <Badge className="text-[10px] bg-red-500/15 text-red-600 dark:text-red-300 border border-red-500/30">
+                لم تتم الموافقة
+              </Badge>
+            )}
             {m.fileSize != null && (
               <Badge variant="outline" className="text-xs">{formatBytes(m.fileSize)}</Badge>
             )}
@@ -1036,73 +942,6 @@ function CourseFileCard({ m, canManage, onEdit, onDelete, onCopy }: {
             )}
           </div>
         </div>
-      </div>
-    </Card>
-  );
-}
-
-function LessonCard({ item, isNew }: { item: TgItem; isNew: boolean }) {
-  const [imgError, setImgError] = React.useState(false);
-  const isImage = item.kind === "image" && !!item.fileId;
-  return (
-    <Card className={cn("p-3.5", isNew && "border-primary/40")}>
-      <div className="flex items-start gap-3">
-        {/* معاينة مصغّرة للصور — كانت الدروس كلمات بلا هوية بصرية */}
-        <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center bg-muted">
-          {isImage && !imgError ? (
-            <img
-              src={`/api/telegram/file?file_id=${encodeURIComponent(item.fileId)}`}
-              alt={item.titleAr || "معاينة"}
-              loading="lazy"
-              onError={() => setImgError(true)}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="text-primary">{kindIcon(item.kind, "w-5 h-5")}</div>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <p className="font-bold text-sm truncate">{item.titleAr || item.fileName || "منشور"}</p>
-            {isNew && (
-              <Badge className="text-[10px] bg-primary text-primary-foreground shrink-0">
-                جديد
-              </Badge>
-            )}
-            {item.isFeatured && <Star className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
-          </div>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <Badge variant="outline" className="text-[10px]">{item.itemType}</Badge>
-            {item.postedBy && (
-              <span className="text-[11px] text-muted-foreground">{item.postedBy}</span>
-            )}
-            {item.postedAt && (
-              <span className="text-[11px] text-muted-foreground">{formatDateAr(item.postedAt)}</span>
-            )}
-            {item.sizeBytes > 0 && (
-              <span className="text-[11px] text-muted-foreground">{formatBytes(item.sizeBytes)}</span>
-            )}
-          </div>
-          {item.captionText && (
-            <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2 leading-relaxed">
-              {item.captionText}
-            </p>
-          )}
-        </div>
-        {item.link && (
-          <a
-            href={item.link}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0"
-            aria-label={`فتح ${item.titleAr || "المنشور"} في تيليجرام`}
-          >
-            {/* round 39 — زر ظاهر بعنوان، بدل أيقونة شبح لا يلاحظها أحد */}
-            <Button variant="outline" size="sm" className="h-8">
-              <ExternalLink className="w-3.5 h-3.5 ml-1" />فتح
-            </Button>
-          </a>
-        )}
       </div>
     </Card>
   );

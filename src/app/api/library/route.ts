@@ -6,17 +6,25 @@
  * Round 32: نشر إلى المكتبة — a supervisor can PUBLISH a real file from
  * their own Google Drive (15 GB). The bytes never touch Supabase; the row
  * keeps only the direct-download link + optional size + Drive fileId.
- *   GET    → items of the caller's specialty
- *   POST   → add a reference (supervisors only; JSON metadata)
- *   PATCH  → edit a reference (supervisors, own specialty only)
- *   DELETE → remove a reference (supervisors, own specialty only)
+ * Round 93 (طلب المالك): «تمكين الطلبة من رفع الملفات لكن تتم مراجعتها
+ * من طرف المشرف أولاً» — STUDENTS can now add files too, but their rows
+ * land as review_status='pending' (invisible to other students) until a
+ * supervisor approves (approved) or rejects (rejected) via reviewAction.
+ *   GET    → items of the caller's specialty (students: approved + own)
+ *   POST   → add a reference (EVERYONE; students → pending review)
+ *   PATCH  → edit a reference (supervisors) | reviewAction approve/reject
+ *   DELETE → remove a reference (supervisors; or own un-approved item)
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/service";
 import { canUploadContent } from "@/lib/auth/permissions";
-import { notifyContentPublished } from "@/lib/notifications";
+import {
+  notifyContentPublished,
+  notifyFileReviewRequested,
+  notifyFileReviewed,
+} from "@/lib/notifications";
 
 const isVercel = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -27,6 +35,15 @@ const COURSE_SCHEMA_SQL =
   "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS module_id INTEGER;\n" +
   "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS storage_path TEXT;\n" +
   "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS file_size BIGINT;";
+
+/** Round 93 — the one-time SQL that STUDENT uploads depend on: until the
+ *  review columns exist, a student submission cannot be parked as
+ *  «pending» — and silently publishing it would break the review contract.
+ *  Supervisors keep working with or without the columns (their rows are
+ *  approved-by-default), so this snippet is strict ONLY for students. */
+const REVIEW_SCHEMA_SQL =
+  "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS review_status TEXT DEFAULT 'approved';\n" +
+  "ALTER TABLE library_references ADD COLUMN IF NOT EXISTS uploader_id INTEGER;";
 
 /** Round 41: detect an un-migrated DB (module_id column absent) in BOTH
  *  branches — Supabase surfaces it as a PostgREST error, Prisma/SQLite as
@@ -44,6 +61,28 @@ function isMissingModuleColumn(e: unknown): boolean {
   return (
     /no such column|Unknown argument|does not exist in the current database|column/i.test(msg) &&
     /module_?[iI]d/i.test(msg)
+  );
+}
+
+/** round 93 — detect the missing review columns in BOTH branches
+ *  (Supabase PGRST204/PostgREST messages, Prisma/SQLite messages). */
+function isMissingReviewColumns(e: unknown): boolean {
+  const msg = String((e as Error)?.message ?? "");
+  return (
+    /review_?status|uploader_?[iI]d|Could not find the 'review_status'|Could not find the 'uploader_id'/i.test(msg) ||
+    (/no such column|Unknown argument|does not exist in the current database|column/i.test(msg) &&
+      /review_?status|uploader_?[iI]d/i.test(msg))
+  );
+}
+
+function needsReviewSchemaResponse() {
+  return NextResponse.json(
+    {
+      error: "مراجعة ملفات الطلبة تحتاج تحديثاً لمرة واحدة في قاعدة البيانات",
+      needsSchema: true,
+      sql: REVIEW_SCHEMA_SQL,
+    },
+    { status: 400 }
   );
 }
 
@@ -164,9 +203,17 @@ export async function GET(req: NextRequest) {
           fileSize: r.file_size != null ? Number(r.file_size) : null,
           driveFileId: r.storage_path ? String(r.storage_path) : null,
           moduleId: r.module_id != null ? Number(r.module_id) : null,
+          // round 93: review state (missing column → pre-review DB = all approved)
+          reviewStatus: String(r.review_status ?? "approved"),
+          uploaderId: r.uploader_id != null ? Number(r.uploader_id) : null,
         }))
       );
-      return NextResponse.json({ items });
+      // round 93 — students see approved files + their OWN pending/rejected
+      // submissions; supervisors see everything (they are the reviewers).
+      const visible = canUploadContent(user)
+        ? items
+        : items.filter((it) => it.reviewStatus === "approved" || it.uploaderId === user.id);
+      return NextResponse.json({ items: visible });
     }
     const rows = await db.libraryReference.findMany({
       where: moduleId
@@ -181,12 +228,16 @@ export async function GET(req: NextRequest) {
       take: 200,
     });
     return NextResponse.json({
-      items: await attachModuleNames(rows.map((r) => ({
+      items: (await attachModuleNames(rows.map((r) => ({
         id: r.id, title: r.title, author: r.author, category: r.category,
         description: r.description, fileFormat: r.fileFormat, downloadUrl: r.downloadUrl,
         fileSize: r.fileSize ?? null, driveFileId: r.storagePath ?? null,
         moduleId: r.moduleId ?? null,
-      }))),
+        reviewStatus: r.reviewStatus ?? "approved",
+        uploaderId: r.uploaderId ?? null,
+      })))).filter((it) =>
+        canUploadContent(user) || it.reviewStatus === "approved" || it.uploaderId === user.id
+      ),
     });
   } catch (e) {
     if (isMissingModuleColumn(e)) return needsSchemaResponse();
@@ -196,9 +247,13 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
-  if (!user || !canUploadContent(user)) {
+  if (!user) {
     return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
   }
+  // round 93 — «تمكين الطلبة من رفع الملفات لكن تتم مراجعتها من طرف
+  // المشرف أولاً»: every signed-in user may submit. Supervisors publish
+  // directly (approved); students land as «pending» until reviewed.
+  const isSupervisor = canUploadContent(user);
   try {
     const body = await req.json();
     const { title, author, category, description, fileFormat, downloadUrl, driveFileId, fileSize, moduleId } = body;
@@ -254,6 +309,54 @@ export async function POST(req: NextRequest) {
         file_format: fileFormat?.trim() || "PDF",
         download_url: downloadUrl?.trim() || "",
       };
+      // round 93 — review columns: supervisors' rows are approved on arrival,
+      // students' rows park as «pending» until a supervisor reviews them.
+      const reviewFields = isSupervisor
+        ? { review_status: "approved", uploader_id: user.id }
+        : { review_status: "pending", uploader_id: user.id };
+
+      // ---- STUDENT submission (round 93): parked as «pending», invisible
+      // to other students until reviewed. Optional columns (Drive/course)
+      // degrade gracefully, but the review fields themselves are STRICT —
+      // silently publishing a student file would break the review contract.
+      if (!isSupervisor) {
+        const attempts = [
+          { ...base, ...reviewFields,
+            ...(driveFileId ? { storage_path: String(driveFileId) } : {}),
+            ...(fileSize != null ? { file_size: Number(fileSize) } : {}),
+            ...(moduleId != null ? { module_id: Number(moduleId) } : {}) },
+          { ...base, ...reviewFields,
+            ...(moduleId != null ? { module_id: Number(moduleId) } : {}) },
+        ];
+        let data: Record<string, unknown> | null = null;
+        let lastErr: { message: string } | null = null;
+        for (const payload of attempts) {
+          const full = await supabase.from("library_references").insert(payload).select().single();
+          if (!full.error) { data = full.data; break; }
+          lastErr = full.error;
+        }
+        if (!data) {
+          if (isMissingReviewColumns(lastErr)) return needsReviewSchemaResponse();
+          if (moduleId != null && isMissingModuleColumn(lastErr)) {
+            return NextResponse.json(
+              { error: "قاعدة البيانات تحتاج تحديثاً لمرة واحدة لربط المواد بالمقاييس", needsSchema: true, sql: COURSE_SCHEMA_SQL },
+              { status: 400 }
+            );
+          }
+          return NextResponse.json({ error: lastErr?.message ?? "فشل الحفظ" }, { status: 500 });
+        }
+        // supervisors of the specialty are told there is something to review —
+        // NO student-facing announcement yet: the file is not public until approved.
+        await notifyFileReviewRequested({
+          uploaderId: user.id,
+          uploaderName: user.fullName,
+          specialtyId: courseSpecialtyId ?? Number(user.assignedSpecialtyId),
+          fileTitle: title.trim(),
+          referenceId: Number(data.id ?? 0),
+        });
+        return NextResponse.json({ item: data, reviewStatus: "pending" });
+      }
+
       // round 32/33: publish-from-Drive + course-scoping metadata. The
       // columns are optional for LIBRARY uploads (base row still works).
       // Round 41 — COURSE uploads are strict: a material uploaded inside a
@@ -264,6 +367,9 @@ export async function POST(req: NextRequest) {
       let error: { message: string } | null = null;
       if (moduleId != null) {
         const attempts = [
+          { ...base, ...reviewFields, storage_path: driveFileId ? String(driveFileId) : null, file_size: fileSize != null ? Number(fileSize) : null, module_id: Number(moduleId) },
+          { ...base, ...reviewFields, module_id: Number(moduleId) },
+          // pre-r93 databases without the review columns keep working
           { ...base, storage_path: driveFileId ? String(driveFileId) : null, file_size: fileSize != null ? Number(fileSize) : null, module_id: Number(moduleId) },
           { ...base, module_id: Number(moduleId) },
         ];
@@ -284,20 +390,28 @@ export async function POST(req: NextRequest) {
       } else {
         const wantsExtra = driveFileId || fileSize != null;
         if (wantsExtra) {
-          const full = await supabase.from("library_references").insert({
-            ...base,
-            storage_path: driveFileId ? String(driveFileId) : null,
-            file_size: fileSize != null ? Number(fileSize) : null,
-          }).select().single();
-          data = full.data; error = full.error;
-          if (error && !/file_size|storage_path|column/i.test(error.message)) {
+          const attempts = [
+            { ...base, ...reviewFields, storage_path: driveFileId ? String(driveFileId) : null, file_size: fileSize != null ? Number(fileSize) : null },
+            { ...base, storage_path: driveFileId ? String(driveFileId) : null, file_size: fileSize != null ? Number(fileSize) : null },
+          ];
+          for (const payload of attempts) {
+            const full = await supabase.from("library_references").insert(payload).select().single();
+            data = full.data; error = full.error;
+            if (!error) break;
+          }
+          if (error && !/file_size|storage_path|review_status|uploader_id|column/i.test(error.message)) {
             return NextResponse.json({ error: error.message }, { status: 500 });
           }
         }
         if (!data) {
-          const fallback = await supabase.from("library_references").insert(base).select().single();
-          if (fallback.error) return NextResponse.json({ error: fallback.error.message }, { status: 500 });
-          data = fallback.data;
+          const withReview = await supabase.from("library_references").insert({ ...base, ...reviewFields }).select().single();
+          if (!withReview.error) {
+            data = withReview.data;
+          } else {
+            const fallback = await supabase.from("library_references").insert(base).select().single();
+            if (fallback.error) return NextResponse.json({ error: fallback.error.message }, { status: 500 });
+            data = fallback.data;
+          }
         }
       }
       // round 24: a new library reference announces itself — before, a
@@ -327,6 +441,9 @@ export async function POST(req: NextRequest) {
           ...(driveFileId ? { storagePath: String(driveFileId) } : {}),
           ...(fileSize != null ? { fileSize: Number(fileSize) } : {}),
           ...(moduleId != null ? { moduleId: Number(moduleId) } : {}),
+          // round 93 — supervisors publish approved; students wait for review
+          reviewStatus: isSupervisor ? "approved" : "pending",
+          uploaderId: user.id,
         },
       });
     } catch (e) {
@@ -340,6 +457,18 @@ export async function POST(req: NextRequest) {
         );
       }
       throw e;
+    }
+    if (!isSupervisor) {
+      // supervisors of the specialty are told there is something to review —
+      // no student-facing announcement before the approval.
+      await notifyFileReviewRequested({
+        uploaderId: user.id,
+        uploaderName: user.fullName,
+        specialtyId: courseSpecialtyId ?? Number(user.assignedSpecialtyId),
+        fileTitle: title.trim(),
+        referenceId: item.id,
+      });
+      return NextResponse.json({ item, reviewStatus: "pending" });
     }
     await notifyContentPublished({
       actorId: user.id,
@@ -363,8 +492,82 @@ export async function PATCH(req: NextRequest) {
   }
   try {
     const body = await req.json();
-    const { id, title, author, category, description, fileFormat, downloadUrl } = body;
+    const { id, reviewAction, title, author, category, description, fileFormat, downloadUrl } = body;
     if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
+
+    // ---- round 93 — supervisor verdict on a student submission ----------
+    // approve → the file becomes visible to every student of the scope
+    //           (+ the specialty-wide announcement fires here, NOT at submit)
+    // reject  → the file stays hidden; the uploader is told so they can
+    //           delete it or re-upload an improved copy.
+    if (reviewAction === "approve" || reviewAction === "reject") {
+      const approved = reviewAction === "approve";
+      if (isVercel) {
+        const supabase = await createSupabaseServerClient();
+        const { data: item } = await supabase
+          .from("library_references")
+          .select("id, specialty_id, uploader_id, title")
+          .eq("id", Number(id)).maybeSingle();
+        if (!item) return NextResponse.json({ error: "الملف غير موجود" }, { status: 404 });
+        if (user.role !== "OWNER" && Number(item.specialty_id) !== user.assignedSpecialtyId) {
+          return NextResponse.json({ error: "هذا الملف خارج نطاق تخصصك" }, { status: 403 });
+        }
+        const { data, error } = await supabase
+          .from("library_references")
+          .update({ review_status: approved ? "approved" : "rejected" })
+          .eq("id", Number(id)).select().single();
+        if (error || !data) {
+          if (error && isMissingReviewColumns(error)) return needsReviewSchemaResponse();
+          return NextResponse.json({ error: `فشل التحديث: ${error?.message ?? "خطأ"}` }, { status: 500 });
+        }
+        if (item.uploader_id != null && Number(item.uploader_id) !== user.id) {
+          await notifyFileReviewed({
+            uploaderId: Number(item.uploader_id),
+            fileTitle: String(item.title ?? ""),
+            approved,
+          });
+        }
+        if (approved) {
+          await notifyContentPublished({
+            actorId: user.id,
+            actorName: user.fullName,
+            specialtyId: Number(item.specialty_id),
+            type: "content_library",
+            title: "مرجع جديد في المكتبة",
+            body: `«${String(item.title ?? "")}» — أُقرّ بعد المراجعة وأصبح متاحاً للطلبة`,
+            meta: { referenceId: Number(id) },
+          });
+        }
+        return NextResponse.json({ item: data });
+      }
+      const item = await db.libraryReference.findUnique({
+        where: { id: Number(id) },
+        select: { specialtyId: true, uploaderId: true, title: true },
+      });
+      if (!item) return NextResponse.json({ error: "الملف غير موجود" }, { status: 404 });
+      if (user.role !== "OWNER" && item.specialtyId !== user.assignedSpecialtyId) {
+        return NextResponse.json({ error: "هذا الملف خارج نطاق تخصصك" }, { status: 403 });
+      }
+      const updated = await db.libraryReference.update({
+        where: { id: Number(id) },
+        data: { reviewStatus: approved ? "approved" : "rejected" },
+      });
+      if (item.uploaderId != null && item.uploaderId !== user.id) {
+        await notifyFileReviewed({ uploaderId: item.uploaderId, fileTitle: item.title, approved });
+      }
+      if (approved) {
+        await notifyContentPublished({
+          actorId: user.id,
+          actorName: user.fullName,
+          specialtyId: item.specialtyId,
+          type: "content_library",
+          title: "مرجع جديد في المكتبة",
+          body: `«${item.title}» — أُقرّ بعد المراجعة وأصبح متاحاً للطلبة`,
+          meta: { referenceId: Number(id) },
+        });
+      }
+      return NextResponse.json({ item: updated });
+    }
     const trimTitle = title?.trim();
     if (title !== undefined && !trimTitle) {
       return NextResponse.json({ error: "العنوان لا يمكن أن يكون فارغاً" }, { status: 400 });
@@ -413,9 +616,10 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const user = await getCurrentUser();
-  if (!user || !canUploadContent(user)) {
+  if (!user) {
     return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
   }
+  const isSupervisor = canUploadContent(user);
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id مطلوب" }, { status: 400 });
@@ -424,17 +628,36 @@ export async function DELETE(req: NextRequest) {
     if (isVercel) {
       const supabase = await createSupabaseServerClient();
       const { data: item } = await supabase
-        .from("library_references").select("id, specialty_id").eq("id", itemId).maybeSingle();
+        .from("library_references").select("id, specialty_id, uploader_id, review_status").eq("id", itemId).maybeSingle();
       if (!item) return NextResponse.json({ error: "الملف غير موجود" }, { status: 404 });
-      if (user.role !== "OWNER" && Number(item.specialty_id) !== user.assignedSpecialtyId) {
+      // round 93 — a student may delete their OWN file while it is not yet
+      // public (pending/rejected); approved files remain supervisor-managed.
+      const ownUnapproved =
+        !isSupervisor &&
+        item.uploader_id != null && Number(item.uploader_id) === user.id &&
+        String(item.review_status ?? "approved") !== "approved";
+      if (!isSupervisor && !ownUnapproved) {
+        return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
+      }
+      if (isSupervisor && user.role !== "OWNER" && Number(item.specialty_id) !== user.assignedSpecialtyId) {
         return NextResponse.json({ error: "هذا الملف خارج نطاق تخصصك" }, { status: 403 });
       }
       const { error } = await supabase.from("library_references").delete().eq("id", itemId);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     } else {
-      const item = await db.libraryReference.findUnique({ where: { id: itemId }, select: { specialtyId: true } });
+      const item = await db.libraryReference.findUnique({
+        where: { id: itemId },
+        select: { specialtyId: true, uploaderId: true, reviewStatus: true },
+      });
       if (!item) return NextResponse.json({ error: "الملف غير موجود" }, { status: 404 });
-      if (user.role !== "OWNER" && item.specialtyId !== user.assignedSpecialtyId) {
+      const ownUnapproved =
+        !isSupervisor &&
+        item.uploaderId != null && item.uploaderId === user.id &&
+        (item.reviewStatus ?? "approved") !== "approved";
+      if (!isSupervisor && !ownUnapproved) {
+        return NextResponse.json({ error: "غير مصرّح" }, { status: 403 });
+      }
+      if (isSupervisor && user.role !== "OWNER" && item.specialtyId !== user.assignedSpecialtyId) {
         return NextResponse.json({ error: "هذا الملف خارج نطاق تخصصك" }, { status: 403 });
       }
       await db.libraryReference.delete({ where: { id: itemId } });
