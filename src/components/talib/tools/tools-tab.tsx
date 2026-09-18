@@ -11,10 +11,12 @@
  * Round 87: دفتر طالب joined as a second full-width featured card —
  * a NotebookLM-style study space (sources + grounded chat + 8 outputs).
  *
- * Round 89: استوديو المولّدات joined as the third featured card (sky/
- * indigo identity) — the WEB copies of the generation services inspired
- * by platforms like Alborihi AI: extended research + model arena + the
- * six proven bot generators (r85/r86), on the same provider keys.
+ * Round 91 (owner: «Delete Generator Studio»): استوديو المولّدات (r89)
+ * is REMOVED entirely — component, /api/ai/studio route, lib/ai/studio
+ * module, featured card, search entry, and the now-unused
+ * chatWithProvider helper in providers. The six bot generators (r85/
+ * r86) and دفتر طالب (r87) are untouched and remain the online study
+ * surface. History: r89 preserved in git (c0d51b0).
  *
  * Round 88 (owner: «احذف المساعد الذكي وأبقِ دفتر طالب»): the Smart
  * Assistant chatbot is REMOVED entirely — component, /api/ai route,
@@ -47,7 +49,6 @@ import {
   ShieldCheck,
   Shrink,
   Type,
-  Wand2,
   X,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -64,7 +65,6 @@ import { StudyTimerTool } from "./study-timer-tool";
 import { CompressImageTool } from "./compress-image-tool";
 import { OcrTool } from "./ocr-tool";
 import { NotebookTool } from "./notebook-tool";
-import { StudioTool } from "./studio-tool";
 
 type ToolId =
   | "gpa"
@@ -76,8 +76,7 @@ type ToolId =
   | "timer"
   | "compress-img"
   | "ocr"
-  | "notebook"
-  | "studio";
+  | "notebook";
 
 type ToolCategory = "pdf" | "study" | "image";
 
@@ -211,21 +210,16 @@ export function ToolsTab() {
   if (activeTool === "notebook") {
     return <NotebookTool onBack={() => setActiveTool(null)} />;
   }
-  if (activeTool === "studio") {
-    return <StudioTool onBack={() => setActiveTool(null)} />;
-  }
 
   const q = normalizeArabic(query);
   const matchesNotebook =
     !q || normalizeArabic("دفتر طالب مصادر ملخص صوتي اختبار بطاقات خريطة ذهنية خط زمني دراسة استرجاع NotebookLM").includes(q);
-  const matchesStudio =
-    !q || normalizeArabic("استوديو المولدات بحث موسع قارن النماذج مخطط mermaid ترجمة تحليل عربي كشف كتابة مراجعة كود صفحة html توليد").includes(q);
   const gridTools = GRID_TOOLS.filter((t) => {
     const inCategory = category === "all" || t.category === category;
     const matches = !q || normalizeArabic(`${t.title} ${t.desc}`).includes(q);
     return inCategory && matches;
   });
-  const noResults = !matchesNotebook && !matchesStudio && gridTools.length === 0;
+  const noResults = !matchesNotebook && gridTools.length === 0;
 
   return (
     <div className="space-y-4">
@@ -331,62 +325,6 @@ export function ToolsTab() {
         </div>
       ) : (
         <>
-          {/* استوديو المولّدات (r89) — بطاقة مميزة ثالثة بهوية سماوية/نيلية:
-              نسخة الويب من خدمات التوليد المستوحاة من منصات الذكاء — بحث
-              موسّع وقارن النماذج وست أدوات مولّدة على مفاتيح المنصة نفسها. */}
-          {matchesStudio && (
-            <motion.button
-              key="studio"
-              initial={false}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.25 }}
-              onClick={() => setActiveTool("studio")}
-              className="group w-full text-right cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              aria-label="استوديو المولّدات — افتح أدوات التوليد الثماني"
-            >
-              <Card className="relative overflow-hidden p-0 border-0 bg-gradient-to-l from-sky-600 via-indigo-600 to-violet-600 text-white shadow-md transition-shadow duration-200 hover:shadow-lg">
-                <Wand2
-                  aria-hidden="true"
-                  className="absolute -bottom-7 -left-6 w-32 h-32 text-white/10 -rotate-12 pointer-events-none"
-                />
-                <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-white/10 to-transparent pointer-events-none" />
-                <div className="relative p-4 space-y-3">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/25">
-                      <Wand2 className="w-6 h-6" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-black text-[15px]">استوديو المولّدات</h3>
-                        <Badge className="text-[10px] px-1.5 py-0 bg-white/20 text-white border-0">جديد</Badge>
-                      </div>
-                      <p className="text-xs text-white/85 mt-0.5 leading-relaxed">
-                        بحث موسّع، قارن النماذج، مخططات، ترجمة، تحليل، صفحات HTML — ثماني أدوات في مكان واحد
-                      </p>
-                    </div>
-                    <span className="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-white/20 text-white text-xs font-bold backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/30">
-                      افتح الاستوديو
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
-                  {/* mini studio preview — أدوات الاستوديو الثماني */}
-                  <div className="flex flex-wrap gap-1.5 max-w-[92%] mx-1">
-                    {["بحث موسّع", "قارن النماذج", "مخطط Mermaid", "ترجمة", "تحليل عربي", "كشف الكتابة", "مراجعة كود", "صفحة HTML"].map(
-                      (chip) => (
-                        <span
-                          key={chip}
-                          className="rounded-full bg-white/15 backdrop-blur-sm px-2.5 py-0.5 text-[10px] text-white/90"
-                        >
-                          {chip}
-                        </span>
-                      )
-                    )}
-                  </div>
-                </div>
-              </Card>
-            </motion.button>
-          )}
-
           {matchesNotebook && (
             <motion.button
               key="notebook"

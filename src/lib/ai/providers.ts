@@ -448,34 +448,3 @@ export async function chatComplete(
 
   throw lastError ?? new ProviderError("server", "unknown", 0, "no providers configured");
 }
-
-/**
- * r89 — نداء لمزوّد محدّد بالاسم (يستعمله «قارن النماذج» في الاستوديو):
- * أول نموذج متاح في سلسلة ذلك المزوّد بنفس تصنيف الأخطاء، مع تجاوز بقية
- * نماذجه عند فشل واحد. لا يغيّر سلوك سلسلة chatComplete إطلاقاً.
- */
-export async function chatWithProvider(
-  provider: ProviderId,
-  system: string,
-  messages: ChatMessage[],
-  signal?: AbortSignal,
-  opts?: ChatCompleteOptions
-): Promise<{ answer: string } & StreamResult> {
-  const attempts = buildAttempts().filter((a) => a.provider === provider);
-  if (attempts.length === 0) {
-    throw new ProviderError("auth", provider, 0, `provider ${provider} not configured`);
-  }
-  let lastError: ProviderError | null = null;
-  for (const attempt of attempts) {
-    try {
-      return await callAttempt(attempt, system, messages, signal, opts);
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      lastError =
-        err instanceof ProviderError
-          ? err
-          : new ProviderError("network", attempt.provider, 0, err instanceof Error ? err.message : String(err));
-    }
-  }
-  throw lastError ?? new ProviderError("server", provider, 0, "no attempts left");
-}
