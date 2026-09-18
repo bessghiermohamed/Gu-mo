@@ -24,6 +24,14 @@
  * violet card is gone; دفتر طالب (emerald) is now the only featured
  * online tool. Study help online lives in دفتر طالب and the Telegram
  * bot's tool suite (r85/r86).
+ *
+ * Round 92 (owner: «سأترك دفتر الطالب في أدواتي لكن قلل عرضه وحجمه، ونفس
+ * الشيء لباقي صناديق أدواتي»): the full-width featured card (with its mock
+ * chat preview) is GONE — دفتر طالب is now a compact cell INSIDE the tools
+ * grid with the same footprint as every other tool (emerald identity kept),
+ * and every grid card is tighter: smaller icons (w-4.5), smaller padding
+ * (p-3), smaller titles (13px) and tighter gaps (10px). The search/
+ * noResults contract and the 9-tool TOOLS array are untouched.
  *  - 2-column touch grid: ≥44px targets, ≥12px gaps (ux-guidelines:
  *    touch-spacing + touch-target-size),
  *  - hover feedback via color/shadow ONLY (no translate/scale — the
@@ -37,7 +45,6 @@ import * as React from "react";
 import { motion } from "framer-motion";
 import {
   Calculator,
-  ChevronLeft,
   Coffee,
   Combine,
   ImageDown,
@@ -107,63 +114,63 @@ const TOOLS: Array<{
 }> = [
   {
     id: "gpa",
-    icon: <Calculator className="w-6 h-6" />,
+    icon: <Calculator className="w-4.5 h-4.5" />,
     title: "حاسبة المعدل",
     desc: "مقاييس تخصصك بمعاملاتها الحقيقية — ماذا يصبح معدلك لو…؟",
     category: "study",
   },
   {
     id: "images",
-    icon: <Images className="w-6 h-6" />,
+    icon: <Images className="w-4.5 h-4.5" />,
     title: "صور إلى PDF",
     desc: "حوّل صور جهازك إلى ملف PDF واحد — كل صورة في صفحة",
     category: "pdf",
   },
   {
     id: "compress",
-    icon: <Shrink className="w-6 h-6" />,
+    icon: <Shrink className="w-4.5 h-4.5" />,
     title: "ضغط PDF",
     desc: "قلّص حجم ملف PDF ثقيل قبل إرساله للمجموعة",
     category: "pdf",
   },
   {
     id: "merge",
-    icon: <Combine className="w-6 h-6" />,
+    icon: <Combine className="w-4.5 h-4.5" />,
     title: "دمج ملفات PDF",
     desc: "اجمع عدة ملفات في ملف واحد مرتّب كما تختار",
     category: "pdf",
   },
   {
     id: "extract",
-    icon: <Scissors className="w-6 h-6" />,
+    icon: <Scissors className="w-4.5 h-4.5" />,
     title: "استخراج صفحات PDF",
     desc: "شارك فقط الصفحات التي تهمّ زميلك من ملف ضخم",
     category: "pdf",
   },
   {
     id: "counter",
-    icon: <Type className="w-6 h-6" />,
+    icon: <Type className="w-4.5 h-4.5" />,
     title: "عدّاد الكلمات",
     desc: "كلمات، أحرف، جمل وزمن قراءة — قبل تسليم التقرير",
     category: "study",
   },
   {
     id: "timer",
-    icon: <Coffee className="w-6 h-6" />,
+    icon: <Coffee className="w-4.5 h-4.5" />,
     title: "مؤقّت المراجعة",
     desc: "جلسات تركيز قصيرة واستراحات — تقنية بومودورو",
     category: "study",
   },
   {
     id: "compress-img",
-    icon: <ImageDown className="w-6 h-6" />,
+    icon: <ImageDown className="w-4.5 h-4.5" />,
     title: "ضغط الصور",
     desc: "صغّر صور السبورة والوثائق قبل إرسالها للمجموعة",
     category: "image",
   },
   {
     id: "ocr",
-    icon: <ScanText className="w-6 h-6" />,
+    icon: <ScanText className="w-4.5 h-4.5" />,
     title: "صورة إلى نص",
     desc: "صوّر السبورة أو الورقة — انسخ النص عربياً أو فرنسياً",
     category: "image",
@@ -273,8 +280,9 @@ export function ToolsTab() {
           const active = category === cat;
           const count =
             cat === "all"
-              ? GRID_TOOLS.length
-              : GRID_TOOLS.filter((t) => t.category === cat).length;
+              ? GRID_TOOLS.length + 1
+              : GRID_TOOLS.filter((t) => t.category === cat).length +
+                (cat === "study" ? 1 : 0);
           return (
             <button
               key={cat}
@@ -325,58 +333,41 @@ export function ToolsTab() {
         </div>
       ) : (
         <>
-          {matchesNotebook && (
-            <motion.button
-              key="notebook"
-              initial={false}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.25 }}
-              onClick={() => setActiveTool("notebook")}
-              className="group w-full text-right cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              aria-label="دفتر طالب — افتح دفترك الدراسي"
-            >
-              <Card className="relative overflow-hidden p-0 border-0 bg-gradient-to-l from-emerald-600 via-emerald-500 to-teal-500 text-white shadow-md transition-shadow duration-200 hover:shadow-lg">
-                <NotebookPen
-                  aria-hidden="true"
-                  className="absolute -bottom-7 -left-6 w-32 h-32 text-white/10 -rotate-12 pointer-events-none"
-                />
-                <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-white/10 to-transparent pointer-events-none" />
-                <div className="relative p-4 space-y-3">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/25">
-                      <NotebookPen className="w-6 h-6" />
+          {/* Responsive touch grid — 2 cols mobile → 4 desktop (ux: responsive rule).
+              Round 92: دفتر طالب lives INSIDE the grid as a compact cell
+              (owner: قلل عرضه وحجمه) — same footprint as the rest, emerald
+              identity kept; every card tighter: w-9 icons, p-3, 13px titles. */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+            {matchesNotebook && (category === "all" || category === "study") && (
+              <motion.button
+                key="notebook"
+                initial={false}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.25 }}
+                onClick={() => setActiveTool("notebook")}
+                aria-label="دفتر طالب — افتح دفترك الدراسي"
+                className="group text-right cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98] transition-transform"
+              >
+                <Card className="relative h-full overflow-hidden p-0 border-0 bg-gradient-to-l from-emerald-600 via-emerald-500 to-teal-500 text-white shadow-md transition-shadow duration-200 hover:shadow-lg">
+                  <NotebookPen
+                    aria-hidden="true"
+                    className="absolute -bottom-3.5 -left-3.5 w-16 h-16 text-white/10 -rotate-12 pointer-events-none"
+                  />
+                  <div className="relative p-3">
+                    <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0 transition-colors duration-200 group-hover:bg-white/25">
+                      <NotebookPen className="w-4.5 h-4.5" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-black text-[15px]">دفتر طالب</h3>
-                        <Badge className="text-[10px] px-1.5 py-0 bg-white/20 text-white border-0">جديد</Badge>
-                      </div>
-                      <p className="text-xs text-white/85 mt-0.5 leading-relaxed">
-                        حوّل دروسك إلى مساعد شخصي — أضف مصادرك ثم لخّص، اختبر نفسك، واسمع ملخصاً صوتياً
-                      </p>
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <h3 className="font-black text-[13px]">دفتر طالب</h3>
+                      <Badge className="text-[9px] px-1 py-0 bg-white/20 text-white border-0">جديد</Badge>
                     </div>
-                    <span className="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-white/20 text-white text-xs font-bold backdrop-blur-sm transition-colors duration-200 group-hover:bg-white/30">
-                      افتح الدفتر
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </span>
+                    <p className="text-[11px] text-white/85 mt-0.5 leading-relaxed line-clamp-2">
+                      لخّص واختبر نفسك واسمع ملخصاً صوتياً — من مصادرك أنت
+                    </p>
                   </div>
-                  {/* mini notebook preview — مصدر ← جواب موثّق */}
-                  <div className="space-y-1.5 max-w-[85%] mx-1">
-                    <div className="w-fit max-w-full rounded-2xl rounded-tr-md bg-white/15 backdrop-blur-sm px-3 py-1.5 text-[11px] text-white/90 leading-relaxed">
-                      من ملخص المحاضرة: ما الفرق بين السباتة والعطلة؟
-                    </div>
-                    <div className="w-fit max-w-full ms-auto rounded-2xl rounded-tl-md bg-white/90 text-emerald-900 px-3 py-1.5 text-[11px] leading-relaxed">
-                      حسب مصادرك [م1]: السباتة أسبوع واحد كل سنة، أما العطلة فشهران…
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </motion.button>
-          )}
-
-          {/* Responsive touch grid — 2 cols mobile → 4 desktop (ux: responsive rule),
-              44px icons, 12px gaps, hover = color/shadow only */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                </Card>
+              </motion.button>
+            )}
             {gridTools.map((tool, i) => (
               <motion.button
                 key={tool.id}
@@ -387,12 +378,12 @@ export function ToolsTab() {
                 aria-label={tool.title}
                 className="group text-right cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98] transition-transform"
               >
-                <Card className="h-full gap-0 p-3.5 transition-[border-color,box-shadow] duration-200 hover:border-primary/50 hover:shadow-md">
-                  <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0 transition-colors duration-200 group-hover:bg-primary group-hover:text-primary-foreground">
+                <Card className="h-full gap-0 p-3 transition-[border-color,box-shadow] duration-200 hover:border-primary/50 hover:shadow-md">
+                  <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 transition-colors duration-200 group-hover:bg-primary group-hover:text-primary-foreground">
                     {tool.icon}
                   </div>
-                  <h3 className="font-bold text-sm mt-3">{tool.title}</h3>
-                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed line-clamp-2">
+                  <h3 className="font-bold text-[13px] mt-2">{tool.title}</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed line-clamp-2">
                     {tool.desc}
                   </p>
                 </Card>

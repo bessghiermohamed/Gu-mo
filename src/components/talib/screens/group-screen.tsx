@@ -22,6 +22,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useI18n } from "@/components/talib/i18n-provider";
 import { useAuth } from "@/components/talib/auth-provider";
 import { useShell } from "@/app/app/page";
+import { RankBadge, useActivityRank } from "@/components/talib/rank-badge";
 import { toast } from "sonner";
 
 interface GroupMember {
@@ -74,6 +75,9 @@ export function TalibGroupScreen() {
   const { t } = useI18n();
   const { user } = useAuth();
   const { navigate } = useShell();
+  // round 92 — شارة النشاط: اسم الطالب وشعار رُتبته اللعبية ونقاطه،
+  // محسوبة على جهازه فقط وبلا أي شرح ظاهر (تعليمات المالك حرفياً)
+  const activitySnap = useActivityRank();
   const [members, setMembers] = React.useState<GroupMember[]>([]);
   const [loading, setLoading] = React.useState(true);
   // round 55 — بيانات الفوج (اسمه/مجموعته الأم/فورعه الفرعي) لعرضها في
@@ -109,6 +113,24 @@ export function TalibGroupScreen() {
       <div>
         <h1 className="text-2xl font-black">{t("group.title")}</h1>
       </div>
+
+      {/* round 92 — شارة النشاط بجانب اسم الطالب: شعار + اسم رُتبة + نقاط،
+          تتغير تلقائياً مع نشاطه على جهازه — بلا أي شرح للطالب، وبلا أي
+          إرسال لخادم (نفس عقد الخصوصية المحلي). تظهر دائماً حتى قبل
+          الإلحاق بالفوج. */}
+      {user && (
+        <Card className="p-3.5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary/15 text-primary flex items-center justify-center shrink-0 text-sm font-black">
+              {user.fullName.charAt(0)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-sm truncate">{user.fullName}</p>
+            </div>
+            {activitySnap && <RankBadge snap={activitySnap} />}
+          </div>
+        </Card>
+      )}
 
       {!hasGroup ? (
         <Card className="p-5 bg-amber-500/10 border-amber-500/30">

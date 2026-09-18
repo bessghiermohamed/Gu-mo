@@ -38,6 +38,7 @@ import {
 import { TalibPushPermissionPrompt } from "@/components/talib/push-permission-prompt";
 import { pushBoot, activatePushWithPrompt, markPushDismissed } from "@/lib/push-client";
 import { applyFontScale, loadFontScale } from "@/lib/font-scale";
+import { recordDailyVisit } from "@/lib/gamification";
 import { cn } from "@/lib/utils";
 
 export type ScreenRoute =
@@ -183,6 +184,9 @@ function ShellInner() {
 
   React.useEffect(() => {
     setMounted(true);
+    // round 92 — دفتر الحضور المحلي: كتابة idempotent واحدة يومياً تُغذّي
+    // شارة الرُتبة في قسم الفوج (lib/gamification) — بلا أي إرسال شبكي.
+    recordDailyVisit();
     // round 56 — re-apply the saved text/interface size on every boot so
     // the setting survives reloads (set from الإعدادات).
     applyFontScale(loadFontScale());
