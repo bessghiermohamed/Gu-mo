@@ -1,10 +1,15 @@
 // Universal OpenAI-compatible caller for 7 providers with automatic fallback.
 // If a bot's primary provider fails (rate limit, dead key, timeout), the next
 // provider in the chain answers instead — bots never go silent.
+// AI keys are provided via Vercel environment variables (never in code).
 
 const PROVIDERS: Record<string, any> = {
+  gemini: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    keyEnv: 'GEMINI_API_KEY',
+    model: 'gemini-flash-latest',
+  },
   groq: { url: 'https://api.groq.com/openai/v1/chat/completions', keyEnv: 'GROQ_API_KEY', model: 'llama-3.3-70b-versatile' },
-  gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', keyEnv: 'GEMINI_API_KEY', model: 'gemini-flash-latest' },
   grok: { url: 'https://api.x.ai/v1/chat/completions', keyEnv: 'GROK_API_KEY', model: 'grok-3-mini' },
   openrouter: {
     url: 'https://openrouter.ai/api/v1/chat/completions',
@@ -18,7 +23,7 @@ const PROVIDERS: Record<string, any> = {
 };
 
 // Global fallback order (verified-working providers first)
-const CHAIN = ['gemini', 'groq', 'mistral', 'huggingface', 'cohere', 'openrouter', 'grok'];
+const CHAIN = ['gemini', 'openrouter', 'mistral', 'huggingface', 'cohere', 'grok', 'groq'];
 
 const stats = new Map<string, any>();
 
@@ -43,7 +48,7 @@ export function statsView(): Record<string, any> {
 async function callOne(name: string, messages: any[], opts: { maxTokens: number; temperature: number }): Promise<string> {
   const cfg = PROVIDERS[name];
   const key = process.env[cfg.keyEnv];
-  if (!key) throw new Error('missing API key');
+  if (!key) throw new Error('missing API key env: ' + cfg.keyEnv);
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 20000);
   try {
