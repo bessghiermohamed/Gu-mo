@@ -129,7 +129,10 @@ function enforceMentionBudget(text: string, bot: BotConfig, botTriggered: boolea
 
 // ─── main entry ──────────────────────────────────────────────────────────────
 export async function handleUpdate(bot: BotConfig, update: any): Promise<any> {
-  if (isDupUpdate(update.update_id)) return { skipped: 'duplicate' };
+  // update_ids are assigned PER BOT by Telegram, and all webhook routes share
+  // one Node process — so the dedupe key must include the bot id, otherwise
+  // one bot's update would silently swallow another bot's update.
+  if (isDupUpdate(`${bot.id}:${update.update_id}`)) return { skipped: 'duplicate' };
   const msg = update.message;
   if (!msg || !msg.chat) return { skipped: 'not-a-message' };
   const text = (msg.text || msg.caption || '').trim();
