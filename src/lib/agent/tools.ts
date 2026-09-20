@@ -61,9 +61,23 @@ async function toolWebFetch(args: any): Promise<any> {
     const ctype = res.headers.get('content-type') || '';
     const raw = await res.text();
     const text = ctype.includes('html') ? stripHtml(raw) : raw;
+    const looksBlocked = [403, 429, 503].includes(res.status) || (text.length < 300 && /captcha|verify|robot/i.test(raw));
+    if (looksBlocked) throw new Error(`direct fetch blocked (HTTP ${res.status})`);
     return { ok: res.ok, status: res.status, url: g.url.toString(), content: text.slice(0, Number(args?.max_chars) || 7000) };
   } catch (e: any) {
-    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+    // fallback: r.jina.ai reader proxy (free tier, returns clean markdown)
+    try {
+      const res = await timedFetch(
+        `https://r.jina.ai/${g.url.toString()}`,
+        { headers: { 'user-agent': 'MuradAgent/1.0' } },
+        22000
+      );
+      if (!res.ok) return { ok: false, error: `direct: ${e?.message}; jina proxy: HTTP ${res.status}` };
+      const md = await res.text();
+      return { ok: true, url: g.url.toString(), via: 'jina-proxy', content: md.slice(0, Number(args?.max_chars) || 7000) };
+    } catch (e2: any) {
+      return { ok: false, error: `direct: ${String(e?.message || e).slice(0, 120)}; jina proxy: ${String(e2?.message || e2).slice(0, 120)}` };
+    }
   }
 }
 
@@ -78,43 +92,109 @@ function decodeDdgHref(href: string): string {
   }
 }
 
+// ─── search backends (tried in order, all free, no keys) ────────────────────
+
+async function searchWikipedia(q: string): Promise<any[]> {
+  const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=6&srsearch=${encodeURIComponent(q)}&format=json&origin=*`;
+  const res = await timedFetch(url, { headers: { 'user-agent': 'MuradAgent/1.0 (autonomous agent; https://gu-mo.vercel.app)' } }, 10000);
+  if (!res.ok) throw new Error(`wiki ${res.status}`);
+  const j: any = await res.json();
+  return (j?.query?.search || []).map((r: any) => ({
+    title: r.title,
+    url: `https://en.wikipedia.org/wiki/${encodeURIComponent(String(r.title).replace(/ /g, '_'))}`,
+    snippet: stripHtml(r.snippet || '').slice(0, 220),
+  }));
+}
+
+async function searchDdgInstant(q: string): Promise<any[]> {
+  const res = await timedFetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1`, { headers: { 'user-agent': 'MuradAgent/1.0' } }, 9000);
+  if (!res.ok) throw new Error(`ddg-instant ${res.status}`);
+  const j: any = await res.json();
+  const out: any[] = [];
+  if (j?.AbstractText && j?.AbstractURL) out.push({ title: j.Heading || q, url: j.AbstractURL, snippet: String(j.AbstractText).slice(0, 220) });
+  for (const rt of (j?.RelatedTopics || []).slice(0, 6)) {
+    if (rt?.FirstURL) out.push({ title: String(rt.Text || '').split(' - ')[0].slice(0, 120), url: rt.FirstURL, snippet: String(rt.Text || '').slice(0, 220) });
+  }
+  if (!out.length) throw new Error('ddg-instant empty');
+  return out;
+}
+
+async function searchDdgHtml(q: string): Promise<any[]> {
+  const res = await timedFetch(
+    'https://html.duckduckgo.com/html/',
+    { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, body: `q=${encodeURIComponent(q)}` },
+    12000
+  );
+  if (!res.ok) throw new Error(`ddg-html ${res.status}`);
+  const html = await res.text();
+  const results: any[] = [];
+  const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:class="result__snippet"[^>]*>([\s\S]*?)<\/a>)?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) && results.length < 8) {
+    results.push({ title: stripHtml(m[2]).slice(0, 120), url: decodeDdgHref(m[1]), snippet: m[3] ? stripHtml(m[3]).slice(0, 220) : '' });
+  }
+  if (!results.length) throw new Error('ddg-html no results (likely bot-walled)');
+  return results;
+}
+
+async function searchJinaBing(q: string): Promise<any[]> {
+  const res = await timedFetch(
+    `https://r.jina.ai/https://www.bing.com/search?q=${encodeURIComponent(q)}&count=10`,
+    { headers: { 'user-agent': 'MuradAgent/1.0' } },
+    24000
+  );
+  if (!res.ok) throw new Error(`jina-bing ${res.status}`);
+  const md = await res.text();
+  const out: any[] = [];
+  const seen = new Set<string>();
+  const re = /\[([^\]]{4,120})\]\((https?:\/\/[^\)\s]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(md)) && out.length < 8) {
+    const url = m[2];
+    if (/bing\.com|microsoft\.com\/en-us\/bing|jina\.ai|go\.microsoft/.test(url)) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    out.push({ title: m[1].trim().slice(0, 120), url, snippet: '' });
+  }
+  if (!out.length) throw new Error('jina-bing no links parsed');
+  return out;
+}
+
+async function searchMojeek(q: string): Promise<any[]> {
+  const res = await timedFetch(`https://www.mojeek.com/search?q=${encodeURIComponent(q)}`, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; MuradAgent/1.0)' } }, 10000);
+  if (!res.ok) throw new Error(`mojeek ${res.status}`);
+  const html = await res.text();
+  const out: any[] = [];
+  const re = /<a[^>]+class="title[^"]*"[^>]+href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) && out.length < 8) {
+    out.push({ title: stripHtml(m[2]).slice(0, 120), url: m[1], snippet: '' });
+  }
+  if (!out.length) throw new Error('mojeek no results parsed');
+  return out;
+}
+
 async function toolWebSearch(args: any): Promise<any> {
   const q = String(args?.query || '').slice(0, 300);
   if (!q) return { ok: false, error: 'query required' };
-  for (const endpoint of [
-    { url: 'https://html.duckduckgo.com/html/', form: true },
-    { url: 'https://lite.duckduckgo.com/lite/?q=' + encodeURIComponent(q), form: false },
-  ]) {
+  const attempts: string[] = [];
+  const backends: [string, (query: string) => Promise<any[]>][] = [
+    ['wikipedia', searchWikipedia],
+    ['ddg-instant', searchDdgInstant],
+    ['ddg-html', searchDdgHtml],
+    ['jina-bing', searchJinaBing],
+    ['mojeek', searchMojeek],
+  ];
+  for (const [name, fn] of backends) {
     try {
-      const res = await timedFetch(
-        endpoint.url,
-        endpoint.form
-          ? { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Mozilla/5.0' }, body: `q=${encodeURIComponent(q)}` }
-          : { headers: { 'user-agent': 'Mozilla/5.0' } },
-        12000
-      );
-      const html = await res.text();
-      const results: any[] = [];
-      if (endpoint.form) {
-        const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:class="result__snippet"[^>]*>([\s\S]*?)<\/a>)?/g;
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(html)) && results.length < 8) {
-          results.push({ title: stripHtml(m[2]).slice(0, 120), url: decodeDdgHref(m[1]), snippet: m[3] ? stripHtml(m[3]).slice(0, 220) : '' });
-        }
-      } else {
-        const re = /<a[^>]+href="(http[^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(html)) && results.length < 8) {
-          if (/duckduckgo\.com/.test(m[1])) continue;
-          results.push({ title: stripHtml(m[2]).slice(0, 120), url: decodeDdgHref(m[1]), snippet: '' });
-        }
-      }
-      if (results.length) return { ok: true, query: q, results };
-    } catch {
-      /* try next endpoint */
+      const results = await fn(q);
+      if (results.length) return { ok: true, backend: name, query: q, results };
+      attempts.push(`${name}: empty`);
+    } catch (e: any) {
+      attempts.push(`${name}: ${String(e?.message || e).slice(0, 60)}`);
     }
   }
-  return { ok: false, error: 'search failed (both DuckDuckGo endpoints)' };
+  return { ok: false, error: `all search backends failed — ${attempts.join(' | ')}` };
 }
 
 async function toolRunCode(args: any): Promise<any> {

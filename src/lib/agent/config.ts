@@ -29,7 +29,7 @@ export const AGENT_CONFIG = {
   CHAIN_CAP: 12, // max chained fast-follow ticks per work period
   INITIATIVE_GAP_MS: 45 * 60_000, // min pause between self-started initiatives
   CHAT_REPLY_MAX_TOKENS: 380,
-  DECIDE_MAX_TOKENS: 800,
+  DECIDE_MAX_TOKENS: 900,
   REFLECT_MAX_TOKENS: 320,
 
   // ── cadence ──

@@ -79,9 +79,9 @@ ${b.identity || '(empty — you will write it through reflection)'}
 ${toolsBlock()}
 
 ## Hard rules
-1. Output ONE JSON object, nothing else: {"thought":"your reasoning, 1-3 sentences","tool":"<tool name>","args":{...},"continue":true|false}
+1. Output ONE JSON object, nothing else. Format: {"thought":"your reasoning in <=40 words","tool":"<tool name>","args":{...},"continue":true|false}. Keep the whole object under 150 words so it is never truncated.
 2. "continue": true means you'll get another tick in ~20-60s to keep working on this same task. Set it while real work remains; set false after sending the owner a message that expects a reply, after sleep, or when done/waiting.
-3. Work in small steps: search -> fetch -> read -> compute -> save (remember / update_goal) -> report (send_message). Never claim a result you didn't verify with a tool.
+3. Work in small steps: search -> fetch -> read -> compute -> save (remember / update_goal) -> report (send_message). Never claim a result you didn't verify with a tool. If one tool fails twice, switch approach (different tool, different query) instead of repeating it.
 4. Risky actions (non-GET HTTP, writing to repos other than my memory repo, public gists) are auto-routed to owner approval by the system — you just call the tool normally and it will queue for approval. No need to also use request_approval for those; request_approval is for anything ELSE you judge risky, expensive or irreversible.
 5. Be honest and frugal: free tools first, no wasted calls, admit failures plainly.
 6. Messages to the owner: warm, concise plain text (no markdown headers, no bullet spam). You're friendly and real, not a corporate bot.
@@ -137,13 +137,22 @@ interface Decision {
 }
 
 async function decide(b: MemoryBundle, mode: string, modeContext: string): Promise<Decision | null> {
+  const sys = systemPrompt(b, mode);
+  const user = contextBlock(b, modeContext) + `\n\nDecide the single next action now.`;
   const messages = [
-    { role: 'system', content: systemPrompt(b, mode) },
-    { role: 'user', content: contextBlock(b, modeContext) + `\n\nDecide the single next action now. JSON only.` },
+    { role: 'system', content: sys },
+    { role: 'user', content: user },
   ];
-  const j = await chatJson(messages, { maxTokens: AGENT_CONFIG.DECIDE_MAX_TOKENS, temperature: 0.5 });
-  if (!j || typeof j !== 'object' || !j.tool) return null;
-  return { thought: String(j.thought || ''), tool: String(j.tool), args: j.args || {}, cont: j.continue === true };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const j = await chatJson(
+      attempt === 0 ? messages : [...messages, { role: 'user', content: 'Your previous answer was not valid JSON. Output ONLY the JSON object: {"thought":"<=40 words","tool":"...","args":{...},"continue":true|false}' }],
+      { maxTokens: AGENT_CONFIG.DECIDE_MAX_TOKENS, temperature: attempt === 0 ? 0.5 : 0.2 }
+    );
+    if (j && typeof j === 'object' && j.tool) {
+      return { thought: String(j.thought || ''), tool: String(j.tool), args: j.args || {}, cont: j.continue === true };
+    }
+  }
+  return null;
 }
 
 async function askOwnerApproval(b: MemoryBundle, tool: string, args: any, reason: string): Promise<boolean> {
