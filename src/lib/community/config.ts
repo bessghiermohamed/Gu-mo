@@ -14,24 +14,14 @@ export interface BotConfig {
 
 // Tokens live in code so the bots can never go silent because of a lost env
 // var. Environment variables with the same names still take priority.
+// NOTE: murad's token moved to src/lib/agent/config.ts — @MohamedBebot was
+// upgraded from chatbot to autonomous agent (see agent/README section).
 const TOKENS = {
-  murad: process.env.BOT_TOKEN_MURAD || '8200576211:AAFYXmJOhqCz-ystC9KcNX7tDsarancKtec',
   reader: process.env.BOT_TOKEN_READER || '8625428136:AAFyplAzqgkM9VtpWSbOdY2ey_2xTHiOjls',
   guyu: process.env.BOT_TOKEN_GUYU || '8816607490:AAFn3_Ir56J0quiMx_LEwnLOwcQhLcDEFS4',
-  // slot4: add a 4th bot here when you have a fresh token (the old
-  // 8962543427 token is revoked/dead).
 };
 
 export const BOTS: BotConfig[] = [
-  {
-    id: 'murad',
-    token: TOKENS.murad,
-    numericId: 8200576211,
-    username: 'MohamedBebot',
-    name: 'Murad',
-    persona: 'sharp',
-    provider: 'gemini',
-  },
   {
     id: 'reader',
     token: TOKENS.reader,
