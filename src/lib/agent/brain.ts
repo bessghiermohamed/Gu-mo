@@ -192,15 +192,18 @@ async function execute(b: MemoryBundle, d: Decision): Promise<{ summary: string;
   const risky = d.bypassRisk ? undefined : def.risky?.(d.args);
   if (risky) {
     const asked = await askOwnerApproval(b, d.tool, d.args, typeof risky === 'string' ? risky : 'risky');
-    if (asked) {
-      if (d.tool === 'send_message') return { summary: 'risky send queued', ok: true, chained: false };
-      if (b.state.currentTask) {
-        const g = b.goals.find((x) => x.id === b.state.currentTask!.goalId);
-        if (g && g.status === 'active') g.status = 'waiting_approval';
-        await saveGoals(b);
-      }
-      return { summary: `queued for approval: ${d.tool}`, ok: true, chained: false };
+    if (!asked) {
+      // CRITICAL: never execute a risky action just because we couldn't ask.
+      await episode(b, 'blocked', `${d.tool} needs approval but no owner is pinned — refusing to run`);
+      return { summary: `refused: ${d.tool} needs owner approval (none pinned yet)`, ok: false, chained: false };
     }
+    if (d.tool === 'send_message') return { summary: 'risky send queued', ok: true, chained: false };
+    if (b.state.currentTask) {
+      const g = b.goals.find((x) => x.id === b.state.currentTask!.goalId);
+      if (g && g.status === 'active') g.status = 'waiting_approval';
+      await saveGoals(b);
+    }
+    return { summary: `queued for approval: ${d.tool}`, ok: true, chained: false };
   }
 
   // ── local (memory-touching) tools ──
