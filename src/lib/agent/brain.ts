@@ -1,4 +1,4 @@
-// ─── Murad's brain: the autonomous loop ──────────────────────────────────────
+// ─── Talib's brain: the autonomous loop ────────────────────────────────
 //
 // One tick = one thought:
 //   acquire lock -> execute approved actions -> pick mode (task/scheduled/
@@ -65,13 +65,14 @@ function goalsBlock(b: MemoryBundle): string {
 function systemPrompt(b: MemoryBundle, mode: string): string {
   const t = nowParts();
   const owner = b.state.ownerChatId ? `${b.state.ownerName || 'my owner'} (chat ${b.state.ownerChatId})` : 'unknown — nobody has messaged me privately yet';
-  return `You are Murad (@MohamedBebot), an autonomous AI agent. You were once a simple chatbot; you were upgraded into an agent that works on goals between messages, uses tools, and learns from experience.
+  return `You are Talib (طالب, @gu_mo_bot), an autonomous AI agent based in Tiaret, Algeria. You were upgraded from a simple chatbot into an agent that works on goals between messages, uses tools, and learns from experience. You ALWAYS write to humans in Modern Standard Arabic (العربية الفصحى) — clear, correct, dignified فصحى; never slang, never dialect.
 
 ## Who I am (my living identity file)
 ${b.identity || '(empty — you will write it through reflection)'}
 
 ## Facts
 - Owner: ${owner}. Date/time: ${t.utc}, ${t.alg}.
+- I live in Tiaret, Algeria (Africa/Algiers, UTC+1).
 - Today: LLM calls ${b.state.counters.llm}/${AGENT_CONFIG.LLM_DAILY_CAP}, ticks ${b.state.counters.ticks}/${AGENT_CONFIG.TICKS_DAILY_CAP}.
 - This tick's mode: ${mode}.
 
@@ -79,12 +80,12 @@ ${b.identity || '(empty — you will write it through reflection)'}
 ${toolsBlock()}
 
 ## Hard rules
-1. Output ONE JSON object, nothing else. Format: {"thought":"your reasoning in <=40 words","tool":"<tool name>","args":{...},"continue":true|false}. Keep the whole object under 150 words so it is never truncated.
+1. Output ONE JSON object, nothing else. Format: {"thought":"سبب قرارك بالعربية في ≤40 كلمة","tool":"<tool name>","args":{...},"continue":true|false}. Keep the whole object under 150 words so it is never truncated.
 2. "continue": true means you'll get another tick in ~20-60s to keep working on this same task. Set it while real work remains; set false after sending the owner a message that expects a reply, after sleep, or when done/waiting.
 3. Work in small steps: search -> fetch -> read -> compute -> save (remember / update_goal) -> report (send_message). Never claim a result you didn't verify with a tool. If one tool fails twice, switch approach (different tool, different query) instead of repeating it.
 4. Risky actions (non-GET HTTP, writing to repos other than my memory repo, public gists) are auto-routed to owner approval by the system — you just call the tool normally and it will queue for approval. No need to also use request_approval for those; request_approval is for anything ELSE you judge risky, expensive or irreversible.
 5. Be honest and frugal: free tools first, no wasted calls, admit failures plainly.
-6. Messages to the owner: warm, concise plain text (no markdown headers, no bullet spam). You're friendly and real, not a corporate bot.
+6. Messages to the owner: warm, concise plain-text Modern Standard Arabic (no markdown headers, no bullet spam). You're friendly and real, not a corporate bot.
 7. Use update_goal with check_subtask as you finish subtasks; mark the goal !done (with result) when fully achieved; mark !blocked with a note if stuck after ~3 attempts.
 8. Use remember for durable lessons ("DDG search works better with quotes", "owner prefers Arabic at night", ...).`;
 }
@@ -287,7 +288,7 @@ async function reflect(b: MemoryBundle, trigger: string): Promise<void> {
       [
         {
           role: 'system',
-          content: `You maintain the identity file and lessons of Murad, an autonomous agent. Never change his name. Identity evolves slowly and honestly — rewrite the whole file (max 250 words) keeping what's still true, adjusting what experience has changed: interests, style, confidence, lessons about how he works. Output JSON: {"identity":"<full new identity file markdown>","insights":["1-3 durable lessons from recent events"]}`,
+          content: `You maintain the identity file and lessons of Talib (طالب), an autonomous agent from Tiaret, Algeria. The identity file is ALWAYS written in Modern Standard Arabic. Never change his name. Identity evolves slowly and honestly — rewrite the whole file (max 250 words) keeping what's still true, adjusting what experience has changed: interests, style, confidence, lessons about how he works. Output JSON: {"identity":"<full new identity file markdown, in Modern Standard Arabic>","insights":["1-3 durable lessons from recent events, in Arabic"]}`,
         },
         {
           role: 'user',
@@ -506,17 +507,17 @@ export async function handleChatMessage(msg: any): Promise<any> {
     if (name === 'start' || name === 'help') {
       await sendTelegram(
         chatId,
-        `I'm Murad — now an autonomous agent, not just a chatbot.\n\nWhat I can do:\n• Work on goals between messages (research, monitoring, writing, code, APIs)\n• Search the web, fetch pages, run code, call public APIs\n• Remember lessons and keep a living identity\n• Ask your approval before anything risky\n\nTalk to me normally, or:\n/goals — see my goal board\n/status — my state & budgets\n/stop — pause autonomous work\n/resume — resume\nPing me with any task: "goal: track X price daily" or just "find me ..."`
+        `أنا طالب — وكيل ذكي مستقل، وليس مجرد روبوت محادثة.\n\nما أستطيع فعله:\n• العمل على أهدافك بين رسائلك (بحث، مراقبة، كتابة، برمجة، واجهات برمجية)\n• البحث في الإنترنت وقراءة الصفحات وتنفيذ الشيفرات ومناداة الخدمات العامة\n• حفظ الدروس التي أتعلمها والاحتفاظ بهوية تتطور مع الخبرة\n• طلب إذنك قبل أي إجراء قد يكون محفوفًا بالخطر\n\nحدّثني بشكل طبيعي، أو استخدم:\n/goals — لوحة أهدافي\n/status — حالتي وميزانياتي\n/stop — إيقاف العمل الذاتي مؤقتًا\n/resume — استئناف\nاطلب أي مهمة: "goal: تتبّع سعر X يوميًا" أو ببساطة "ابحث لي عن ..."`
       );
       return { ok: 'help' };
     }
     if (name === 'ping') {
-      await sendTelegram(chatId, `pong — I'm alive. Ticks today: ${b.state.counters.ticks}, LLM calls: ${b.state.counters.llm}.`);
+      await sendTelegram(chatId, `pong — أنا حيّ. دورات اليوم: ${b.state.counters.ticks}، نداءات الذكاء: ${b.state.counters.llm}.`);
       return { ok: 'ping' };
     }
     if (name === 'goals') {
-      const g = b.goals.length ? b.goals.map((x) => `#${x.id} ${x.status === 'done' ? '✅' : x.status === 'failed' ? '✖' : x.status === 'blocked' ? '⛔' : '🔹'} ${x.title}${x.subtasks.length ? ` (${x.subtasks.filter((s) => s.done).length}/${x.subtasks.length})` : ''}`).join('\n') : '(no goals yet — give me one: "goal: ...")';
-      await sendTelegram(chatId, `My goal board:\n${g}`);
+      const g = b.goals.length ? b.goals.map((x) => `#${x.id} ${x.status === 'done' ? '✅' : x.status === 'failed' ? '✖' : x.status === 'blocked' ? '⛔' : '🔹'} ${x.title}${x.subtasks.length ? ` (${x.subtasks.filter((s) => s.done).length}/${x.subtasks.length})` : ''}`).join('\n') : '(لا أهداف بعد — أعطني واحدًا: "goal: ...")';
+      await sendTelegram(chatId, `لوحة أهدافي:\n${g}`);
       return { ok: 'goals' };
     }
     if (name === 'status') {
@@ -528,14 +529,14 @@ export async function handleChatMessage(msg: any): Promise<any> {
         s.paused = true;
         s.chainCount = 0;
       });
-      await sendTelegram(chatId, 'Autonomous mode paused. I\'ll still answer you here, but I won\'t work between messages. /resume to unpause.');
+      await sendTelegram(chatId, 'أوقفتُ العمل الذاتي مؤقتًا. سأبقى أجيبك هنا، لكنني لن أعمل بين رسائلك. أرسل /resume للاستئناف.');
       return { ok: 'paused' };
     }
     if (name === 'resume') {
       await updateStateFields((s) => {
         s.paused = false;
       });
-      await sendTelegram(chatId, 'Back on duty. I\'ll check in every few minutes and keep working on my goals.');
+      await sendTelegram(chatId, 'عدتُ إلى واجبي. سأتابع أهدافي كل بضع دقائق وأوافيك بالنتائج.');
       return { ok: 'resumed' };
     }
     // unknown command -> fall through to chat
@@ -549,7 +550,7 @@ export async function handleChatMessage(msg: any): Promise<any> {
       goals.push(g);
     });
     await episode(b, 'goal-added', `#${g.id} ${g.title} (owner)`);
-    await sendTelegram(chatId, `On it — goal #${g.id}: "${g.title}". I'll work in steps and report back here.`);
+    await sendTelegram(chatId, `على رأي العين — الهدف #${g.id}: «${g.title}». سأعمل على خطوات وأوافيك بالتقرير هنا.`);
     await dispatchWorkflow(AGENT_CONFIG.ghToken, SCHEDULER_REPO, 'agent-tick.yml', { source: 'chain' });
     return { ok: 'goal-added', goalId: g.id };
   }
@@ -569,15 +570,15 @@ export async function handleChatMessage(msg: any): Promise<any> {
       [
         {
           role: 'system',
-          content: `${b.identity || ''}\n\nYou are Murad, an autonomous agent, chatting on Telegram with ${isOwner ? `your owner (${b.state.ownerName || 'them'})` : 'a person'}. Current date: ${nowParts().utc}. You are mid-life with these goals: ${goalsBlock(b) || 'none'}. Reply naturally and concisely (1-4 sentences, plain text, no headers). If their message asks you to DO real work (research/find/build/monitor/track/write/fetch something), also create a goal so you can work on it between messages — reply briefly that you're on it.\nOutput JSON only: {"reply":"...","newGoal":{"title":"...","description":"..."} | null}`,
+          content: `${b.identity || ''}\n\nYou are Talib (طالب), an autonomous agent from Tiaret, Algeria, chatting on Telegram with ${isOwner ? `your owner (${b.state.ownerName || 'them'})` : 'a person'}. Current date: ${nowParts().utc}. You are mid-life with these goals: ${goalsBlock(b) || 'none'}. Reply in Modern Standard Arabic (العربية الفصحى) — naturally and concisely (1-4 sentences, plain text, no headers, no dialect). If their message asks you to DO real work (research/find/build/monitor/track/write/fetch something), also create a goal so you can work on it between messages — reply briefly in Arabic that you're on it.\nOutput JSON only: {"reply":"...","newGoal":{"title":"...","description":"..."} | null}`,
         },
         { role: 'user', content: `Recent conversation:\n${conv.slice(-14).join('\n') || '(start)'}\n\nNew message from ${from.first_name || 'them'}: ${text.slice(0, 1200)}` },
       ],
       { maxTokens: AGENT_CONFIG.CHAT_REPLY_MAX_TOKENS, temperature: 0.8 }
     );
-    const reply = j?.reply || (typeof j === 'string' ? j : null) || "I'm here, but my language providers hiccuped — try again in a moment.";
+    const reply = j?.reply || (typeof j === 'string' ? j : null) || 'أنا هنا، لكن مزودات الذكاء اصطدمت بعقبة — حاول مجددًا بعد لحظات.';
     await sendTelegram(chatId, String(reply).slice(0, 1500), { replyTo: isPrivate ? undefined : msg.message_id });
-    await logConversation(chatId, 'Murad', String(reply));
+    await logConversation(chatId, 'Talib', String(reply));
     await updateStateFields((s) => {
       s.counters.llm = (s.counters.llm || 0) + 1;
       s.totals.llm = (s.totals.llm || 0) + 1;
@@ -589,14 +590,14 @@ export async function handleChatMessage(msg: any): Promise<any> {
       await mutateGoals((goals) => {
         goals.push(g);
       });
-      await sendTelegram(chatId, `Filed as goal #${g.id} — I'll work on it between messages and report back.`);
+      await sendTelegram(chatId, `سُجّل كهدف #${g.id} — سأعمل عليه بين رسائلك وأخبرك بالنتيجة.`);
       await episode(b, 'goal-added', `#${g.id} ${g.title} (from chat)`);
       await dispatchWorkflow(AGENT_CONFIG.ghToken, SCHEDULER_REPO, 'agent-tick.yml', { source: 'chain' });
     }
     return { ok: 'chat' };
   } catch (e: any) {
     console.error('[agent.brain] chat failed:', e?.message);
-    await sendTelegram(chatId, "My brain's offline for a moment (all AI providers failed). I'll remember you wrote this and pick it up when I'm back.");
+    await sendTelegram(chatId, 'دماغي معطّل للحظة (فشلت جميع مزودات الذكاء). سأتذكر أنك كتبت هذا وأستأنف العمل حين أعود.');
     await episode(b, 'chat-missed', `${from.first_name}: ${text.slice(0, 150)}`);
     return { ok: false, error: 'llm-down' };
   }
@@ -614,7 +615,7 @@ export async function handleCallback(cq: any): Promise<any> {
   const b = await loadMemory();
   const ap = b.approvals.find((a) => a.id === id && a.status === 'pending');
   if (!ap) {
-    await answerCallback(cq.id, 'Already handled (or expired).');
+    await answerCallback(cq.id, 'انتهى عليه الحل بالفعل (أو انتهت صلاحيته).');
     return { skipped: 'not-found' };
   }
   ap.status = approve ? 'approved' : 'rejected';
@@ -626,8 +627,8 @@ export async function handleCallback(cq: any): Promise<any> {
     if (!approve) g.notes.push(`owner rejected: ${ap.tool}`);
     await saveGoals(b);
   }
-  if (ap.message) await editMessage(ap.message.chatId, ap.message.messageId, `${approve ? '✅ Approved' : '❌ Rejected'} — ${ap.tool}\n${approve ? 'I\'ll run it on my next tick (within seconds).' : 'I won\'t do it.'}`);
-  await answerCallback(cq.id, approve ? 'Approved — running it now' : 'Rejected');
+  if (ap.message) await editMessage(ap.message.chatId, ap.message.messageId, `${approve ? '✅ اعتُمد' : '❌ رُفض'} — ${ap.tool}\n${approve ? 'سأنفّذه في دورتي القادمة (خلال ثوانٍ).' : 'لن أفعله.'}`);
+  await answerCallback(cq.id, approve ? 'اعتُمد — أنفّذه الآن' : 'رُفض');
   await appendLine('episodic.jsonl', { ts: Date.now(), text: `[${new Date().toISOString()}] approval-${approve ? 'granted' : 'denied'}: ${ap.tool} ${describeArgs(ap.args)}` }, EPISODE_CAP);
   if (approve) await dispatchWorkflow(AGENT_CONFIG.ghToken, SCHEDULER_REPO, 'agent-tick.yml', { source: 'chain' });
   return { ok: approve ? 'approved' : 'rejected' };
@@ -638,16 +639,16 @@ export async function handleCallback(cq: any): Promise<any> {
 function buildStatus(b: MemoryBundle): string {
   const up = Math.round((Date.now() - (b.state.totals.startedAt || Date.now())) / 86400_000);
   const lines = [
-    `🧠 Murad — agent status`,
-    `• Mode: ${b.state.paused ? 'PAUSED' : 'autonomous'} · uptime ${up}d`,
-    `• Owner: ${b.state.ownerName || 'not pinned yet'} (${b.state.ownerChatId || '—'})`,
-    `• Today: ${b.state.counters.ticks} ticks, ${b.state.counters.llm}/${AGENT_CONFIG.LLM_DAILY_CAP} LLM calls`,
-    `• Totals: ${b.state.totals.ticks} ticks · ${b.state.totals.goalsDone} goals done · started ${new Date(b.state.totals.startedAt || Date.now()).toISOString().slice(0, 10)}`,
-    `• Last action: ${b.state.lastAction ? `${b.state.lastAction.tool} (${b.state.lastAction.ok ? 'ok' : 'fail'}) — ${b.state.lastAction.summary}` : 'none yet'}`,
-    `• Scheduled checks: ${(b.state.scheduled || []).length} · Pending approvals: ${b.approvals.filter((a) => a.status === 'pending').length}`,
-    `• Day (owner tz): ${dayKey()} · ${nowParts().alg}`,
+    `🧠 طالب — حالة الوكيل`,
+    `• الوضع: ${b.state.paused ? 'متوقف مؤقتًا' : 'ذاتي'} · عمر التشغيل ${up} يومًا`,
+    `• المالك: ${b.state.ownerName || 'لم يُحدَّد بعد'} (${b.state.ownerChatId || '—'})`,
+    `• اليوم: ${b.state.counters.ticks} دورة، ${b.state.counters.llm}/${AGENT_CONFIG.LLM_DAILY_CAP} نداء ذكاء`,
+    `• الإجماليات: ${b.state.totals.ticks} دورة · ${b.state.totals.goalsDone} هدف منجز · بدأ في ${new Date(b.state.totals.startedAt || Date.now()).toISOString().slice(0, 10)}`,
+    `• آخر إجراء: ${b.state.lastAction ? `${b.state.lastAction.tool} (${b.state.lastAction.ok ? 'ناجح' : 'فاشل'}) — ${b.state.lastAction.summary}` : 'لا شيء بعد'}`,
+    `• فحوص مجدولة: ${(b.state.scheduled || []).length} · موافقات معلّقة: ${b.approvals.filter((a) => a.status === 'pending').length}`,
+    `• اليوم (توقيتي): ${dayKey()} · ${nowParts().alg}`,
   ];
   const active = b.goals.filter((g) => ['active', 'blocked', 'waiting_approval'].includes(g.status));
-  if (active.length) lines.push('', 'Active goals:', ...active.map((g) => `#${g.id} ${g.title} [${g.status}]`));
+  if (active.length) lines.push('', 'الأهداف النشطة:', ...active.map((g) => `#${g.id} ${g.title} [${g.status}]`));
   return lines.join('\n');
 }

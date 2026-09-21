@@ -1,4 +1,4 @@
-// ─── Murad's persistent memory (GitHub repo as a free, auditable database) ───
+// ─── Talib's persistent memory (GitHub repo = canonical DB + Supabase mirror) ──
 //
 // agent-memory/
 //   identity.md       — self-concept, rewritten slowly through reflection
@@ -83,6 +83,59 @@ export interface MemoryBundle {
 
 // ─── raw file helpers ────────────────────────────────────────────────────────
 
+// ─── Supabase Storage mirror (best-effort add-on; never blocks the agent) ────
+// When SUPABASE_URL + SUPABASE_SERVICE_KEY are set, the four "mind" files are
+// mirrored into the `agent-memory` storage bucket. GitHub remains canonical.
+// 3 consecutive failures disable mirroring for 30 minutes (protects tick budget).
+const SB_MIND_FILES = new Set(['state.json', 'goals.json', 'approvals.json', 'identity.md']);
+let sbBucketReady = false;
+let sbFailures = 0;
+let sbDisabledUntil = 0;
+export function sbMirrorStatus() {
+  return { enabled: Date.now() > sbDisabledUntil && !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_KEY, bucketReady: sbBucketReady, failures: sbFailures };
+}
+
+async function sbMirror(path: string, content: string): Promise<void> {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key || !SB_MIND_FILES.has(path)) return;
+  if (Date.now() < sbDisabledUntil) return;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    if (!sbBucketReady) {
+      const r = await fetch(`${url}/storage/v1/bucket`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, apikey: key, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'agent-memory', public: false }),
+        signal: ctrl.signal,
+      });
+      if (r.ok || r.status === 400 || r.status === 409) sbBucketReady = true; // 409 = already exists
+    }
+    const res = await fetch(`${url}/storage/v1/object/agent-memory/${path}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}`, apikey: key, 'content-type': 'text/plain;charset=utf-8', 'x-upsert': 'true' },
+      body: content,
+      signal: ctrl.signal,
+    });
+    if (res.ok) {
+      sbFailures = 0;
+    } else {
+      throw new Error(`mirror ${res.status}`);
+    }
+  } catch (e: any) {
+    sbFailures++;
+    if (sbFailures >= 3) {
+      sbDisabledUntil = Date.now() + 30 * 60_000;
+      console.error('[agent.memory] supabase mirror disabled for 30min:', e?.message?.slice(0, 80));
+    } else {
+      console.error('[agent.memory] supabase mirror failed:', path, e?.message?.slice(0, 80));
+    }
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function readJson<T>(path: string, fallback: T): Promise<{ data: T; sha: string | null }> {
   try {
     const f: RawFile = await readFile(T(), R(), path);
@@ -95,7 +148,10 @@ async function readJson<T>(path: string, fallback: T): Promise<{ data: T; sha: s
 }
 
 async function writeJson(path: string, data: any, sha: string | null, message: string) {
-  return writeFile(T(), R(), path, JSON.stringify(data, null, 2), message, { sha });
+  const content = JSON.stringify(data, null, 2);
+  const r = await writeFile(T(), R(), path, content, message, { sha });
+  if (r.ok) void sbMirror(path, content).catch(() => {});
+  return r;
 }
 
 async function readLines(path: string, cap: number): Promise<any[]> {
@@ -266,6 +322,7 @@ export async function saveIdentity(b: MemoryBundle, newIdentity: string): Promis
   if (r.ok) {
     b.identity = newIdentity.slice(0, 4200);
     b.identitySha = r.sha;
+    void sbMirror('identity.md', newIdentity.slice(0, 4200)).catch(() => {});
   }
   return r.ok;
 }

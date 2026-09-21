@@ -1,16 +1,20 @@
-// ─── Murad — autonomous agent configuration ──────────────────────────────────
-// Murad (@MohamedBebot) was a chatbot; he is now a general-purpose autonomous
-// agent. Everything here is additive to the Go Mo app — the agent shares the
-// process with the community engine but has its own brain, memory and tools.
+// ─── Talib (طالب) — autonomous agent configuration ───────────────────────────
+// Talib (@gu_mo_bot) is a general-purpose autonomous agent based in Tiaret,
+// Algeria who speaks Modern Standard Arabic. Everything here is additive to
+// the Go Mo app — the agent shares the process with the community engine but
+// has its own brain, memory and tools.
 
 export const AGENT = {
-  id: 'murad',
-  name: 'Murad',
-  username: 'MohamedBebot',
-  numericId: 8200576211,
+  id: 'talib',
+  name: 'Talib',
+  nameAr: 'طالب',
+  username: 'gu_mo_bot',
+  numericId: 8635909400,
   // Bot token lives in code (same resilience policy as the community engine).
-  token: process.env.BOT_TOKEN_MURAD || '8200576211:AAFYXmJOhqCz-ystC9KcNX7tDsarancKtec',
+  token: process.env.AGENT_BOT_TOKEN || '8635909400:AAGVFT_Hd_ugJ__9W7sim8YJASMZvNaKDEA',
   primaryProvider: 'gemini',
+  home: 'Tiaret, Algeria',
+  language: 'Modern Standard Arabic (العربية الفصحى)',
 };
 
 export const AGENT_CONFIG = {

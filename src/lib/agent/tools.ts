@@ -1,4 +1,4 @@
-// ─── Murad's tools — what the agent can actually DO ──────────────────────────
+// ─── Talib's tools — what the agent can actually DO ──────────────────────────
 // Free/open stack only: direct HTTP, DuckDuckGo search, node:vm sandbox,
 // GitHub (gists/files/issues), Telegram, and its own memory.
 // Every tool: pure function in, structured result out. Risky ones are gated.
@@ -55,7 +55,7 @@ async function toolWebFetch(args: any): Promise<any> {
   try {
     const res = await timedFetch(
       g.url.toString(),
-      { headers: { 'user-agent': 'Mozilla/5.0 (compatible; MuradAgent/1.0)', accept: 'text/html,application/json,text/plain,*/*' } },
+      { headers: { 'user-agent': 'Mozilla/5.0 (compatible; TalibAgent/1.0)', accept: 'text/html,application/json,text/plain,*/*' } },
       14000
     );
     const ctype = res.headers.get('content-type') || '';
@@ -69,7 +69,7 @@ async function toolWebFetch(args: any): Promise<any> {
     try {
       const res = await timedFetch(
         `https://r.jina.ai/${g.url.toString()}`,
-        { headers: { 'user-agent': 'MuradAgent/1.0' } },
+        { headers: { 'user-agent': 'TalibAgent/1.0' } },
         22000
       );
       if (!res.ok) return { ok: false, error: `direct: ${e?.message}; jina proxy: HTTP ${res.status}` };
@@ -96,7 +96,7 @@ function decodeDdgHref(href: string): string {
 
 async function searchWikipedia(q: string): Promise<any[]> {
   const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=6&srsearch=${encodeURIComponent(q)}&format=json&origin=*`;
-  const res = await timedFetch(url, { headers: { 'user-agent': 'MuradAgent/1.0 (autonomous agent; https://gu-mo.vercel.app)' } }, 10000);
+  const res = await timedFetch(url, { headers: { 'user-agent': 'TalibAgent/1.0 (autonomous agent; https://gu-mo.vercel.app)' } }, 10000);
   if (!res.ok) throw new Error(`wiki ${res.status}`);
   const j: any = await res.json();
   return (j?.query?.search || []).map((r: any) => ({
@@ -107,7 +107,7 @@ async function searchWikipedia(q: string): Promise<any[]> {
 }
 
 async function searchDdgInstant(q: string): Promise<any[]> {
-  const res = await timedFetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1`, { headers: { 'user-agent': 'MuradAgent/1.0' } }, 9000);
+  const res = await timedFetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1`, { headers: { 'user-agent': 'TalibAgent/1.0' } }, 9000);
   if (!res.ok) throw new Error(`ddg-instant ${res.status}`);
   const j: any = await res.json();
   const out: any[] = [];
@@ -140,7 +140,7 @@ async function searchDdgHtml(q: string): Promise<any[]> {
 async function searchJinaBing(q: string): Promise<any[]> {
   const res = await timedFetch(
     `https://r.jina.ai/https://www.bing.com/search?q=${encodeURIComponent(q)}&count=10`,
-    { headers: { 'user-agent': 'MuradAgent/1.0' } },
+    { headers: { 'user-agent': 'TalibAgent/1.0' } },
     24000
   );
   if (!res.ok) throw new Error(`jina-bing ${res.status}`);
@@ -161,7 +161,7 @@ async function searchJinaBing(q: string): Promise<any[]> {
 }
 
 async function searchMojeek(q: string): Promise<any[]> {
-  const res = await timedFetch(`https://www.mojeek.com/search?q=${encodeURIComponent(q)}`, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; MuradAgent/1.0)' } }, 10000);
+  const res = await timedFetch(`https://www.mojeek.com/search?q=${encodeURIComponent(q)}`, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; TalibAgent/1.0)' } }, 10000);
   if (!res.ok) throw new Error(`mojeek ${res.status}`);
   const html = await res.text();
   const out: any[] = [];
@@ -247,7 +247,7 @@ async function toolHttpRequest(args: any): Promise<any> {
       g.url.toString(),
       {
         method,
-        headers: { 'user-agent': 'MuradAgent/1.0', ...(args?.headers || {}) },
+        headers: { 'user-agent': 'TalibAgent/1.0', ...(args?.headers || {}) },
         body: args?.body != null ? (typeof args.body === 'string' ? args.body : JSON.stringify(args.body)) : undefined,
       },
       14000
@@ -268,7 +268,7 @@ async function toolGithubOp(args: any): Promise<any> {
     const files: Record<string, string> = {};
     for (const [name, content] of Object.entries(args?.files || {})) files[String(name).slice(0, 60)] = String(content).slice(0, 40000);
     if (!Object.keys(files).length) return { ok: false, error: 'files required' };
-    const r = await createGist(token, files, String(args?.description || 'from Murad'), !!args?.public);
+    const r = await createGist(token, files, String(args?.description || 'from Talib'), !!args?.public);
     return r.ok ? { ok: true, url: r.url } : { ok: false, error: r.error };
   }
   if (op === 'write_file') {

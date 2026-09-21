@@ -1,4 +1,8 @@
 // ─── Telegram helpers for the agent (buttons, callbacks, edits) ──────────────
+import { AGENT } from './config';
+
+// All agent messages go out through the agent's own bot (@gu_mo_bot).
+const AGENT_TOKEN = () => AGENT.token;
 
 async function tg(token: string, method: string, params: any = {}, timeoutMs = 15000): Promise<any> {
   const ctrl = new AbortController();
@@ -22,7 +26,7 @@ export async function sendTelegram(chatId: any, text: string, opts: { replyTo?: 
   try {
     const params: any = { chat_id: chatId, text: String(text).slice(0, 3800), disable_web_page_preview: true };
     if (opts.replyTo) params.reply_parameters = { message_id: opts.replyTo, allow_sending_without_reply: true };
-    await tg(process.env.BOT_TOKEN_MURAD || '8200576211:AAFYXmJOhqCz-ystC9KcNX7tDsarancKtec', 'sendMessage', params);
+    await tg(AGENT_TOKEN(), 'sendMessage', params);
     return { ok: true };
   } catch (e: any) {
     console.error('[agent.tg] sendMessage failed:', e?.message);
@@ -32,11 +36,7 @@ export async function sendTelegram(chatId: any, text: string, opts: { replyTo?: 
 
 export async function sendTyping(chatId: any): Promise<void> {
   try {
-    await tg(
-      process.env.BOT_TOKEN_MURAD || '8200576211:AAFYXmJOhqCz-ystC9KcNX7tDsarancKtec',
-      'sendChatAction',
-      { chat_id: chatId, action: 'typing' }
-    );
+    await tg(AGENT_TOKEN(), 'sendChatAction', { chat_id: chatId, action: 'typing' });
   } catch {
     /* non-critical */
   }
@@ -49,15 +49,15 @@ export async function sendApprovalButtons(
   reason: string
 ): Promise<{ ok: boolean; messageId?: number; error?: string }> {
   try {
-    const j = await tg(process.env.BOT_TOKEN_MURAD || '8200576211:AAFYXmJOhqCz-ystC9KcNX7tDsarancKtec', 'sendMessage', {
+    const j = await tg(AGENT_TOKEN(), 'sendMessage', {
       chat_id: chatId,
-      text: `⚠️ Approval needed\n\n${title}\n\nWhy: ${reason}`.slice(0, 3500),
+      text: `⚠️ يحتاج قرارك\n\n${title}\n\nالسبب: ${reason}`.slice(0, 3500),
       disable_web_page_preview: true,
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '✅ Approve', callback_data: `appr:${approvalId}:a` },
-            { text: '❌ Reject', callback_data: `appr:${approvalId}:r` },
+            { text: '✅ اعتماد', callback_data: `appr:${approvalId}:a` },
+            { text: '❌ رفض', callback_data: `appr:${approvalId}:r` },
           ],
         ],
       },
@@ -70,7 +70,7 @@ export async function sendApprovalButtons(
 
 export async function answerCallback(callbackId: string, text: string): Promise<void> {
   try {
-    await tg(process.env.BOT_TOKEN_MURAD || '8200576211:AAFYXmJOhqCz-ystC9KcNX7tDsarancKtec', 'answerCallbackQuery', {
+    await tg(AGENT_TOKEN(), 'answerCallbackQuery', {
       callback_query_id: callbackId,
       text: text.slice(0, 190),
     });
@@ -81,7 +81,7 @@ export async function answerCallback(callbackId: string, text: string): Promise<
 
 export async function editMessage(chatId: any, messageId: number, text: string): Promise<void> {
   try {
-    await tg(process.env.BOT_TOKEN_MURAD || '8200576211:AAFYXmJOhqCz-ystC9KcNX7tDsarancKtec', 'editMessageText', {
+    await tg(AGENT_TOKEN(), 'editMessageText', {
       chat_id: chatId,
       message_id: messageId,
       text: String(text).slice(0, 3800),

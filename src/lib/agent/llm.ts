@@ -1,7 +1,10 @@
-// ─── Murad's LLM cortex — same 7-provider fallback chain as the community ────
+// ─── Talib's LLM cortex — 8-provider fallback chain ─────────────────────
 // Zero dependencies, OpenAI-compatible endpoints, provider order:
-// gemini > openrouter > mistral > huggingface > cohere > grok > groq.
+// gemini > openrouter > mistral > huggingface > cohere > cloudflare > grok > groq.
 // Keys come from Vercel env (never hardcoded).
+// Verified 2026-09-21: openrouter (llama-3.3-70b) OK, mistral OK, huggingface OK,
+// cohere OK, cloudflare-ai OK; gemini valid but geo-gated (works from Vercel US);
+// groq 403 (region); grok key valid but out of credits.
 
 const PROVIDERS: Record<string, any> = {
   gemini: {
@@ -12,8 +15,8 @@ const PROVIDERS: Record<string, any> = {
   openrouter: {
     url: 'https://openrouter.ai/api/v1/chat/completions',
     keyEnv: 'OPENROUTER_API_KEY',
-    model: 'inclusionai/ling-3.0-flash-vl:free',
-    extraHeaders: { 'HTTP-Referer': 'https://gu-mo.vercel.app', 'X-Title': 'Murad Agent' },
+    model: 'meta-llama/llama-3.3-70b-instruct',
+    extraHeaders: { 'HTTP-Referer': 'https://gu-mo.vercel.app', 'X-Title': 'Talib Agent' },
   },
   mistral: { url: 'https://api.mistral.ai/v1/chat/completions', keyEnv: 'MISTRAL_API_KEY', model: 'ministral-8b-latest' },
   huggingface: {
@@ -21,12 +24,23 @@ const PROVIDERS: Record<string, any> = {
     keyEnv: 'HF_API_KEY',
     model: 'meta-llama/Llama-3.3-70B-Instruct',
   },
-  cohere: { url: 'https://api.cohere.ai/compatibility/v1/chat/completions', keyEnv: 'COHERE_API_KEY', model: 'command-r-08-2024' },
+  cohere: { url: 'https://api.cohere.ai/compatibility/v1/chat/completions', keyEnv: 'COHERE_API_KEY', model: 'command-r7b-12-2024' },
+  cloudflare: {
+    // Workers AI — free daily neuron allowance, account id comes from env.
+    url: (
+      process.env.CF_ACCOUNT_ID
+        ? `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}/ai/run/@cf/meta/llama-3.1-8b-instruct`
+        : ''
+    ),
+    keyEnv: 'CF_API_TOKEN',
+    model: '@cf/meta/llama-3.1-8b-instruct',
+    unwrap: 'result', // response shape: { success, result: { choices: [...] } }
+  },
   grok: { url: 'https://api.x.ai/v1/chat/completions', keyEnv: 'GROK_API_KEY', model: 'grok-3-mini' },
   groq: { url: 'https://api.groq.com/openai/v1/chat/completions', keyEnv: 'GROQ_API_KEY', model: 'llama-3.3-70b-versatile' },
 };
 
-const CHAIN = ['gemini', 'openrouter', 'mistral', 'huggingface', 'cohere', 'grok', 'groq'];
+const CHAIN = ['gemini', 'openrouter', 'mistral', 'huggingface', 'cohere', 'cloudflare', 'grok', 'groq'];
 
 export const llmStats = { ok: 0, fail: 0, lastError: '', lastProvider: '' };
 
@@ -38,6 +52,7 @@ async function callOne(name: string, messages: any[], opts: { maxTokens: number;
   const cfg = PROVIDERS[name];
   const key = process.env[cfg.keyEnv];
   if (!key) throw new Error('missing API key env: ' + cfg.keyEnv);
+  if (!cfg.url) throw new Error('missing config for provider: ' + name);
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 25000);
   try {
@@ -48,7 +63,8 @@ async function callOne(name: string, messages: any[], opts: { maxTokens: number;
       signal: ctrl.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).replace(/\s+/g, ' ').slice(0, 140)}`);
-    const j: any = await res.json();
+    let j: any = await res.json();
+    if (cfg.unwrap && j[cfg.unwrap]) j = j[cfg.unwrap]; // cloudflare { result: { choices } }
     const txt = j.choices?.[0]?.message?.content;
     if (!txt) throw new Error('empty completion');
     return txt;
