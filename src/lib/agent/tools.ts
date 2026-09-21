@@ -94,16 +94,53 @@ function decodeDdgHref(href: string): string {
 
 // ─── search backends (tried in order, all free, no keys) ────────────────────
 
-async function searchWikipedia(q: string): Promise<any[]> {
-  const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=6&srsearch=${encodeURIComponent(q)}&format=json&origin=*`;
+async function searchWikipediaLang(lang: string, q: string): Promise<any[]> {
+  const url = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srlimit=6&srsearch=${encodeURIComponent(q)}&format=json&origin=*`;
   const res = await timedFetch(url, { headers: { 'user-agent': 'TalibAgent/1.0 (autonomous agent; https://gu-mo.vercel.app)' } }, 10000);
-  if (!res.ok) throw new Error(`wiki ${res.status}`);
+  if (!res.ok) throw new Error(`wiki-${lang} ${res.status}`);
   const j: any = await res.json();
-  return (j?.query?.search || []).map((r: any) => ({
+  const hits = j?.query?.search || [];
+  if (!hits.length) throw new Error(`wiki-${lang} empty`);
+  return hits.map((r: any) => ({
     title: r.title,
-    url: `https://en.wikipedia.org/wiki/${encodeURIComponent(String(r.title).replace(/ /g, '_'))}`,
+    url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(String(r.title).replace(/ /g, '_'))}`,
     snippet: stripHtml(r.snippet || '').slice(0, 220),
   }));
+}
+
+/** Google News RSS — reliable, no bot-wall, great for current/Arabic content. */
+async function searchGoogleNews(q: string): Promise<any[]> {
+  const loc = /[\u0600-\u06FF]/.test(q) ? 'hl=ar&gl=DZ&ceid=DZ:ar' : 'hl=en-US&gl=US&ceid=US:en';
+  const res = await timedFetch(`https://news.google.com/rss/search?${loc}&q=${encodeURIComponent(q)}`, { headers: { 'user-agent': 'TalibAgent/1.0' } }, 10000);
+  if (!res.ok) throw new Error(`gnews ${res.status}`);
+  const xml = (await res.text()).replace(/<!\[CDATA\[|\]\]>/g, '');
+  const out: any[] = [];
+  const re = /<item>\s*<title>([\s\S]*?)<\/title>\s*<link>([\s\S]*?)<\/link>[\s\S]*?<pubDate>([\s\S]*?)<\/pubDate>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) && out.length < 8) {
+    out.push({ title: stripHtml(m[1]).slice(0, 140), url: m[2].trim(), snippet: stripHtml(m[3]).slice(0, 160) });
+  }
+  if (!out.length) throw new Error('gnews no items');
+  return out;
+}
+
+/** DDG lite — POST endpoint, often less bot-walled than html.duckduckgo.com. */
+async function searchDdgLite(q: string): Promise<any[]> {
+  const res = await timedFetch(
+    'https://lite.duckduckgo.com/lite/',
+    { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, body: `q=${encodeURIComponent(q)}` },
+    12000
+  );
+  if (!res.ok) throw new Error(`ddg-lite ${res.status}`);
+  const html = await res.text();
+  const results: any[] = [];
+  const re = /<a[^>]+class="result-link"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) && results.length < 8) {
+    results.push({ title: stripHtml(m[2]).slice(0, 120), url: decodeDdgHref(m[1]), snippet: '' });
+  }
+  if (!results.length) throw new Error('ddg-lite no results (likely bot-walled)');
+  return results;
 }
 
 async function searchDdgInstant(q: string): Promise<any[]> {
@@ -178,13 +215,18 @@ async function toolWebSearch(args: any): Promise<any> {
   const q = String(args?.query || '').slice(0, 300);
   if (!q) return { ok: false, error: 'query required' };
   const attempts: string[] = [];
-  const backends: [string, (query: string) => Promise<any[]>][] = [
-    ['wikipedia', searchWikipedia],
+  const hasArabic = /[\u0600-\u06FF]/.test(q);
+  const backends: [string, (query: string) => Promise<any[]>][] = [];
+  if (hasArabic) backends.push(['wikipedia-ar', (x) => searchWikipediaLang('ar', x)]);
+  backends.push(
+    ['wikipedia-en', (x) => searchWikipediaLang('en', x)],
+    ['gnews', searchGoogleNews],
+    ['ddg-lite', searchDdgLite],
     ['ddg-instant', searchDdgInstant],
     ['ddg-html', searchDdgHtml],
     ['jina-bing', searchJinaBing],
-    ['mojeek', searchMojeek],
-  ];
+    ['mojeek', searchMojeek]
+  );
   for (const [name, fn] of backends) {
     try {
       const results = await fn(q);
