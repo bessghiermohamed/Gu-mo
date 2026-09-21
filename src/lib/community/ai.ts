@@ -1,4 +1,4 @@
-// Universal OpenAI-compatible caller for 8 providers with automatic fallback.
+// Universal OpenAI-compatible caller for 9 providers (incl. keyless Pollinations) with automatic fallback.
 // If a bot's primary provider fails (rate limit, dead key, timeout), the next
 // provider in the chain answers instead — bots never go silent.
 // AI keys are provided via Vercel environment variables (never in code).
@@ -26,10 +26,16 @@ const PROVIDERS: Record<string, any> = {
     model: '@cf/meta/llama-3.1-8b-instruct',
     unwrap: 'result',
   },
+  pollinations: {
+    // Keyless community endpoint (GPT4Free-style) — no API key needed.
+    url: 'https://text.pollinations.ai/openai',
+    keyEnv: '',
+    model: 'openai-fast',
+  },
 };
 
 // Global fallback order (verified-working providers first)
-const CHAIN = ['gemini', 'openrouter', 'mistral', 'huggingface', 'cohere', 'cloudflare', 'grok', 'groq'];
+const CHAIN = ['gemini', 'openrouter', 'mistral', 'huggingface', 'cohere', 'cloudflare', 'pollinations', 'grok', 'groq'];
 
 const stats = new Map<string, any>();
 
@@ -53,14 +59,18 @@ export function statsView(): Record<string, any> {
 
 async function callOne(name: string, messages: any[], opts: { maxTokens: number; temperature: number }): Promise<string> {
   const cfg = PROVIDERS[name];
-  const key = process.env[cfg.keyEnv];
+  const key = cfg.keyEnv ? process.env[cfg.keyEnv] : 'keyless';
   if (!key) throw new Error('missing API key env: ' + cfg.keyEnv);
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 20000);
   try {
     const res = await fetch(cfg.url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${key}`, ...(cfg.extraHeaders || {}) },
+      headers: {
+        'content-type': 'application/json',
+        ...(cfg.keyEnv ? { authorization: `Bearer ${key}` } : {}),
+        ...(cfg.extraHeaders || {}),
+      },
       body: JSON.stringify({ model: modelFor(name), messages, max_tokens: opts.maxTokens, temperature: opts.temperature }),
       signal: ctrl.signal,
     });
