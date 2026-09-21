@@ -10,6 +10,7 @@ export interface BotConfig {
   name: string; // shown in chat
   persona: string; // key in personas.ts
   provider: string; // primary AI provider (fallback chain in ai.ts)
+  primary?: boolean; // original community layout: Gu Mo is the primary bot
 }
 
 // Tokens live in code so the bots can never go silent because of a lost env
@@ -29,8 +30,9 @@ export const BOTS: BotConfig[] = [
     numericId: 8635909400,
     username: 'gu_mo_bot',
     name: 'Gu Mo',
-    persona: 'student',
+    persona: 'sharp',
     provider: 'gemini',
+    primary: true, // original: Gu Mo was the primary bot of the community (config.example.json)
   },
   {
     id: 'reader',
