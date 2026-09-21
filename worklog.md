@@ -1081,3 +1081,19 @@ Work Log:
 
 Stage Summary:
 - المشروع الجديد مطابق بنيوياً للقديم ومُختبَر حياً من التطبيق نفسه؛ البيانات القديمة لا تُستعاد إلا عبر دعم Supabase (نافذة 30–90 يوماً — التذكرة عاجلة). الجولات القادمة (الرتبة العليا/البوت) قائمة.
+
+---
+Task ID: r94-b
+Agent: main (Super Z, this session)
+Task: تنفيذ خطوة Vercel من §4 بتوكن المالك — تحديث متغيرات Supabase وإعادة نشر الإنتاج والتحقق الحي.
+
+Work Log:
+- فحص /v9/projects + /env: مشروع gu-mo (prj_Aq1cwVqM5KJ2iaifliL5OubwOXNH)؛ مسح قراءات الكود حدّد 5 متغيرات فعّالة فقط (الثلاثية NEXT_PUBLIC_* + ثنائية الوكيل SUPABASE_URL/SERVICE_KEY)؛ DATABASE_URL/SUPABASE_JWT/POOLER_HOST غير مقروءة → ترك.
+- PATCH للخمسة على معرفاتها (حفظ الأهداف) — 5/5 HTTP 200 بلا حاجة لـ DELETE+POST.
+- redeploy v13 بنفس deploymentId الأخير (473d1bd) → بناء جديد READY في ~90ث.
+- تحقق حي: / 200؛ ads.txt سليم؛ /api/institutions أعاد البيان المبذور من القاعدة الجديدة (إثبات قراءة شبكية حية)؛ /api/auth/signin JSON سليم.
+- إنشاء مسبق bucket agent-memory (خاص) عبر service key.
+- تحديث §6 في تقرير-الجولة-94.md.
+
+Stage Summary:
+- الإنتاج gu-mo.vercel.app يعمل الآن بالكامل على المشروع الجديد qgpzbeqhdidaojrlorpo — الاستعادة مكتملة تقنياً. تبقى على المالك: تذكرة الدعم، أول تسجيل (OWNER)، تدوير الأسرار.
