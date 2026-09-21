@@ -1,4 +1,4 @@
-// ─── Talib's brain: the autonomous loop ────────────────────────────────
+// ─── The agent's brain: the autonomous loop ─────────────────────────
 //
 // One tick = one thought:
 //   acquire lock -> execute approved actions -> pick mode (task/scheduled/
@@ -65,7 +65,7 @@ function goalsBlock(b: MemoryBundle): string {
 function systemPrompt(b: MemoryBundle, mode: string): string {
   const t = nowParts();
   const owner = b.state.ownerChatId ? `${b.state.ownerName || 'my owner'} (chat ${b.state.ownerChatId})` : 'unknown — nobody has messaged me privately yet';
-  return `You are Talib (طالب, @gu_mo_bot), an autonomous AI agent based in Tiaret, Algeria. You were upgraded from a simple chatbot into an agent that works on goals between messages, uses tools, and learns from experience. You ALWAYS write to humans in Modern Standard Arabic (العربية الفصحى) — clear, correct, dignified فصحى; never slang, never dialect.
+  return `You are ${AGENT.name} (${AGENT.nameAr}, @${AGENT.username}), an autonomous AI agent based in ${AGENT.home}. You were upgraded from a simple chatbot into an agent that works on goals between messages, uses tools, and learns from experience. You ALWAYS write to humans in ${AGENT.language} — clear, correct, dignified فصحى; never slang, never dialect.
 
 ## Who I am (my living identity file)
 ${b.identity || '(empty — you will write it through reflection)'}
@@ -288,7 +288,7 @@ async function reflect(b: MemoryBundle, trigger: string): Promise<void> {
       [
         {
           role: 'system',
-          content: `You maintain the identity file and lessons of Talib (طالب), an autonomous agent from Tiaret, Algeria. The identity file is ALWAYS written in Modern Standard Arabic. Never change his name. Identity evolves slowly and honestly — rewrite the whole file (max 250 words) keeping what's still true, adjusting what experience has changed: interests, style, confidence, lessons about how he works. Output JSON: {"identity":"<full new identity file markdown, in Modern Standard Arabic>","insights":["1-3 durable lessons from recent events, in Arabic"]}`,
+          content: `You maintain the identity file and lessons of ${AGENT.name} (${AGENT.nameAr}), an autonomous agent from ${AGENT.home}. The identity file is ALWAYS written in Modern Standard Arabic. Never change his name. Identity evolves slowly and honestly — rewrite the whole file (max 250 words) keeping what's still true, adjusting what experience has changed: interests, style, confidence, lessons about how he works. Output JSON: {"identity":"<full new identity file markdown, in Modern Standard Arabic>","insights":["1-3 durable lessons from recent events, in Arabic"]}`,
         },
         {
           role: 'user',
@@ -507,7 +507,7 @@ export async function handleChatMessage(msg: any): Promise<any> {
     if (name === 'start' || name === 'help') {
       await sendTelegram(
         chatId,
-        `أنا طالب — وكيل ذكي مستقل، وليس مجرد روبوت محادثة.\n\nما أستطيع فعله:\n• العمل على أهدافك بين رسائلك (بحث، مراقبة، كتابة، برمجة، واجهات برمجية)\n• البحث في الإنترنت وقراءة الصفحات وتنفيذ الشيفرات ومناداة الخدمات العامة\n• حفظ الدروس التي أتعلمها والاحتفاظ بهوية تتطور مع الخبرة\n• طلب إذنك قبل أي إجراء قد يكون محفوفًا بالخطر\n\nحدّثني بشكل طبيعي، أو استخدم:\n/goals — لوحة أهدافي\n/status — حالتي وميزانياتي\n/stop — إيقاف العمل الذاتي مؤقتًا\n/resume — استئناف\nاطلب أي مهمة: "goal: تتبّع سعر X يوميًا" أو ببساطة "ابحث لي عن ..."`
+        `أنا ${AGENT.nameAr} — وكيل ذكي مستقل، وليس مجرد روبوت محادثة.\n\nما أستطيع فعله:\n• العمل على أهدافك بين رسائلك (بحث، مراقبة، كتابة، برمجة، واجهات برمجية)\n• البحث في الإنترنت وقراءة الصفحات وتنفيذ الشيفرات ومناداة الخدمات العامة\n• حفظ الدروس التي أتعلمها والاحتفاظ بهوية تتطور مع الخبرة\n• طلب إذنك قبل أي إجراء قد يكون محفوفًا بالخطر\n\nحدّثني بشكل طبيعي، أو استخدم:\n/goals — لوحة أهدافي\n/status — حالتي وميزانياتي\n/stop — إيقاف العمل الذاتي مؤقتًا\n/resume — استئناف\nاطلب أي مهمة: "goal: تتبّع سعر X يوميًا" أو ببساطة "ابحث لي عن ..."`
       );
       return { ok: 'help' };
     }
@@ -570,7 +570,7 @@ export async function handleChatMessage(msg: any): Promise<any> {
       [
         {
           role: 'system',
-          content: `${b.identity || ''}\n\nYou are Talib (طالب), an autonomous agent from Tiaret, Algeria, chatting on Telegram with ${isOwner ? `your owner (${b.state.ownerName || 'them'})` : 'a person'}. Current date: ${nowParts().utc}. You are mid-life with these goals: ${goalsBlock(b) || 'none'}. Reply in Modern Standard Arabic (العربية الفصحى) — naturally and concisely (1-4 sentences, plain text, no headers, no dialect). If their message asks you to DO real work (research/find/build/monitor/track/write/fetch something), also create a goal so you can work on it between messages — reply briefly in Arabic that you're on it.\nOutput JSON only: {"reply":"...","newGoal":{"title":"...","description":"..."} | null}`,
+          content: `${b.identity || ''}\n\nYou are ${AGENT.name} (${AGENT.nameAr}), an autonomous agent from ${AGENT.home}, chatting on Telegram with ${isOwner ? `your owner (${b.state.ownerName || 'them'})` : 'a person'}. Current date: ${nowParts().utc}. You are mid-life with these goals: ${goalsBlock(b) || 'none'}. Reply in Modern Standard Arabic (العربية الفصحى) — naturally and concisely (1-4 sentences, plain text, no headers, no dialect). If their message asks you to DO real work (research/find/build/monitor/track/write/fetch something), also create a goal so you can work on it between messages — reply briefly in Arabic that you're on it.\nOutput JSON only: {"reply":"...","newGoal":{"title":"...","description":"..."} | null}`,
         },
         { role: 'user', content: `Recent conversation:\n${conv.slice(-14).join('\n') || '(start)'}\n\nNew message from ${from.first_name || 'them'}: ${text.slice(0, 1200)}` },
       ],
@@ -578,7 +578,7 @@ export async function handleChatMessage(msg: any): Promise<any> {
     );
     const reply = j?.reply || (typeof j === 'string' ? j : null) || 'أنا هنا، لكن مزودات الذكاء اصطدمت بعقبة — حاول مجددًا بعد لحظات.';
     await sendTelegram(chatId, String(reply).slice(0, 1500), { replyTo: isPrivate ? undefined : msg.message_id });
-    await logConversation(chatId, 'Talib', String(reply));
+    await logConversation(chatId, AGENT.name, String(reply));
     await updateStateFields((s) => {
       s.counters.llm = (s.counters.llm || 0) + 1;
       s.totals.llm = (s.totals.llm || 0) + 1;
@@ -639,7 +639,7 @@ export async function handleCallback(cq: any): Promise<any> {
 function buildStatus(b: MemoryBundle): string {
   const up = Math.round((Date.now() - (b.state.totals.startedAt || Date.now())) / 86400_000);
   const lines = [
-    `🧠 طالب — حالة الوكيل`,
+    `🧠 ${AGENT.nameAr} — حالة الوكيل`,
     `• الوضع: ${b.state.paused ? 'متوقف مؤقتًا' : 'ذاتي'} · عمر التشغيل ${up} يومًا`,
     `• المالك: ${b.state.ownerName || 'لم يُحدَّد بعد'} (${b.state.ownerChatId || '—'})`,
     `• اليوم: ${b.state.counters.ticks} دورة، ${b.state.counters.llm}/${AGENT_CONFIG.LLM_DAILY_CAP} نداء ذكاء`,

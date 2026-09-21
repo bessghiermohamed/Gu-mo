@@ -1,4 +1,4 @@
-// ─── Talib's LLM cortex — 8-provider fallback chain ─────────────────────
+// ─── Binary's LLM cortex — 8-provider fallback chain ─────────────────────
 // Zero dependencies, OpenAI-compatible endpoints, provider order:
 // gemini > openrouter > mistral > huggingface > cohere > cloudflare > grok > groq.
 // Keys come from Vercel env (never hardcoded).
@@ -16,7 +16,7 @@ const PROVIDERS: Record<string, any> = {
     url: 'https://openrouter.ai/api/v1/chat/completions',
     keyEnv: 'OPENROUTER_API_KEY',
     model: 'meta-llama/llama-3.3-70b-instruct',
-    extraHeaders: { 'HTTP-Referer': 'https://gu-mo.vercel.app', 'X-Title': 'Talib Agent' },
+    extraHeaders: { 'HTTP-Referer': 'https://gu-mo.vercel.app', 'X-Title': 'Binary Agent' },
   },
   mistral: { url: 'https://api.mistral.ai/v1/chat/completions', keyEnv: 'MISTRAL_API_KEY', model: 'ministral-8b-latest' },
   huggingface: {

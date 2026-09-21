@@ -1,4 +1,4 @@
-// ─── Talib's persistent memory (GitHub repo = canonical DB + Supabase mirror) ──
+// ─── Binary's persistent memory (GitHub repo = canonical DB + Supabase mirror) ──
 //
 // agent-memory/
 //   identity.md       — self-concept, rewritten slowly through reflection

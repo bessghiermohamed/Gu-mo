@@ -1,17 +1,19 @@
-// ─── Talib (طالب) — autonomous agent configuration ───────────────────────────
-// Talib (@gu_mo_bot) is a general-purpose autonomous agent based in Tiaret,
+// ─── Binary (بيناري) — autonomous agent configuration ────────────────────────
+// Binary (@PaymonB_bot) is a general-purpose autonomous agent based in Tiaret,
 // Algeria who speaks Modern Standard Arabic. Everything here is additive to
 // the Go Mo app — the agent shares the process with the community engine but
 // has its own brain, memory and tools.
+// Gu Mo (@gu_mo_bot) is NOT the agent: he lives in the community engine
+// (src/lib/community/config.ts) as the student assistant.
 
 export const AGENT = {
-  id: 'talib',
-  name: 'Talib',
-  nameAr: 'طالب',
-  username: 'gu_mo_bot',
-  numericId: 8635909400,
+  id: 'binary',
+  name: 'Binary',
+  nameAr: 'بيناري',
+  username: 'PaymonB_bot',
+  numericId: 8918299308,
   // Bot token lives in code (same resilience policy as the community engine).
-  token: process.env.AGENT_BOT_TOKEN || '8635909400:AAGVFT_Hd_ugJ__9W7sim8YJASMZvNaKDEA',
+  token: process.env.AGENT_BOT_TOKEN || '8918299308:AAFR7aEF91zNXxCvWxtyK5qiScW4eTI7gxk',
   primaryProvider: 'gemini',
   home: 'Tiaret, Algeria',
   language: 'Modern Standard Arabic (العربية الفصحى)',

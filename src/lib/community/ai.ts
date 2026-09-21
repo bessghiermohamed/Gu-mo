@@ -1,4 +1,4 @@
-// Universal OpenAI-compatible caller for 7 providers with automatic fallback.
+// Universal OpenAI-compatible caller for 8 providers with automatic fallback.
 // If a bot's primary provider fails (rate limit, dead key, timeout), the next
 // provider in the chain answers instead — bots never go silent.
 // AI keys are provided via Vercel environment variables (never in code).
@@ -14,16 +14,22 @@ const PROVIDERS: Record<string, any> = {
   openrouter: {
     url: 'https://openrouter.ai/api/v1/chat/completions',
     keyEnv: 'OPENROUTER_API_KEY',
-    model: 'inclusionai/ling-3.0-flash-vl:free',
+    model: 'meta-llama/llama-3.3-70b-instruct',
     extraHeaders: { 'HTTP-Referer': 'https://gu-mo.vercel.app', 'X-Title': 'Telegram AI Community' },
   },
   mistral: { url: 'https://api.mistral.ai/v1/chat/completions', keyEnv: 'MISTRAL_API_KEY', model: 'ministral-8b-latest' },
   huggingface: { url: 'https://router.huggingface.co/v1/chat/completions', keyEnv: 'HF_API_KEY', model: 'meta-llama/Llama-3.3-70B-Instruct' },
-  cohere: { url: 'https://api.cohere.ai/compatibility/v1/chat/completions', keyEnv: 'COHERE_API_KEY', model: 'command-r-08-2024' },
+  cohere: { url: 'https://api.cohere.ai/compatibility/v1/chat/completions', keyEnv: 'COHERE_API_KEY', model: 'command-r7b-12-2024' },
+  cloudflare: {
+    url: `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID || ''}/ai/run/@cf/meta/llama-3.1-8b-instruct`,
+    keyEnv: 'CF_API_TOKEN',
+    model: '@cf/meta/llama-3.1-8b-instruct',
+    unwrap: 'result',
+  },
 };
 
 // Global fallback order (verified-working providers first)
-const CHAIN = ['gemini', 'openrouter', 'mistral', 'huggingface', 'cohere', 'grok', 'groq'];
+const CHAIN = ['gemini', 'openrouter', 'mistral', 'huggingface', 'cohere', 'cloudflare', 'grok', 'groq'];
 
 const stats = new Map<string, any>();
 
@@ -60,7 +66,8 @@ async function callOne(name: string, messages: any[], opts: { maxTokens: number;
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).replace(/\s+/g, ' ').slice(0, 140)}`);
     const j: any = await res.json();
-    const txt = j.choices?.[0]?.message?.content;
+    const body = cfg.unwrap && j[cfg.unwrap] ? j[cfg.unwrap] : j;
+    const txt = body.choices?.[0]?.message?.content;
     if (!txt) throw new Error('empty completion');
     return txt;
   } finally {

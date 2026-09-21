@@ -17,11 +17,21 @@ export interface BotConfig {
 // NOTE: murad's token moved to src/lib/agent/config.ts — @MohamedBebot was
 // upgraded from chatbot to autonomous agent (see agent/README section).
 const TOKENS = {
+  gumo: process.env.BOT_TOKEN_GUMO || '8635909400:AAGVFT_Hd_ugJ__9W7sim8YJASMZvNaKDEA',
   reader: process.env.BOT_TOKEN_READER || '8625428136:AAFyplAzqgkM9VtpWSbOdY2ey_2xTHiOjls',
   guyu: process.env.BOT_TOKEN_GUYU || '8816607490:AAFn3_Ir56J0quiMx_LEwnLOwcQhLcDEFS4',
 };
 
 export const BOTS: BotConfig[] = [
+  {
+    id: 'gumo',
+    token: TOKENS.gumo,
+    numericId: 8635909400,
+    username: 'gu_mo_bot',
+    name: 'Gu Mo',
+    persona: 'student',
+    provider: 'gemini',
+  },
   {
     id: 'reader',
     token: TOKENS.reader,
