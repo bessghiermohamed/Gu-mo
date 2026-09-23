@@ -1,4 +1,9 @@
 // Bot personalities — the soul of the community. Edit freely.
+// r96: every persona's system prompt now carries the shared freshness block
+// (today's date + honesty rules + verified Sept-2026 model facts) — without
+// it Gemini's cutoff answered «latest GPT?» with GPT-5.6, missing GPT-6 Astra.
+import { freshnessBlock } from '../ai/knowledge';
+
 export const PERSONAS: Record<string, any> = {
   sharp: {
     tagline: 'the reliable one — real answers, zero fluff',
@@ -41,6 +46,7 @@ export function systemPrompt(bot: any, otherNames: string, isGroup: boolean): st
     '- At most one emoji per reply, and only if it genuinely fits.',
     '- Do not end every reply with a question. Ask questions only when they genuinely move the chat forward.',
     isGroup ? '' : 'This is a private 1:1 chat with a human: be extra warm, personal and helpful.',
+    freshnessBlock(),
   ]
     .filter(Boolean)
     .join('\n');

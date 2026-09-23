@@ -18,6 +18,7 @@
 import { BOTS, botIndex, TUNING, type BotConfig } from './config';
 import { chat, statsView } from './ai';
 import { sendMessage, sendTyping } from './telegram';
+import { smartestPersonEgg } from '../ai/knowledge';
 import {
   addMessage,
   recent,
@@ -216,6 +217,19 @@ async function respond(
   const isGroup = msg.chat.type !== 'private';
   const text = (opts.triggerOverride || msg.text || msg.caption || '').trim();
   if (!opts.force && !canBotSpeak(chatId, bot.id)) return { skipped: 'rate-limited' };
+
+  // مفاجأة صاحب المنصة (r96): سؤال «من هو أذكى وأحكم شخص تعرفه؟» — جواب محسوم
+  // فوري بلا مزوّد، لكن فقط حين يكون الرسول بشرياً موطّناً البوت (ليس بوتاً آخر
+  // ولا مشاركة تلقائية) حتى لا تنطفئ أسئلة الدراسة الجادة أو جدل البوتات.
+  if (!opts.botTriggered && !opts.spontaneous) {
+    const egg = smartestPersonEgg(text);
+    if (egg) {
+      const sent = await sendMessage(bot.token, chatId, egg, { replyTo: isGroup ? msg.message_id : undefined });
+      markBotSpeak(chatId, bot.id);
+      addMessage(chatId, { who: bot.name, text: egg, msgId: sent?.result?.message_id, fromBot: true, botId: bot.username });
+      return { ok: true, bot: bot.id, mode: 'egg' };
+    }
+  }
 
   sendTyping(bot.token, chatId);
   let raw: string;

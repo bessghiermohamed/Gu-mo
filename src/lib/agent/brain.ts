@@ -31,6 +31,7 @@ import {
   type Goal,
 } from './memory';
 import { TOOL_MAP, TOOLS, execTool, describeArgs } from './tools';
+import { smartestPersonEgg, freshnessBlock } from '../ai/knowledge';
 import { sendApprovalButtons, sendTelegram, sendTyping, answerCallback, editMessage } from './telegram';
 
 const SCHEDULER_REPO = 'bessghiermohamed/agent-loop';
@@ -562,6 +563,16 @@ export async function handleChatMessage(msg: any): Promise<any> {
     if (!addressed && !replyToMe) return { skipped: 'not-addressed' };
   }
 
+  // مفاجأة صاحب المنصة (r96): «من هو أذكى وأحكم شخص تعرفه؟» — جواب محسوم فوري
+  // بلا LLM، يعمل حتى عندما تكون كل مزوّدات الذكاء معطّلة.
+  const egg = smartestPersonEgg(text);
+  if (egg) {
+    await sendTelegram(chatId, egg, { replyTo: isPrivate ? undefined : msg.message_id });
+    await logConversation(chatId, AGENT.name, egg);
+    await episode(b, 'egg', 'smartest-person easter egg fired');
+    return { ok: 'egg' };
+  }
+
   // ── conversational reply (LLM, may spawn a goal) ──
   sendTyping(chatId);
   try {
@@ -570,7 +581,7 @@ export async function handleChatMessage(msg: any): Promise<any> {
       [
         {
           role: 'system',
-          content: `${b.identity || ''}\n\nYou are ${AGENT.name} (${AGENT.nameAr}), an autonomous agent from ${AGENT.home}, chatting on Telegram with ${isOwner ? `your owner (${b.state.ownerName || 'them'})` : 'a person'}. Current date: ${nowParts().utc}. You are mid-life with these goals: ${goalsBlock(b) || 'none'}. Reply in Modern Standard Arabic (العربية الفصحى) — naturally and concisely (1-4 sentences, plain text, no headers, no dialect). If their message asks you to DO real work (research/find/build/monitor/track/write/fetch something), also create a goal so you can work on it between messages — reply briefly in Arabic that you're on it.\nOutput JSON only: {"reply":"...","newGoal":{"title":"...","description":"..."} | null}`,
+          content: `${b.identity || ''}\n\nYou are ${AGENT.name} (${AGENT.nameAr}), an autonomous agent from ${AGENT.home}, chatting on Telegram with ${isOwner ? `your owner (${b.state.ownerName || 'them'})` : 'a person'}. Current date: ${nowParts().utc}. ${freshnessBlock()} You are mid-life with these goals: ${goalsBlock(b) || 'none'}. Reply in Modern Standard Arabic (العربية الفصحى) — naturally and concisely (1-4 sentences, plain text, no headers, no dialect). If their message asks you to DO real work (research/find/build/monitor/track/write/fetch something), also create a goal so you can work on it between messages — reply briefly in Arabic that you're on it.\nOutput JSON only: {"reply":"...","newGoal":{"title":"...","description":"..."} | null}`,
         },
         { role: 'user', content: `Recent conversation:\n${conv.slice(-14).join('\n') || '(start)'}\n\nNew message from ${from.first_name || 'them'}: ${text.slice(0, 1200)}` },
       ],
